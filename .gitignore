@@ -23,14 +23,13 @@ package-lock.json
 .vscode
 .idea/
 
+# logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.log
 
 # DynamoDB Local files
 *.db
 .dynamodb/
-
-# Logs
-logs/
-*.log
+shared-local-instance.db
