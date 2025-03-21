@@ -1,43 +1,33 @@
 import axios from 'axios';
-
-const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3333/api';
+import { API_BASE_URL, API_HEADERS } from '../config';
 
 const api = axios.create({
-  baseURL: BASE_URL,
-  headers: {
-    'Content-Type': 'application/json'
-  },
+  baseURL: API_BASE_URL,
+  headers: API_HEADERS,
   timeout: 10000
 });
 
-// Add request interceptor
 api.interceptors.request.use(
-  config => {
-    // Remove duplicate /api prefix if present
-    if (config.url?.startsWith('/api/')) {
-      config.url = config.url.replace('/api/', '/');
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
     }
-    console.log(`[API] ${config.method.toUpperCase()} Request to ${config.url}`);
     return config;
   },
-  error => {
+  (error) => {
     console.error('[API] Request Error:', error);
     return Promise.reject(error);
   }
 );
 
-// Add response interceptor
 api.interceptors.response.use(
-  response => {
-    console.log(`[API] Response from ${response.config.url}:`, response.data);
-    return response;
-  },
-  error => {
-    console.error('[API] Error:', {
-      url: error.config?.url,
-      status: error.response?.status,
-      message: error.message
-    });
+  (response) => response,
+  (error) => {
+    console.error('[API] Response Error:', error);
+    if (error.response?.status === 404) {
+      console.error('[API] Endpoint not found:', error.config.url);
+    }
     return Promise.reject(error);
   }
 );

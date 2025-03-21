@@ -1,10 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  fetchProductionSites,
-  fetchProductionSiteDetails
-} from "../../services/productionSiteapi";
-import { fetchProductionData } from "../../services/productionapi";
+import { fetchProductionSites, calculateStats } from "../../services/productionSiteapi";
 import {
   Box,
   Grid,
@@ -13,7 +9,6 @@ import {
   Container,
   Card,
   CardActionArea,
-  CardContent,
   CircularProgress
 } from "@mui/material";
 import {
@@ -23,223 +18,50 @@ import {
   Assessment as ReportsIcon,
   TrendingUp as TrendIcon,
   Speed as MeterIcon,
-  Assignment as UnitIcon,
+  Assignment as UnitIcon,  // Add this import
   DateRange as DateIcon,
   PowerOutlined as PowerIcon,
-  ListAlt as ListIcon,
-  Assignment as AssignmentIcon,  // Add this import
   WbSunny as SolarIcon,
   Air as WindIcon,
   ElectricBolt as VoltageIcon
 } from '@mui/icons-material';
-
-// Update the DashboardCard component
-const DashboardCard = ({
-  icon,
-  title,
-  color,
-  loading,
-  items,
-  onClick
-}) => (
-  <Card
-    sx={{
-      height: '100%',
-      borderRadius: 3,
-      transition: 'all 0.3s ease',
-      '&:hover': {
-        transform: 'translateY(-8px)',
-        boxShadow: '0 8px 24px rgba(0,0,0,0.15)'
-      }
-    }}
-  >
-    <CardActionArea
-      onClick={onClick}  // Fixed: Removed incorrect parenthesis
-      sx={{
-        height: '100%',
-        p: 3
-      }}
-    >
-      {loading ? (
-        <CircularProgress size={40} sx={{ color }} />
-      ) : (
-        <>
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              mb: 3,
-              justifyContent: 'space-between',
-              width: '100%',
-              borderBottom: 1,
-              borderColor: 'divider',
-              pb: 2
-            }}
-          >
-            {React.cloneElement(icon, {
-              sx: {
-                fontSize: 40,
-                color,
-                opacity: 0.9
-              }
-            })}
-            <Typography
-              variant="h6"
-              sx={{
-                fontWeight: 'bold',
-                color: 'text.primary',
-                textTransform: 'uppercase',
-                letterSpacing: 1
-              }}
-            >
-              {title}
-            </Typography>
-          </Box>
-
-          {items && items.map((item, index) => (
-            <Box
-              key={index}
-              sx={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                width: '100%',
-                py: 1.5,
-                borderBottom: index < items.length - 1 ? 1 : 0,
-                borderColor: 'divider'
-              }}
-            >
-              <Typography
-                variant="body2"
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  color: 'text.secondary',
-                  fontWeight: 'medium'
-                }}
-              >
-                {React.cloneElement(item.icon, {
-                  sx: {
-                    fontSize: 20,
-                    mr: 1,
-                    color: item.color || color,
-                    opacity: 0.8
-                  }
-                })}
-                {item.label}
-              </Typography>
-              <Typography
-                variant="body2"
-                sx={{
-                  fontWeight: 'bold',
-                  color: item.color || color
-                }}
-              >
-                {item.value}
-              </Typography>
-            </Box>
-          ))}
-        </>
-      )}
-    </CardActionArea>
-  </Card>
-);
+import DashboardCard from './DashboardCard'; // Make sure this component exists
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [sites, setSites] = useState([]);
-  const [productionData, setProductionData] = useState([]);
-
-  // Add default stats function
-  const getDefaultStats = () => ({
-    totalSites: 0,
-    totalCapacity: 0,
-    activeSites: 0,
+  const [stats, setStats] = useState({
+    total: 0,
     windSites: 0,
     solarSites: 0,
-    totalProduction: 0,
-    windCapacity: 0,
-    solarCapacity: 0,
-    bankedSites: 0,
+    totalCapacity: 0,
     avgInjectionVoltage: 0
   });
 
-  const [productionStats, setProductionStats] = useState(getDefaultStats());
-
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      setLoading(true);
+    const fetchStats = async () => {
       try {
-        console.log('[Dashboard] Fetching dashboard data...');
-        const [siteData, prodData] = await Promise.all([
-          fetchProductionSites(),
-          fetchProductionData()
-        ]);
-
-        if (!siteData || !Array.isArray(siteData)) {
-          throw new Error('Invalid site data received');
+        const sites = await fetchProductionSites();
+        if (Array.isArray(sites)) {
+          const calculatedStats = calculateStats(sites);
+          setStats(calculatedStats);
+          setError(null);
         }
-
-        console.log('[Dashboard] Received site data:', siteData);
-        console.log('[Dashboard] Received production data:', prodData);
-
-        setSites(siteData);
-        setProductionData(prodData || []);
-
-        const stats = calculateProductionStats(siteData, prodData);
-        console.log('[Dashboard] Calculated stats:', stats);
-        setProductionStats(stats);
-        setError(null);
-
       } catch (error) {
-        console.error('[Dashboard] Data fetch error:', error);
-        setError(error.message || 'Failed to load dashboard data');
+        console.error('[Dashboard] Error fetching stats:', error);
+        setError('Failed to load dashboard statistics');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchDashboardData();
+    fetchStats();
   }, []);
 
-  // Add helper function to calculate stats
-  const calculateProductionStats = (sites, productionData) => {
-    if (!Array.isArray(sites)) {
-      console.warn('Sites is not an array:', sites);
-      return getDefaultStats();
-    }
-
-    const windSites = sites.filter(site => (site.Type || site.type) === 'Wind');
-    const solarSites = sites.filter(site => (site.Type || site.type) === 'Solar');
-
-    return {
-      totalSites: sites.length,
-      totalCapacity: sites.reduce((sum, site) =>
-        sum + parseFloat(site.Capacity_MW || site.capacity_MW || 0), 0),
-      activeSites: sites.filter(site =>
-        (site.Status || site.status) === 'Active').length,
-      windSites: windSites.length,
-      solarSites: solarSites.length,
-      totalProduction: Array.isArray(productionData)
-        ? productionData.reduce((sum, data) => sum + (parseFloat(data.AnnualProduction || data.annualProduction_L || 0)), 0)
-        : 0,
-      windCapacity: windSites.reduce((sum, site) =>
-        sum + parseFloat(site.Capacity_MW || site.capacity_MW || 0), 0),
-      solarCapacity: solarSites.reduce((sum, site) =>
-        sum + parseFloat(site.Capacity_MW || site.capacity_MW || 0), 0),
-      bankedSites: sites.filter(site => site.Banking || site.banking).length,
-      avgInjectionVoltage: sites.reduce((sum, site) =>
-        sum + parseFloat(site.InjectionValue || site.injectionVoltage_KV || 0), 0) / sites.length || 0,
-      totalAnnualProduction: sites.reduce((sum, site) =>
-        sum + parseFloat(site.AnnualProduction || site.annualProduction_L || 0), 0)
-    };
-  };
-
-  // Define cards with safe value access
   const cards = [
     {
-      icon: <FactoryIcon />, // Changed from ProductionIcon to FactoryIcon
+      icon: <FactoryIcon />,
       title: "Production Sites",
       color: "#2E7D32",
       path: "/production",
@@ -248,28 +70,34 @@ const Dashboard = () => {
         {
           icon: <WindIcon />,
           label: "Wind Sites",
-          value: `${productionStats.windSites} Sites`,
-          color: "#1976D2" // Blue for wind
+          value: `${stats.windSites} Sites`,
+          color: "#1976D2"
         },
         {
           icon: <SolarIcon />,
           label: "Solar Sites",
-          value: `${productionStats.solarSites} Sites`,
-          color: "#FFC107" // Yellow for solar
+          value: `${stats.solarSites} Sites`,
+          color: "#FFC107"
         },
         {
           icon: <VoltageIcon />,
           label: "Avg. Injection",
-          value: `${productionStats.avgInjectionVoltage?.toFixed(1) || '0.0'} KV`
+          value: `${stats.avgInjectionVoltage.toFixed(1)} KV`
+        },
+        {
+          icon: <PowerIcon />,
+          label: "Total Capacity",
+          value: `${stats.totalCapacity.toFixed(1)} MW`
         }
       ]
     },
+    // Hardcoded Consumption Card
     {
       icon: <ConsumptionIcon />,
-      icon: <ConsumptionIcon />,
       title: "Consumption",
-      color: "#1976D2", // Blue
+      color: "#1976D2",
       path: "/consumption",
+      loading: false,
       items: [
         {
           icon: <MeterIcon />,
@@ -284,15 +112,17 @@ const Dashboard = () => {
         {
           icon: <DateIcon />,
           label: "Last Updated",
-          value: "Feb 2024"
+          value: "Mar 2024"
         }
       ]
     },
+    // Hardcoded Allocation Card
     {
       icon: <AllocationIcon />,
       title: "Allocation",
-      color: "#ED6C02", // Orange
+      color: "#ED6C02",
       path: "/allocation",
+      loading: false,
       items: [
         {
           icon: <UnitIcon />,
@@ -311,14 +141,16 @@ const Dashboard = () => {
         }
       ]
     },
+    // Hardcoded Reports Card
     {
       icon: <ReportsIcon />,
       title: "Reports",
-      color: "#9C27B0", // Purple
+      color: "#9C27B0",
       path: "/reports",
+      loading: false,
       items: [
         {
-          icon: <AssignmentIcon />,
+          icon: <UnitIcon />,
           label: "Total Reports",
           value: "24"
         },
@@ -330,7 +162,7 @@ const Dashboard = () => {
         {
           icon: <DateIcon />,
           label: "Next Due",
-          value: "Mar 15, 2024"
+          value: "Mar 31, 2024"
         }
       ]
     }

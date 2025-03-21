@@ -5,9 +5,8 @@ import {
   Navigate,
   useNavigate
 } from "react-router-dom";
-import {
+import { 
   ThemeProvider,
-  createTheme,
   CircularProgress,
   Box
 } from '@mui/material';
@@ -22,7 +21,7 @@ import theme from './theme';
 
 // Lazy load components
 const Dashboard = lazy(() => import("./components/Dashboard/Dashboard"));
-const Production = lazy(() => import("./components/Production"));
+const Production = lazy(() => import("./components/Production/Production"));
 const ProductionSiteDetails = lazy(() => import("./components/ProductionSiteDetails"));
 const Consumption = lazy(() => import("./components/Consumption"));
 const Reports = lazy(() => import("./components/Reports"));
@@ -99,6 +98,18 @@ function App() {
                       </Layout>
                     </PrivateRoute>
                   }
+                />
+                <Route 
+                  path="/dashboard" 
+                  element={
+                    <PrivateRoute>
+                      <Layout>
+                        <ErrorBoundary>
+                          <Dashboard />
+                        </ErrorBoundary>
+                      </Layout>
+                    </PrivateRoute>
+                  } 
                 />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>

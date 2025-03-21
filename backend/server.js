@@ -5,7 +5,7 @@ const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 const { DynamoDBDocumentClient } = require("@aws-sdk/lib-dynamodb");
 const logger = require('./utils/logger');
 const requestLogger = require('./middleware/requestLogger');
-const setupTables = require('./scripts/setupTables');
+const TableNames = require('./constants/tableNames');
 const productionSiteRoutes = require('./productionSite/productionSiteRoutes');
 const productionUnitRoutes = require('./productionUnit/productionUnitRoutes');
 const productionChargeRoutes = require('./productionCharge/productionChargeRoutes');
@@ -85,12 +85,7 @@ app.use((err, req, res, next) => {
 async function startServer() {
     try {
         logger.info('Starting server initialization...');
-
-        // Ensure tables exist before starting server
-        logger.info('Setting up DynamoDB tables...');
-        await setupTables();
-        logger.info('Tables setup completed');
-
+        
         const PORT = process.env.PORT || 3333;
         app.listen(PORT, () => {
             logger.info(`Server running on port ${PORT}`);

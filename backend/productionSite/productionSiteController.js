@@ -1,18 +1,26 @@
 const productionSiteDAL = require('./productionSiteDAL');
 const logger = require('../utils/logger');
+const { DynamoDB } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBDocument } = require('@aws-sdk/lib-dynamodb');
+const TableNames = require('../constants/tableNames');
+
+const dynamoDB = DynamoDBDocument.from(new DynamoDB({
+    region: process.env.AWS_REGION || 'local',
+    endpoint: process.env.DYNAMODB_ENDPOINT || 'http://localhost:8000'
+}));
 
 // Validation functions
 const validateBanking = (value) => {
+    // Convert undefined/null to 0
     if (value === undefined || value === null) {
-        return { isValid: false, error: 'Banking value is required' };
+        return { isValid: true, value: 0 }; // Default to 0 instead of error
     }
 
-    const banking = parseInt(value);
-    if (isNaN(banking)) {
-        return { isValid: false, error: 'Banking must be a number (0 or 1)' };
-    }
-
-    if (banking !== 0 && banking !== 1) {
+    // Convert to number
+    const banking = Number(value);
+    
+    // Validate it's 0 or 1
+    if (isNaN(banking) || (banking !== 0 && banking !== 1)) {
         return { isValid: false, error: 'Banking must be 0 (No) or 1 (Yes)' };
     }
 
@@ -32,17 +40,16 @@ const validateDecimal = (value, fieldName) => {
     return { isValid: true, value: number.toFixed(2) };
 };
 
+// Update validateRequiredFields to remove banking from required fields
 const validateRequiredFields = (data) => {
     const requiredFields = [
         'companyId',
         'name',
         'location',
         'type',
-        'banking',
         'capacity_MW',
-        'annualProduction_L',
-        'htscNo',
         'injectionVoltage_KV'
+        // Remove banking from required fields
     ];
 
     const missingFields = requiredFields.filter(field => !data[field]);
@@ -272,22 +279,22 @@ const deleteProductionSite = async (req, res) => {
 
 const getAllProductionSites = async (req, res) => {
     try {
-        logger.info('[REQUEST] Get All Production Sites');
-        
-        const result = await productionSiteDAL.getAllItems();  // Use getAllItems instead of getAllProductionSites
-        
-        res.json({
-            success: true,
-            message: 'All production sites retrieved successfully',
-            data: result
-        });
+        logger.info('[ProductionSiteController] Fetching all production sites');
+
+        // Simple scan without projection to avoid reserved keyword issues
+        const params = {
+            TableName: TableNames.PRODUCTION_SITES
+        };
+
+        const result = await dynamoDB.scan(params);
+        logger.info(`[ProductionSiteController] Successfully fetched ${result.Items.length} sites`);
+
+        res.json(result.Items);
+
     } catch (error) {
-        logger.error('[ProductionSiteController] Get All Error:', error);
+        logger.error('[ProductionSiteController] Error fetching production sites:', error);
         res.status(500).json({
-            success: false,
-            message: 'Failed to retrieve production sites',
-            error: error.message,
-            code: 'GET_ALL_ERROR'
+            error: 'Failed to fetch production sites'
         });
     }
 };
