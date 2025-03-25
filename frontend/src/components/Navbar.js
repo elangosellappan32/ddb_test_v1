@@ -18,7 +18,6 @@ import {
   useMediaQuery
 } from '@mui/material';
 import { 
-  useNavigate, 
   useLocation 
 } from 'react-router-dom';
 import {
@@ -32,10 +31,11 @@ import {
   AccountCircle as ProfileIcon
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
+import { useNavigation } from '../context/NavigationContext';
 import logo from '../assets/logo.jpg'; // Ensure this path is correct
 
 const Navbar = () => {
-  const navigate = useNavigate();
+  const navigate = useNavigation();
   const location = useLocation();
   const { user, logout } = useAuth();
   const [anchorEl, setAnchorEl] = useState(null);

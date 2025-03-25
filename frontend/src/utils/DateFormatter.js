@@ -1,31 +1,25 @@
-import { format, parse, isValid } from 'date-fns';
+const DateFormatter = {
+  toSortKey: (date) => {
+    const d = new Date(date);
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${month}${year}`;
+  },
 
-class DateFormatter {
-  static toApiFormat(date) {
-    if (!date || !isValid(date)) return null;
-    return format(date, 'MMyyyy');
-  }
+  fromSortKey: (sk) => {
+    if (typeof sk !== 'string' || sk.length !== 6) return null;
+    const month = parseInt(sk.substring(0, 2)) - 1;
+    const year = parseInt(sk.substring(2));
+    return new Date(year, month);
+  },
 
-  // Add this method that was missing and causing the error
-  static formatToSK(date) {
-    return this.toApiFormat(date);
+  formatMonthYear: (date) => {
+    const d = new Date(date);
+    return d.toLocaleString('default', {
+      month: 'short',
+      year: 'numeric'
+    });
   }
-
-  static fromApiFormat(dateString) {
-    if (!dateString || typeof dateString !== 'string') return new Date();
-    try {
-      const parsedDate = parse(dateString, 'MMyyyy', new Date());
-      return isValid(parsedDate) ? parsedDate : new Date();
-    } catch (error) {
-      console.error('Date parsing error:', error);
-      return new Date();
-    }
-  }
-
-  static formatMonthYear(dateString) {
-    const date = this.fromApiFormat(dateString);
-    return format(date, 'MMMM yyyy');
-  }
-}
+};
 
 export default DateFormatter;

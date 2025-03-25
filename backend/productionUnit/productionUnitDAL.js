@@ -18,6 +18,7 @@ const client = new DynamoDBClient({
 
 const docClient = DynamoDBDocumentClient.from(client);
 
+
 const create = async (item) => {
     try {
         // Check if item exists

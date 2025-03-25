@@ -1,6 +1,14 @@
 const productionUnitDAL = require('./productionUnitDAL');
 const logger = require('../utils/logger');
 
+// Add helper functions at the top
+const formatDateToMMYYYY = (dateString) => {
+  const date = new Date(dateString);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  return `${month}${year}`;
+};
+
 // Get all production units
 exports.getAllProductionUnits = async (req, res) => {
     try {
@@ -50,11 +58,26 @@ exports.createProductionUnit = async (req, res) => {
             });
         }
 
-        const result = await productionUnitDAL.create({
+        const unitData = {
             pk,
             sk,
-            ...data
-        });
+            ...data,
+            c1: Number(data.c1 || 0),
+            c2: Number(data.c2 || 0),
+            c3: Number(data.c3 || 0),
+            c4: Number(data.c4 || 0),
+            c5: Number(data.c5 || 0),
+            total: Number(data.c1 || 0) + 
+                   Number(data.c2 || 0) + 
+                   Number(data.c3 || 0) + 
+                   Number(data.c4 || 0) + 
+                   Number(data.c5 || 0),
+            date: formatDateToMMYYYY(data.date),
+            createdat: new Date().toISOString(),
+            updatedat: new Date().toISOString()
+        };
+
+        const result = await productionUnitDAL.create(unitData);
 
         const isUpdate = result.version > 1;
         res.status(isUpdate ? 200 : 201).json({
@@ -103,91 +126,56 @@ exports.getProductionUnit = async (req, res) => {
 
 // Update production unit
 exports.updateProductionUnit = async (req, res) => {
-    try {
-        const { companyId, productionSiteId, sk } = req.params;
-        const pk = `${companyId}_${productionSiteId}`;
+  try {
+    const { companyId, productionSiteId, sk } = req.params;
+    const pk = `${companyId}_${productionSiteId}`;
 
-        // Get current version first
-        const currentItem = await productionUnitDAL.getItem(pk, sk);
-        if (!currentItem) {
-            return res.status(404).json({ 
-                success: false,
-                message: 'Production unit not found',
-                code: 'NOT_FOUND'
-            });
-        }
+    // Format date if provided
+    const formattedData = {
+      ...req.body,
+      date: req.body.date ? formatDateToMMYYYY(req.body.date) : sk
+    };
 
-        // Version validation with detailed feedback
-        const receivedVersion = req.body.version;
-        if (typeof receivedVersion !== 'number') {
-            return res.status(400).json({ 
-                success: false,
-                message: 'Valid version number is required',
-                code: 'INVALID_VERSION',
-                details: {
-                    current: currentItem.version,
-                    received: receivedVersion,
-                    expectedType: 'number',
-                    action: 'Please provide a valid version number'
-                }
-            });
-        }
-
-        // Early version check with clear instructions
-        if (receivedVersion !== currentItem.version) {
-            logger.warn(`[ProductionUnitController] Version mismatch - Current: ${currentItem.version}, Received: ${receivedVersion}`);
-            return res.status(409).json({
-                success: false,
-                message: `Version mismatch - Current: ${currentItem.version}, Received: ${receivedVersion}`,
-                code: 'VERSION_CONFLICT',
-                details: {
-                    current: currentItem.version,
-                    received: receivedVersion,
-                    action: `Get latest version at GET /production-unit/${companyId}/${productionSiteId}/${sk}`,
-                    currentData: currentItem
-                }
-            });
-        }
-
-        try {
-            const result = await productionUnitDAL.updateItem(pk, sk, {
-                ...req.body,
-                version: currentItem.version
-            });
-            
-            return res.json({
-                success: true,
-                message: 'Production unit updated successfully',
-                data: result,
-                version: {
-                    previous: currentItem.version,
-                    current: result.version
-                }
-            });
-        } catch (error) {
-            if (error.name === 'ConditionalCheckFailedException') {
-                logger.warn(`[ProductionUnitController] Concurrent modification detected`);
-                return res.status(409).json({
-                    success: false,
-                    message: 'Concurrent modification detected',
-                    code: 'CONCURRENT_UPDATE',
-                    details: {
-                        current: currentItem.version,
-                        received: receivedVersion,
-                        action: 'Please refresh and retry with latest version'
-                    }
-                });
-            }
-            throw error;
-        }
-    } catch (error) {
-        logger.error('[ProductionUnitController] Update Error:', error);
-        return res.status(500).json({
-            success: false,
-            message: 'Internal server error',
-            code: 'INTERNAL_ERROR'
-        });
+    // First check if item exists
+    const existing = await productionUnitDAL.getItem(pk, sk);
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: 'Production unit not found'
+      });
     }
+
+    const updateData = {
+      ...formattedData,
+      pk,
+      sk,
+      updatedat: new Date().toISOString(),
+      c1: Number(formattedData.c1 || 0),
+      c2: Number(formattedData.c2 || 0),
+      c3: Number(formattedData.c3 || 0),
+      c4: Number(formattedData.c4 || 0),
+      c5: Number(formattedData.c5 || 0),
+      total: Number(formattedData.c1 || 0) + 
+             Number(formattedData.c2 || 0) + 
+             Number(formattedData.c3 || 0) + 
+             Number(formattedData.c4 || 0) + 
+             Number(formattedData.c5 || 0)
+    };
+
+    const result = await productionUnitDAL.updateItem(pk, sk, updateData);
+    res.json({
+      success: true,
+      message: 'Production unit updated successfully',
+      data: result
+    });
+  } catch (error) {
+    logger.error('[ProductionUnitController] Update Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update production unit',
+      error: error.message
+    });
+  }
 };
 
 // Delete production unit

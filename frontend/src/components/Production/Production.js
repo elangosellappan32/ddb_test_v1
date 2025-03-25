@@ -1,76 +1,116 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useSnackbar } from 'notistack';
 import {
   Box, Grid, Typography, Alert, Button, CircularProgress
 } from '@mui/material';
 import { Add as AddIcon, Refresh as RefreshIcon } from '@mui/icons-material';
-import { 
-  fetchProductionSites, 
-  createProductionSite, 
-  updateProductionSite 
-} from '../../services/productionSiteapi';
+import productionSiteApi from '../../services/productionSiteapi';
 import ProductionSiteCard from './ProductionSiteCard';
-import ProductionSiteForm from './ProductionSiteForm';
+import ProductionSiteDialog from './ProductionSiteDialog';
 
 const Production = () => {
   const navigate = useNavigate();
+  const { enqueueSnackbar } = useSnackbar();
   const [sites, setSites] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [formOpen, setFormOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null); // Add error state
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSite, setSelectedSite] = useState(null);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchSites = useCallback(async () => {
     try {
-      const response = await fetchProductionSites();
-      setSites(response);
-      setError(null);
-    } catch (error) {
-      console.error('[Production] Fetch error:', error);
-      setError('Failed to load production sites');
+      setError(null); // Reset error state
+      setLoading(true);
+      console.log('[Production] Fetching sites...');
+      const data = await productionSiteApi.fetchAll();
+      console.log('[Production] Sites fetched:', data);
+      setSites(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('[Production] Fetch error:', err);
+      setError(err.message || 'Failed to load sites'); // Set error message
+      enqueueSnackbar('Failed to load sites', { variant: 'error' });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [enqueueSnackbar]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    fetchSites();
+  }, [fetchSites]);
 
   const handleSiteClick = (site) => {
-    navigate(`/production-site/${site.companyId}/${site.productionSiteId}`);
-  };
-
-  const handleEditClick = (site, event) => {
-    event.stopPropagation();
-    setSelectedSite(site);
-    setFormOpen(true);
+    console.log('[Production] Navigating to site:', site);
+    navigate(`/production/${site.companyId}/${site.productionSiteId}`);
   };
 
   const handleAddClick = () => {
+    console.log('[Production] Opening create dialog');
     setSelectedSite(null);
-    setFormOpen(true);
+    setDialogOpen(true);
   };
 
-  const handleFormClose = () => {
-    setFormOpen(false);
-    setSelectedSite(null);
+  const handleEditSite = (site) => {
+    console.log('[Production] Opening edit dialog for site:', site);
+    setSelectedSite(site);
+    setDialogOpen(true);
   };
 
-  const handleFormSubmit = async (formData) => {
+  const handleDeleteClick = async (site) => {
     try {
-      if (selectedSite) {
-        await updateProductionSite(selectedSite.productionSiteId, formData);
-      } else {
-        await createProductionSite(formData);
+      if (!site.companyId || !site.productionSiteId) {
+        throw new Error('Invalid site data');
       }
-      await fetchData();
-      setFormOpen(false);
-      setSelectedSite(null);
+
+      const confirmed = window.confirm(`Are you sure you want to delete "${site.name}"?`);
+      if (!confirmed) return;
+
+      setLoading(true);
+      await productionSiteApi.delete(site.companyId, site.productionSiteId);
+      
+      enqueueSnackbar('Site deleted successfully', { variant: 'success' });
+      fetchSites();
     } catch (error) {
-      console.error('[Production] Form submit error:', error);
-      setError('Failed to save production site');
+      console.error('[Production] Delete error:', error);
+      enqueueSnackbar(error.message || 'Failed to delete site', { variant: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCloseDialog = () => {
+    console.log('[Production] Closing dialog');
+    setSelectedSite(null);
+    setDialogOpen(false);
+  };
+
+  const handleSubmit = async (formData) => {
+    try {
+      setLoading(true);
+      const submitData = {
+        ...formData,
+        companyId: 1, // Set fixed companyId
+        version: selectedSite?.version || 1
+      };
+
+      const response = selectedSite
+        ? await productionSiteApi.update(1, selectedSite.productionSiteId, submitData)
+        : await productionSiteApi.create(submitData);
+
+      console.log('[Production] Submit response:', response);
+      
+      enqueueSnackbar(
+        `Production site ${selectedSite ? 'updated' : 'created'} successfully`,
+        { variant: 'success' }
+      );
+      
+      handleCloseDialog();
+      fetchSites();
+    } catch (error) {
+      console.error('[Production] Submit error:', error);
+      enqueueSnackbar(error.message, { variant: 'error' });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -81,7 +121,7 @@ const Production = () => {
         <Box>
           <Button
             startIcon={<RefreshIcon />}
-            onClick={fetchData}
+            onClick={fetchSites}
             sx={{ mr: 2 }}
             disabled={loading}
           >
@@ -116,22 +156,24 @@ const Production = () => {
           </Grid>
         ) : (
           sites.map((site) => (
-            <Grid item xs={12} sm={6} md={4} key={site.productionSiteId}>
+            <Grid item xs={12} sm={6} md={4} key={`${site.companyId}_${site.productionSiteId}`}>
               <ProductionSiteCard 
                 site={site}
                 onView={() => handleSiteClick(site)}
-                onEdit={(e) => handleEditClick(site, e)}
+                onEdit={() => handleEditSite(site)}
+                onDelete={() => handleDeleteClick(site)}
               />
             </Grid>
           ))
         )}
       </Grid>
 
-      <ProductionSiteForm
-        open={formOpen}
-        site={selectedSite}
-        onClose={handleFormClose}
-        onSubmit={handleFormSubmit}
+      <ProductionSiteDialog
+        open={dialogOpen}
+        onClose={handleCloseDialog}
+        onSubmit={handleSubmit}
+        initialData={selectedSite}
+        loading={loading}
       />
     </Box>
   );

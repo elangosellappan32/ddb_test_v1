@@ -1,187 +1,229 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchProductionSites, calculateStats } from "../../services/productionSiteapi";
 import {
   Box,
   Grid,
   Typography,
   Alert,
-  Container,
   Card,
-  CardActionArea,
-  CircularProgress
-} from "@mui/material";
+  CardContent,
+  CircularProgress,
+  Divider,
+  CardActionArea
+} from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import {
   Factory as FactoryIcon,
   PowerSettingsNew as ConsumptionIcon,
   AssignmentTurnedIn as AllocationIcon,
   Assessment as ReportsIcon,
-  TrendingUp as TrendIcon,
-  Speed as MeterIcon,
-  Assignment as UnitIcon,  // Add this import
-  DateRange as DateIcon,
-  PowerOutlined as PowerIcon,
   WbSunny as SolarIcon,
   Air as WindIcon,
-  ElectricBolt as VoltageIcon
+  Power as PowerIcon
 } from '@mui/icons-material';
-import DashboardCard from './DashboardCard'; // Make sure this component exists
+import productionSiteApi from '../../services/productionSiteapi';
+
+const DashboardCard = ({ icon: Icon, title, content, color, onClick }) => (
+  <Card 
+    sx={{ 
+      height: '100%',
+      transition: 'all 0.3s ease',
+      '&:hover': {
+        transform: 'translateY(-4px)',
+        boxShadow: 6,
+        bgcolor: (theme) => alpha(theme.palette[color].main, 0.1)
+      }
+    }}
+  >
+    <CardActionArea onClick={onClick} sx={{ height: '100%' }}>
+      <CardContent>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+          <Icon sx={{ mr: 1, color: `${color}.main` }} />
+          <Typography variant="h6">{title}</Typography>
+        </Box>
+        <Divider sx={{ my: 1 }} />
+        <Box sx={{ mt: 2 }}>{content}</Box>
+      </CardContent>
+    </CardActionArea>
+  </Card>
+);
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [stats, setStats] = useState({
     total: 0,
-    windSites: 0,
-    solarSites: 0,
-    totalCapacity: 0,
-    avgInjectionVoltage: 0
+    solar: 0,
+    wind: 0,
+    totalCapacity: 0
   });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const sites = await fetchProductionSites();
-        if (Array.isArray(sites)) {
-          const calculatedStats = calculateStats(sites);
-          setStats(calculatedStats);
-          setError(null);
-        }
-      } catch (error) {
-        console.error('[Dashboard] Error fetching stats:', error);
-        setError('Failed to load dashboard statistics');
-      } finally {
-        setLoading(false);
-      }
+  const calculateStats = useCallback((sites) => {
+    if (!Array.isArray(sites)) return stats;
+
+    return {
+      total: sites.length,
+      solar: sites.filter(site => site.type?.toLowerCase() === 'solar').length,
+      wind: sites.filter(site => site.type?.toLowerCase() === 'wind').length,
+      totalCapacity: sites.reduce((sum, site) => sum + Number(site.capacity_MW || 0), 0)
     };
-
-    fetchStats();
   }, []);
 
-  const cards = [
-    {
-      icon: <FactoryIcon />,
-      title: "Production Sites",
-      color: "#2E7D32",
-      path: "/production",
-      loading: loading,
-      items: [
-        {
-          icon: <WindIcon />,
-          label: "Wind Sites",
-          value: `${stats.windSites} Sites`,
-          color: "#1976D2"
-        },
-        {
-          icon: <SolarIcon />,
-          label: "Solar Sites",
-          value: `${stats.solarSites} Sites`,
-          color: "#FFC107"
-        },
-        {
-          icon: <VoltageIcon />,
-          label: "Avg. Injection",
-          value: `${stats.avgInjectionVoltage.toFixed(1)} KV`
-        },
-        {
-          icon: <PowerIcon />,
-          label: "Total Capacity",
-          value: `${stats.totalCapacity.toFixed(1)} MW`
-        }
-      ]
-    },
-    // Hardcoded Consumption Card
-    {
-      icon: <ConsumptionIcon />,
-      title: "Consumption",
-      color: "#1976D2",
-      path: "/consumption",
-      loading: false,
-      items: [
-        {
-          icon: <MeterIcon />,
-          label: "Total Units",
-          value: "125,000 kWh"
-        },
-        {
-          icon: <TrendIcon />,
-          label: "Peak Demand",
-          value: "850 kW"
-        },
-        {
-          icon: <DateIcon />,
-          label: "Last Updated",
-          value: "Mar 2024"
-        }
-      ]
-    },
-    // Hardcoded Allocation Card
-    {
-      icon: <AllocationIcon />,
-      title: "Allocation",
-      color: "#ED6C02",
-      path: "/allocation",
-      loading: false,
-      items: [
-        {
-          icon: <UnitIcon />,
-          label: "Allocated Units",
-          value: "75,000 kWh"
-        },
-        {
-          icon: <TrendIcon />,
-          label: "Utilization",
-          value: "60%"
-        },
-        {
-          icon: <DateIcon />,
-          label: "Current Period",
-          value: "Q1 2024"
-        }
-      ]
-    },
-    // Hardcoded Reports Card
-    {
-      icon: <ReportsIcon />,
-      title: "Reports",
-      color: "#9C27B0",
-      path: "/reports",
-      loading: false,
-      items: [
-        {
-          icon: <UnitIcon />,
-          label: "Total Reports",
-          value: "24"
-        },
-        {
-          icon: <TrendIcon />,
-          label: "Compliance",
-          value: "98%"
-        },
-        {
-          icon: <DateIcon />,
-          label: "Next Due",
-          value: "Mar 31, 2024"
-        }
-      ]
+  const fetchStats = useCallback(async () => {
+    try {
+      setLoading(true);
+      console.log('[Dashboard] Fetching sites for stats...');
+      const sites = await productionSiteApi.fetchAll();
+      console.log('[Dashboard] Calculating stats from sites:', sites);
+      const calculatedStats = calculateStats(sites);
+      console.log('[Dashboard] Calculated stats:', calculatedStats);
+      setStats(calculatedStats);
+      setError(null);
+    } catch (err) {
+      console.error('[Dashboard] Error fetching stats:', err);
+      setError('Failed to load dashboard statistics');
+    } finally {
+      setLoading(false);
     }
-  ];
+  }, [calculateStats]);
 
-  if (error) {
-    return <Alert severity="error">{error}</Alert>;
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+        <CircularProgress />
+      </Box>
+    );
   }
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+    <Box sx={{ p: 3 }}>
+      <Typography variant="h4" gutterBottom>
+        Dashboard
+      </Typography>
       <Grid container spacing={3}>
-        {cards.map((card, index) => (
-          <Grid item xs={12} sm={6} md={3} key={index}>
-            <DashboardCard {...card} onClick={() => navigate(card.path)} />
-          </Grid>
-        ))}
+        {/* Production Card */}
+        <Grid item xs={12} md={6} lg={3}>
+          <DashboardCard
+            icon={FactoryIcon}
+            title="Production"
+            color="primary"
+            onClick={() => navigate('/production')}
+            content={
+              <Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography color="textSecondary">Total Sites:</Typography>
+                  <Typography>{stats.total}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <SolarIcon sx={{ mr: 0.5, color: 'warning.main', fontSize: 'small' }} />
+                    <Typography color="textSecondary">Solar Sites:</Typography>
+                  </Box>
+                  <Typography>{stats.solar}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <WindIcon sx={{ mr: 0.5, color: 'success.main', fontSize: 'small' }} />
+                    <Typography color="textSecondary">Wind Sites:</Typography>
+                  </Box>
+                  <Typography>{stats.wind}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <PowerIcon sx={{ mr: 0.5, color: 'primary.main', fontSize: 'small' }} />
+                    <Typography color="textSecondary">Total Capacity:</Typography>
+                  </Box>
+                  <Typography>{stats.totalCapacity} MW</Typography>
+                </Box>
+              </Box>
+            }
+          />
+        </Grid>
+
+        {/* Consumption Card */}
+        <Grid item xs={12} md={6} lg={3}>
+          <DashboardCard
+            icon={ConsumptionIcon}
+            title="Consumption"
+            color="error"
+            onClick={() => navigate('/consumption')}
+            content={
+              <Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography color="textSecondary">Total Units:</Typography>
+                  <Typography>125,000 kWh</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography color="textSecondary">Peak Load:</Typography>
+                  <Typography>15.2 MW</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Typography color="textSecondary">Daily Avg:</Typography>
+                  <Typography>4,167 kWh</Typography>
+                </Box>
+              </Box>
+            }
+          />
+        </Grid>
+
+        {/* Allocation Card */}
+        <Grid item xs={12} md={6} lg={3}>
+          <DashboardCard
+            icon={AllocationIcon}
+            title="Allocation"
+            color="success"
+            onClick={() => navigate('/allocation')}
+            content={
+              <Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography color="textSecondary">Total Allocated:</Typography>
+                  <Typography>95,000 kWh</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography color="textSecondary">Available:</Typography>
+                  <Typography>30,000 kWh</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Typography color="textSecondary">Efficiency:</Typography>
+                  <Typography>76%</Typography>
+                </Box>
+              </Box>
+            }
+          />
+        </Grid>
+
+        {/* Reports Card */}
+        <Grid item xs={12} md={6} lg={3}>
+          <DashboardCard
+            icon={ReportsIcon}
+            title="Reports"
+            color="info"
+            onClick={() => navigate('/reports')}
+            content={
+              <Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography color="textSecondary">Monthly Reports:</Typography>
+                  <Typography>12</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography color="textSecondary">Last Updated:</Typography>
+                  <Typography>Today</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Typography color="textSecondary">Compliance:</Typography>
+                  <Typography>100%</Typography>
+                </Box>
+              </Box>
+            }
+          />
+        </Grid>
       </Grid>
-    </Container>
+    </Box>
   );
 };
 

@@ -1,4 +1,4 @@
-import { API_CONFIG, API_BASE_URL } from '../config';
+import { API_CONFIG, API_BASE_URL } from '../config/api.config';
 import api from './api';
 
 export const fetchDashboardData = async () => {

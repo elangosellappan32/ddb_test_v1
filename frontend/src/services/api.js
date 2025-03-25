@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { API_BASE_URL, API_HEADERS } from '../config';
+import { API_BASE_URL, API_HEADERS } from '../config/api.config';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -33,3 +33,7 @@ api.interceptors.response.use(
 );
 
 export default api;
+
+export { default as productionSiteApi } from './productionSiteapi';
+export { default as productionUnitApi } from './productionUnitapi';
+export { default as productionChargeApi } from './productionChargeapi';

@@ -1,92 +1,96 @@
-import axios from 'axios';
-import { API_CONFIG } from '../config';
+import api, { handleApiError } from './apiUtils';
+import { API_CONFIG } from '../config/api.config';
 
-const apiInstance = axios.create({
-    baseURL: process.env.REACT_APP_API_URL || 'http://localhost:3333/api',
-    headers: {
-        'Content-Type': 'application/json'
-    }
-});
+const generatePK = (companyId, productionSiteId) => `${companyId}_${productionSiteId}`;
 
-export const fetchProductionSites = async () => {
-    try {
-        const response = await apiInstance.get('/production-site/all');
-        return response.data;
-    } catch (error) {
-        console.error('[API] Production sites fetch error:', error);
-        throw error;
-    }
-};
-
-export const calculateStats = (sites) => {
-    if (!Array.isArray(sites) || sites.length === 0) {
-        return {
-            total: 0,
-            windSites: 0,
-            solarSites: 0,
-            totalCapacity: 0,
-            avgInjectionVoltage: 0
-        };
-    }
-
-    const stats = {
-        total: sites.length,
-        windSites: sites.filter(site => site.type === 'Wind').length,
-        solarSites: sites.filter(site => site.type === 'Solar').length,
-        totalCapacity: sites.reduce((sum, site) => sum + parseFloat(site.capacity_MW || 0), 0),
-        avgInjectionVoltage: sites.reduce((sum, site) => sum + parseFloat(site.injectionVoltage_KV || 0), 0) / sites.length
-    };
-
-    return stats;
-};
-
-export const fetchProductionSiteDetails = async (companyId, productionSiteId) => {
-    try {
-        const url = API_CONFIG.ENDPOINTS.PRODUCTION.SITE.GET_ONE(companyId, productionSiteId);
-        const response = await apiInstance.get(url);
-        return response.data.data;
-    } catch (error) {
-        console.error('[ProductionSiteAPI] Fetch details error:', error);
-        throw error;
-    }
-};
-
-export const createProductionSite = async (siteData) => {
-    try {
-        const response = await apiInstance.post('/production-site', siteData);
-        return response.data;
-    } catch (error) {
-        console.error('[API] Create production site error:', error);
-        throw error;
-    }
-};
-
-export const updateProductionSite = async (siteId, siteData) => {
-    try {
-        const response = await apiInstance.put(`/production-site/${siteId}`, siteData);
-        return response.data;
-    } catch (error) {
-        console.error('[API] Update production site error:', error);
-        throw error;
-    }
-};
-
-export const deleteProductionSite = async (siteId) => {
-    try {
-        await apiInstance.delete(`/production-site/${siteId}`);
-        return true;
-    } catch (error) {
-        console.error('[API] Delete production site error:', error);
-        throw error;
-    }
+const formatDateToMMYYYY = (date) => {
+  const d = new Date(date);
+  return `${String(d.getMonth() + 1).padStart(2, '0')}${d.getFullYear()}`;
 };
 
 const productionSiteApi = {
-    fetchAll: fetchProductionSites,
-    fetchDetails: fetchProductionSiteDetails,
-    create: createProductionSite,
-    update: updateProductionSite,
-    delete: deleteProductionSite
+  fetchAll: async () => {
+    try {
+      console.log('[ProductionSiteAPI] Fetching all sites');
+      const response = await api.get(API_CONFIG.ENDPOINTS.PRODUCTION.SITE.GET_ALL);
+      return response.data;
+    } catch (error) {
+      throw handleApiError(error);
+    }
+  },
+
+  fetchOne: async (companyId, productionSiteId) => {
+    try {
+      console.log('[ProductionSiteAPI] Fetching site:', { companyId, productionSiteId });
+      const response = await api.get(
+        API_CONFIG.ENDPOINTS.PRODUCTION.SITE.GET_ONE(companyId, productionSiteId)
+      );
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  create: async (data) => {
+    try {
+      // First fetch all sites to determine next productionSiteId
+      const response = await api.get(API_CONFIG.ENDPOINTS.PRODUCTION.SITE.GET_ALL);
+      const existingSites = response.data || [];
+      const nextSiteId = existingSites.length + 1;
+
+      const siteData = {
+        ...data,
+        companyId: 1,
+        productionSiteId: nextSiteId,
+        pk: generatePK(1, nextSiteId),
+        sk: formatDateToMMYYYY(new Date()),
+        type: 'SITE',
+        createdat: new Date().toISOString(),
+        updatedat: new Date().toISOString(),
+        version: 1
+      };
+
+      console.log('[ProductionSiteAPI] Creating site:', siteData);
+      const createResponse = await api.post(API_CONFIG.ENDPOINTS.PRODUCTION.SITE.CREATE, siteData);
+      return createResponse.data;
+    } catch (error) {
+      throw handleApiError(error);
+    }
+  },
+
+  update: async (companyId, productionSiteId, data) => {
+    try {
+      const siteData = {
+        ...data,
+        companyId: 1,
+        productionSiteId,
+        pk: generatePK(1, productionSiteId),
+        sk: formatDateToMMYYYY(new Date()),
+        updatedat: new Date().toISOString()
+      };
+
+      console.log('[ProductionSiteAPI] Updating site:', { companyId: 1, productionSiteId, siteData });
+      const response = await api.put(
+        API_CONFIG.ENDPOINTS.PRODUCTION.SITE.UPDATE(1, productionSiteId),
+        siteData
+      );
+      return response.data;
+    } catch (error) {
+      throw handleApiError(error);
+    }
+  },
+
+  delete: async (companyId, productionSiteId) => {
+    try {
+      console.log('[ProductionSiteAPI] Deleting site:', { companyId: 1, productionSiteId });
+      const response = await api.delete(
+        API_CONFIG.ENDPOINTS.PRODUCTION.SITE.DELETE(1, productionSiteId)
+      );
+      return response.data;
+    } catch (error) {
+      throw handleApiError(error);
+    }
+  }
 };
 
 export default productionSiteApi;

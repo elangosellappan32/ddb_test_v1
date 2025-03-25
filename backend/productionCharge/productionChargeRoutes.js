@@ -1,23 +1,21 @@
 const express = require('express');
 const router = express.Router();
 const productionChargeController = require('./productionChargeController');
+const validateJson = require('../middleware/validateJson');
 
-// Get all production charges
-router.get('/all', productionChargeController.getAllProductionCharges);
+// Get all charges for a company/site
+router.get('/:companyId/:productionSiteId/all', productionChargeController.getAllCharges);
 
-// Get production charge history
-router.get('/history/:companyId/:productionSiteId', productionChargeController.getProductionChargeHistory);
+// Get single charge
+router.get('/:companyId/:productionSiteId/:sk', productionChargeController.getCharge);
 
-// Get production charge by ID
-router.get('/:companyId/:productionSiteId/:month', productionChargeController.getProductionCharge);
+// Create new charge
+router.post('/:companyId/:productionSiteId', validateJson, productionChargeController.createCharge);
 
-// Create production charge
-router.post('/', productionChargeController.createProductionCharge);
+// Update existing charge
+router.put('/:companyId/:productionSiteId/:sk', validateJson, productionChargeController.updateCharge);
 
-// Update production charge
-router.put('/:companyId/:productionSiteId/:month', productionChargeController.updateProductionCharge);
-
-// Delete production charge
-router.delete('/:companyId/:productionSiteId/:month', productionChargeController.deleteProductionCharge);
+// Delete charge
+router.delete('/:companyId/:productionSiteId/:sk', productionChargeController.deleteCharge);
 
 module.exports = router;
