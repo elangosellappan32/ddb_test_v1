@@ -1,27 +1,24 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useSnackbar } from 'notistack';
-import {
-  Box,
-  Button,
-  Typography,
-  Paper,
-  CircularProgress,
-  Dialog,
-  DialogTitle,
+import { 
+  Box, 
+  Button, 
+  Paper, 
+  Typography, 
+  CircularProgress, 
+  Dialog, 
+  DialogTitle, 
   DialogContent,
-  Alert
+  Alert 
 } from '@mui/material';
-import {
-  ArrowBack as ArrowBackIcon,
-  Add as AddIcon
-} from '@mui/icons-material';
-
+import { ArrowBack as ArrowBackIcon, Add as AddIcon } from '@mui/icons-material';
+import { useSnackbar } from 'notistack';
+import productionSiteApi from '../../services/productionSiteapi';
+import productionUnitApi from '../../services/productionUnitapi';
+import productionChargeApi from '../../services/productionChargeapi';
 import SiteInfoCard from './SiteInfoCard';
 import ProductionDataTable from './ProductionDataTable';
 import ProductionSiteDataForm from './ProductionSiteDataForm';
-import { productionSiteApi, productionUnitApi, productionChargeApi } from '../../services/api';
-import { format } from 'date-fns';
 import { formatSK, formatDisplayDate } from '../../utils/dateUtils';
 
 const ProductionSiteDetails = () => {
@@ -29,12 +26,10 @@ const ProductionSiteDetails = () => {
   const navigate = useNavigate();
   const { enqueueSnackbar } = useSnackbar();
   
-  const [loading, setLoading] = useState(true);
   const [site, setSite] = useState(null);
   const [unitData, setUnitData] = useState([]);
   const [chargeData, setChargeData] = useState([]);
-  const [error, setError] = useState(null);
-  
+  const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState({
     open: false,
     type: null,
@@ -45,18 +40,21 @@ const ProductionSiteDetails = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [siteRes, unitRes, chargeRes] = await Promise.all([
-        productionSiteApi.fetchOne(companyId, productionSiteId),
+      
+      // Use fetchOne instead of getDetails
+      const siteResponse = await productionSiteApi.fetchOne(companyId, productionSiteId);
+      setSite(siteResponse.data);
+
+      const [unitResponse, chargeResponse] = await Promise.all([
         productionUnitApi.fetchAll(companyId, productionSiteId),
         productionChargeApi.fetchAll(companyId, productionSiteId)
       ]);
 
-      setSite(siteRes);
-      setUnitData(unitRes.data || []);
-      setChargeData(chargeRes.data || []);
-    } catch (err) {
-      setError(err.message);
-      enqueueSnackbar(err.message, { variant: 'error' });
+      setUnitData(unitResponse.data || []);
+      setChargeData(chargeResponse.data || []);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      enqueueSnackbar(error.message || 'Failed to load data', { variant: 'error' });
     } finally {
       setLoading(false);
     }
@@ -148,10 +146,6 @@ const ProductionSiteDetails = () => {
     );
   }
 
-  if (error) {
-    return <Alert severity="error">{error}</Alert>;
-  }
-
   // Update the table sections to show loading states
   const renderDataTable = (type, data) => (
     <Paper sx={{ p: 3, mb: type === 'unit' ? 3 : 0 }}>
@@ -206,10 +200,17 @@ const ProductionSiteDetails = () => {
         Back to Sites
       </Button>
 
-      <SiteInfoCard site={site} />
-
-      {renderDataTable('unit', unitData)}
-      {renderDataTable('charge', chargeData)}
+      {loading ? (
+        <Box display="flex" justifyContent="center" p={3}>
+          <CircularProgress />
+        </Box>
+      ) : (
+        <>
+          <SiteInfoCard site={site} />
+          {renderDataTable('unit', unitData)}
+          {renderDataTable('charge', chargeData)}
+        </>
+      )}
 
       {/* Form Dialog */}
       <Dialog

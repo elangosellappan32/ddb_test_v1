@@ -46,9 +46,9 @@ export const formatDisplayDate = (sk) => {
       return 'Invalid Date';
     }
 
-    const month = parseInt(sk.substring(0, 2)) - 1; // 0-based month
-    const year = parseInt(sk.substring(2)); // Just take the year portion as is
-    const date = new Date( year, month); // Add 2000 to get the full year
+    const month = parseInt(sk.substring(0, 2)) - 1;
+    const year = parseInt(sk.substring(2));
+    const date = new Date(year, month);
     
     if (!isValid(date)) {
       return 'Invalid Date';
