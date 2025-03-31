@@ -12,6 +12,7 @@ import {
   Paper
 } from '@mui/material';
 import { Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
+import { formatNumber } from '../../utils/numberFormat';
 
 const ProductionDataTable = ({ 
   data, 
@@ -141,7 +142,7 @@ const ProductionDataTable = ({
             }
           }}
         >
-          {Number(row[field] || 0).toLocaleString()}
+          {formatNumber(row[field] || 0)}
         </TableCell>
       ))}
     </>
@@ -162,7 +163,7 @@ const ProductionDataTable = ({
               }
             }}
           >
-            {Number(row[field] || 0).toLocaleString()}
+            {formatNumber(row[field] || 0)}
           </TableCell>
         );
       })}
