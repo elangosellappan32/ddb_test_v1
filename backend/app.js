@@ -14,8 +14,10 @@ const productionUnitRoutes = require('./productionUnit/productionUnitRoutes');
 const productionChargeRoutes = require('./productionCharge/productionChargeRoutes');
 const productionSiteRoutes = require('./productionSite/productionSiteRoutes');
 const healthRoutes = require('./routes/healthRoutes');
+const authLogger = require('./middleware/authLogger');
+const authRoutes = require('./auth/authRoutes');
 
-// Initialize express app
+const app = express();
 
 // Security middleware
 app.use(helmet());
@@ -44,6 +46,9 @@ if (process.env.NODE_ENV !== 'production') {
 // JSON validation middleware
 app.use(validateJson);
 
+// Add logger middleware
+app.use(authLogger);
+
 // Health check endpoint
 app.get('/health', (req, res) => {
     res.json({
@@ -57,6 +62,7 @@ app.get('/health', (req, res) => {
 app.use('/api/production-unit', productionUnitRoutes);
 app.use('/api/production-charge', productionChargeRoutes);
 app.use('/api/production-site', productionSiteRoutes);
+app.use('/api/auth', authRoutes);
 
 // 404 handler
 app.use((req, res) => {

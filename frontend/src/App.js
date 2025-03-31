@@ -3,7 +3,7 @@ import {
   Routes,
   Route,
   Navigate,
-  BrowserRouter
+  BrowserRouter as Router
 } from "react-router-dom";
 import { 
   ThemeProvider,
@@ -32,7 +32,7 @@ const Reports = lazy(() => import("./components/Reports"));
 
 function App() {
   return (
-    <BrowserRouter>
+    <Router>
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={enUS}>
@@ -59,60 +59,25 @@ function App() {
                     }
                   >
                     <Routes>
+                      {/* Public routes */}
                       <Route path="/login" element={<Login />} />
-                      <Route
-                        path="/"
-                        element={
-                          <PrivateRoute>
-                            <Layout>
-                              <Dashboard />
-                            </Layout>
-                          </PrivateRoute>
-                        }
-                      />
-                      <Route
-                        path="/production"
-                        element={
-                          <PrivateRoute>
-                            <Layout>
-                              <Production />
-                            </Layout>
-                          </PrivateRoute>
-                        }
-                      />
-                      <Route
-                        path="/consumption"
-                        element={
-                          <PrivateRoute>
-                            <Layout>
-                              <Consumption />
-                            </Layout>
-                          </PrivateRoute>
-                        }
-                      />
-                      <Route 
-                        path="/dashboard" 
-                        element={
-                          <PrivateRoute>
-                            <Layout>
-                              <ErrorBoundary>
-                                <Dashboard />
-                              </ErrorBoundary>
-                            </Layout>
-                          </PrivateRoute>
-                        } 
-                      />
-                      <Route
-                        path="/production/:companyId/:productionSiteId"
-                        element={
-                          <PrivateRoute>
-                            <Layout>
-                              <ProductionSiteDetails />
-                            </Layout>
-                          </PrivateRoute>
-                        }
-                      />
-                      <Route path="*" element={<Navigate to="/" replace />} />
+
+                      {/* Protected routes */}
+                      <Route element={
+                        <PrivateRoute>
+                          <Layout />
+                        </PrivateRoute>
+                      }>
+                        <Route path="/dashboard" element={<Dashboard />} />
+                        <Route path="/production" element={<Production />} />
+                        <Route 
+                          path="/production/:companyId/:productionSiteId"
+                          element={<ProductionSiteDetails />} 
+                        />
+                        <Route path="/consumption" element={<Consumption />} />
+                        <Route path="/reports" element={<Reports />} />
+                        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                      </Route>
                     </Routes>
                   </Suspense>
                 </ErrorBoundary>
@@ -121,7 +86,7 @@ function App() {
           </SnackbarProvider>
         </LocalizationProvider>
       </ThemeProvider>
-    </BrowserRouter>
+    </Router>
   );
 }
 

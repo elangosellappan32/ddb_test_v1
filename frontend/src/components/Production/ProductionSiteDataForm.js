@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import { useSnackbar } from 'notistack';
 import {
   Box,
   TextField,
@@ -8,30 +9,37 @@ import {
   CircularProgress
 } from '@mui/material';
 import { DesktopDatePicker } from '@mui/x-date-pickers';
-import { format, parse } from 'date-fns';
+import { format } from 'date-fns';
+import { validateProductionData } from './ProductionDataTable';
+import { useAuth } from '../../context/AuthContext';
+import { hasPermission } from '../../utils/permissions';
 
 const ProductionSiteDataForm = ({ 
   type = 'unit', 
-  initialData, 
+  initialData = null, 
   onSubmit, 
   onCancel, 
-  loading = false 
+  loading = false,
+  existingData = [], // Add default empty array
+  companyId,
+  productionSiteId
 }) => {
+  const { enqueueSnackbar } = useSnackbar();
+  const { user } = useAuth();
+  const canEdit = useMemo(() => 
+    hasPermission(user, type === 'unit' ? 'units' : 'charges', 
+        initialData ? 'UPDATE' : 'CREATE'
+    ), [user, type, initialData]);
+
   // Function to generate SK in MMYYYY format
   const generateSK = (date) => {
     return format(date, 'MMyyyy');
   };
 
-  // Function to parse SK to Date object
-  const parseSKToDate = (sk) => {
-    if (!sk) return new Date();
-    try {
-      // Parse SK from MMYYYY format to Date
-      return parse(sk, 'MMyyyy', new Date());
-    } catch (error) {
-      console.error('Error parsing SK:', error);
-      return new Date();
-    }
+  // Keep only the functions you're using
+  const formatSK = (date) => {
+    const d = new Date(date);
+    return `${String(d.getMonth() + 1).padStart(2, '0')}${d.getFullYear()}`;
   };
 
   // Generate initial values based on type
@@ -84,7 +92,8 @@ const ProductionSiteDataForm = ({
     if (!formData.date || isNaN(formData.date.getTime())) {
       newErrors.date = 'Valid date is required';
     }
-  
+
+    // Validate fields based on type
     getFields().forEach(field => {
       const value = parseFloat(formData[field.id]);
       if (isNaN(value)) {
@@ -112,7 +121,7 @@ const ProductionSiteDataForm = ({
     setErrors(prev => ({ ...prev, date: undefined }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateForm()) return;
 
@@ -121,9 +130,11 @@ const ProductionSiteDataForm = ({
     const submitData = {
       ...formData,
       sk,
+      pk: `${companyId}_${productionSiteId}`,
+      companyId,
+      productionSiteId,
       date: format(formData.date, 'yyyy-MM-dd'),
       type: type.toUpperCase(),
-      // Convert charge values to numbers
       ...getFields().reduce((acc, field) => ({
         ...acc,
         [field.id]: parseFloat(formData[field.id]) || 0
@@ -131,8 +142,13 @@ const ProductionSiteDataForm = ({
       version: parseInt(formData.version) || 1
     };
 
-    console.log('Submitting data:', submitData);
-    onSubmit(submitData);
+    try {
+      await onSubmit(submitData);
+    } catch (error) {
+      enqueueSnackbar(error.message || 'Failed to save data', { 
+        variant: 'error' 
+      });
+    }
   };
 
   const handleChange = (field, value) => {
@@ -172,6 +188,7 @@ const ProductionSiteDataForm = ({
                 required
                 error={!!errors.date}
                 helperText={errors.date}
+                disabled={!canEdit}
               />
             )}
           />
@@ -193,6 +210,7 @@ const ProductionSiteDataForm = ({
               }}
               error={!!errors[field.id]}
               helperText={errors[field.id]}
+              disabled={!canEdit}
             />
           </Grid>
         ))}
@@ -207,14 +225,16 @@ const ProductionSiteDataForm = ({
             >
               Cancel
             </Button>
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={loading}
-              startIcon={loading && <CircularProgress size={20} />}
-            >
-              {initialData ? 'Update' : 'Create'}
-            </Button>
+            {canEdit && (
+              <Button
+                type="submit"
+                variant="contained"
+                disabled={loading}
+                startIcon={loading && <CircularProgress size={20} />}
+              >
+                {initialData ? 'Update' : 'Create'}
+              </Button>
+            )}
           </Box>
         </Grid>
       </Grid>

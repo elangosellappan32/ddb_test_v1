@@ -1,19 +1,21 @@
 import React from 'react';
+import PropTypes from 'prop-types';
 import {
   Grid,
   Card,
-  CardActions,
-  Button,
-  Typography,
-  Box,
-  IconButton,
   CardContent,
-  Paper,
-  Tooltip
+  CardActions,
+  Typography,
+  IconButton,
+  Button,
+  Box,
+  Tooltip,
+  Paper
 } from '@mui/material';
 import {
   Edit as EditIcon,
   Delete as DeleteIcon,
+  Add as AddIcon,
   LocationOn as LocationIcon,
   Power as PowerIcon,
   Speed as CapacityIcon,
@@ -45,7 +47,7 @@ const SiteCard = ({ site, onEdit, onDelete, userRole }) => {
   };
 
   return (
-    <Paper
+    <Card
       elevation={1}
       sx={{
         p: 3,
@@ -128,43 +130,66 @@ const SiteCard = ({ site, onEdit, onDelete, userRole }) => {
           </Button>
         </Box>
       )}
-    </Paper>
+    </Card>
   );
 };
 
 // Then define the ProductionSiteList component
-const ProductionSiteList = ({ sites, onEdit, onDelete, userRole }) => {
+const ProductionSiteList = ({ sites, onAdd, onEdit, onDelete, isAdmin }) => {
   return (
-    <Grid container spacing={3}>
-      {sites.map((site, index) => {
-        const companyId = site.companyId || 1; // Default companyId to 1
-        const productionSiteId = site.productionSiteId || `site-${index + 1}`; // Generate productionSiteId if null
-        const uniqueKey = `${companyId}_${productionSiteId}`;
-
-        return (
-          <Grid
-            item
-            xs={12}
-            sm={6}
-            md={4}
-            key={uniqueKey}
+    <Box sx={{ p: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
+        <Typography variant="h5">Production Sites</Typography>
+        {isAdmin && (
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={onAdd}
           >
-            <SiteCard
-              site={{
-                ...site,
-                companyId,
-                productionSiteId,
-                pk: uniqueKey
-              }}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              userRole={userRole}
-            />
-          </Grid>
-        );
-      })}
-    </Grid>
+            Add Site
+          </Button>
+        )}
+      </Box>
+
+      <Grid container spacing={3}>
+        {sites.map((site, index) => {
+          const companyId = site.companyId || 1; // Default companyId to 1
+          const productionSiteId = site.productionSiteId || `site-${index + 1}`; // Generate productionSiteId if null
+          const uniqueKey = `${companyId}_${productionSiteId}`;
+
+          return (
+            <Grid
+              item
+              xs={12}
+              sm={6}
+              md={4}
+              key={uniqueKey}
+            >
+              <SiteCard
+                site={{
+                  ...site,
+                  companyId,
+                  productionSiteId,
+                  pk: uniqueKey
+                }}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                userRole={isAdmin ? 'admin' : 'user'}
+              />
+            </Grid>
+          );
+        })}
+      </Grid>
+    </Box>
   );
+};
+
+ProductionSiteList.propTypes = {
+  sites: PropTypes.array.isRequired,
+  onAdd: PropTypes.func.isRequired,
+  onEdit: PropTypes.func.isRequired,
+  onDelete: PropTypes.func.isRequired,
+  isAdmin: PropTypes.bool
 };
 
 export default ProductionSiteList;

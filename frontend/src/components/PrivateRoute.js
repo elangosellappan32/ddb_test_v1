@@ -1,16 +1,30 @@
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { CircularProgress, Box } from '@mui/material';
 
 const PrivateRoute = ({ children }) => {
-  const { user } = useAuth();
+    const { isAuthenticated, loading } = useAuth();
+    const location = useLocation();
 
-  if (!user) {
-    // Redirect to login if not authenticated
-    return <Navigate to="/login" replace />;
-  }
+    if (loading) {
+        return (
+            <Box
+                display="flex"
+                justifyContent="center"
+                alignItems="center"
+                minHeight="100vh"
+            >
+                <CircularProgress />
+            </Box>
+        );
+    }
 
-  return children;
+    if (!isAuthenticated) {
+        return <Navigate to="/login" state={{ from: location }} replace />;
+    }
+
+    return children;
 };
 
 export default PrivateRoute;

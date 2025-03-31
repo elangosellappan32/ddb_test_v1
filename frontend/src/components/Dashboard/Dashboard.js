@@ -19,7 +19,8 @@ import {
   Assessment as ReportsIcon,
   WbSunny as SolarIcon,
   Air as WindIcon,
-  Power as PowerIcon
+  Power as PowerIcon,
+  Speed as EfficiencyIcon
 } from '@mui/icons-material';
 import productionSiteApi from '../../services/productionSiteapi';
 
@@ -54,29 +55,57 @@ const Dashboard = () => {
     total: 0,
     solar: 0,
     wind: 0,
-    totalCapacity: 0
+    totalCapacity: 0,
+    solarCapacity: 0,
+    windCapacity: 0,
+    efficiency: 0
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const calculateStats = useCallback((sites) => {
-    if (!Array.isArray(sites)) return stats;
+  const calculateStats = useCallback((response) => {
+    try {
+      const sites = response?.data || [];
+      console.log('[Dashboard] Processing sites:', sites);
 
-    return {
-      total: sites.length,
-      solar: sites.filter(site => site.type?.toLowerCase() === 'solar').length,
-      wind: sites.filter(site => site.type?.toLowerCase() === 'wind').length,
-      totalCapacity: sites.reduce((sum, site) => sum + Number(site.capacity_MW || 0), 0)
-    };
+      if (!Array.isArray(sites)) {
+        throw new Error('Invalid data format received from API');
+      }
+
+      const solarSites = sites.filter(site => site.type?.toLowerCase() === 'solar');
+      const windSites = sites.filter(site => site.type?.toLowerCase() === 'wind');
+
+      const solarCapacity = solarSites.reduce((sum, site) => sum + (Number(site.capacity_MW) || 0), 0);
+      const windCapacity = windSites.reduce((sum, site) => sum + (Number(site.capacity_MW) || 0), 0);
+      const totalCapacity = solarCapacity + windCapacity;
+
+      const activeSites = sites.filter(site => site.status?.toLowerCase() === 'active');
+      const efficiency = totalCapacity > 0 
+        ? (activeSites.reduce((sum, site) => sum + (Number(site.capacity_MW) || 0), 0) / totalCapacity) * 100 
+        : 0;
+
+      return {
+        total: sites.length,
+        solar: solarSites.length,
+        wind: windSites.length,
+        totalCapacity: totalCapacity.toFixed(2),
+        solarCapacity: solarCapacity.toFixed(2),
+        windCapacity: windCapacity.toFixed(2),
+        efficiency: efficiency.toFixed(1)
+      };
+    } catch (err) {
+      console.error('[Dashboard] Stats calculation error:', err);
+      throw err;
+    }
   }, []);
 
   const fetchStats = useCallback(async () => {
     try {
       setLoading(true);
       console.log('[Dashboard] Fetching sites for stats...');
-      const sites = await productionSiteApi.fetchAll();
-      console.log('[Dashboard] Calculating stats from sites:', sites);
-      const calculatedStats = calculateStats(sites);
+      const response = await productionSiteApi.fetchAll();
+      console.log('[Dashboard] API Response:', response);
+      const calculatedStats = calculateStats(response);
       console.log('[Dashboard] Calculated stats:', calculatedStats);
       setStats(calculatedStats);
       setError(null);
@@ -92,25 +121,24 @@ const Dashboard = () => {
     fetchStats();
   }, [fetchStats]);
 
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom>
+      <Typography variant="h4" gutterBottom sx={{ color: 'primary.main', fontWeight: 'bold' }}>
         Dashboard
       </Typography>
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+
       <Grid container spacing={3}>
-        {/* Production Card */}
+        {/* Production Overview Card */}
         <Grid item xs={12} md={6} lg={3}>
           <DashboardCard
             icon={FactoryIcon}
-            title="Production"
+            title="Production Overview"
             color="primary"
             onClick={() => navigate('/production')}
             content={
@@ -122,16 +150,16 @@ const Dashboard = () => {
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center' }}>
                     <SolarIcon sx={{ mr: 0.5, color: 'warning.main', fontSize: 'small' }} />
-                    <Typography color="textSecondary">Solar Sites:</Typography>
+                    <Typography color="textSecondary">Solar:</Typography>
                   </Box>
-                  <Typography>{stats.solar}</Typography>
+                  <Typography>{stats.solar} ({stats.solarCapacity} MW)</Typography>
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center' }}>
                     <WindIcon sx={{ mr: 0.5, color: 'success.main', fontSize: 'small' }} />
-                    <Typography color="textSecondary">Wind Sites:</Typography>
+                    <Typography color="textSecondary">Wind:</Typography>
                   </Box>
-                  <Typography>{stats.wind}</Typography>
+                  <Typography>{stats.wind} ({stats.windCapacity} MW)</Typography>
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -139,6 +167,13 @@ const Dashboard = () => {
                     <Typography color="textSecondary">Total Capacity:</Typography>
                   </Box>
                   <Typography>{stats.totalCapacity} MW</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <EfficiencyIcon sx={{ mr: 0.5, color: 'info.main', fontSize: 'small' }} />
+                    <Typography color="textSecondary">Efficiency:</Typography>
+                  </Box>
+                  <Typography>{stats.efficiency}%</Typography>
                 </Box>
               </Box>
             }
@@ -150,21 +185,25 @@ const Dashboard = () => {
           <DashboardCard
             icon={ConsumptionIcon}
             title="Consumption"
-            color="error"
+            color="success"
             onClick={() => navigate('/consumption')}
             content={
               <Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                  <Typography color="textSecondary">Total Units:</Typography>
-                  <Typography>125,000 kWh</Typography>
+                  <Typography color="textSecondary">Total Consumption:</Typography>
+                  <Typography>450 MW</Typography>
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                   <Typography color="textSecondary">Peak Load:</Typography>
-                  <Typography>15.2 MW</Typography>
+                  <Typography>680 MW</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography color="textSecondary">Current Load:</Typography>
+                  <Typography>425 MW</Typography>
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography color="textSecondary">Daily Avg:</Typography>
-                  <Typography>4,167 kWh</Typography>
+                  <Typography color="textSecondary">Load Factor:</Typography>
+                  <Typography>85%</Typography>
                 </Box>
               </Box>
             }
@@ -176,21 +215,25 @@ const Dashboard = () => {
           <DashboardCard
             icon={AllocationIcon}
             title="Allocation"
-            color="success"
+            color="warning"
             onClick={() => navigate('/allocation')}
             content={
               <Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                   <Typography color="textSecondary">Total Allocated:</Typography>
-                  <Typography>95,000 kWh</Typography>
+                  <Typography>{stats.totalCapacity} MW</Typography>
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                  <Typography color="textSecondary">Available:</Typography>
-                  <Typography>30,000 kWh</Typography>
+                  <Typography color="textSecondary">Units Allocated:</Typography>
+                  <Typography>{stats.total}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography color="textSecondary">Pending:</Typography>
+                  <Typography>2</Typography>
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography color="textSecondary">Efficiency:</Typography>
-                  <Typography>76%</Typography>
+                  <Typography color="textSecondary">Allocation Rate:</Typography>
+                  <Typography>92%</Typography>
                 </Box>
               </Box>
             }
@@ -207,16 +250,20 @@ const Dashboard = () => {
             content={
               <Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                  <Typography color="textSecondary">Monthly Reports:</Typography>
-                  <Typography>12</Typography>
+                  <Typography color="textSecondary">Daily Reports:</Typography>
+                  <Typography>24</Typography>
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                  <Typography color="textSecondary">Last Updated:</Typography>
-                  <Typography>Today</Typography>
+                  <Typography color="textSecondary">Monthly Reports:</Typography>
+                  <Typography>4</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography color="textSecondary">Pending Review:</Typography>
+                  <Typography>3</Typography>
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography color="textSecondary">Compliance:</Typography>
-                  <Typography>100%</Typography>
+                  <Typography color="textSecondary">Compliance Rate:</Typography>
+                  <Typography>98%</Typography>
                 </Box>
               </Box>
             }

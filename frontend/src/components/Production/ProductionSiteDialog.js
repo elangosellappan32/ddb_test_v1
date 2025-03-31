@@ -11,9 +11,50 @@ import {
 } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
 import ProductionSiteForm from './ProductionSiteForm';
+import { useSnackbar } from 'notistack';
+import * as Yup from 'yup';
 
-const ProductionSiteDialog = ({ open, onClose, onSubmit, initialData, loading }) => {
+const validationSchema = Yup.object({
+  name: Yup.string()
+    .required('Name is required')
+    .min(3, 'Name must be at least 3 characters'),
+  type: Yup.string()
+    .required('Type is required')
+    .oneOf(['wind', 'solar'], 'Invalid type'),
+  location: Yup.string().required('Location is required'),
+  capacity_MW: Yup.number()
+    .required('Capacity is required')
+    .min(0, 'Must be positive')
+    .typeError('Must be a number'),
+  injectionVoltage_KV: Yup.number()
+    .required('Injection voltage is required')
+    .min(0, 'Must be positive')
+    .typeError('Must be a number'),
+  annualProduction_L: Yup.number()
+    .required('Annual Production is required')
+    .min(0, 'Must be positive')
+    .typeError('Must be a number'),
+  htscNo: Yup.string().required('HTSC No is required'),
+  banking: Yup.number()
+    .required('Banking status is required')
+    .oneOf([0, 1], 'Invalid banking value')
+});
+
+const initialValues = {
+  name: '',
+  type: 'wind',
+  location: '',
+  capacity_MW: '',
+  injectionVoltage_KV: '',
+  annualProduction_L: '',
+  htscNo: '',
+  banking: 0,
+  status: 'active'
+};
+
+const ProductionSiteDialog = ({ open, onClose, onSubmit, initialData, loading, permissions }) => {
   const [formData, setFormData] = useState(null);
+  const { enqueueSnackbar } = useSnackbar();
 
   useEffect(() => {
     if (initialData && open) {
@@ -32,9 +73,20 @@ const ProductionSiteDialog = ({ open, onClose, onSubmit, initialData, loading })
     }
   };
 
-  const handleSubmit = (data) => {
-    console.log('[ProductionSiteDialog] Submitting form data:', data);
-    onSubmit(data);
+  const handleSubmit = async (values) => {
+    try {
+      await onSubmit(values);
+      onClose();
+    } catch (error) {
+      if (error.message.includes('Version conflict')) {
+        // Automatically refresh data and retry
+        enqueueSnackbar('Please try your changes again.', {
+          variant: 'info'
+        });
+      } else {
+        throw error;
+      }
+    }
   };
 
   return (
@@ -85,6 +137,7 @@ const ProductionSiteDialog = ({ open, onClose, onSubmit, initialData, loading })
               onSubmit={handleSubmit}
               onCancel={handleClose}
               loading={loading}
+              readOnly={!permissions?.update && !permissions?.create}
             />
           )}
         </Box>
@@ -98,7 +151,8 @@ ProductionSiteDialog.propTypes = {
   onClose: PropTypes.func.isRequired,
   onSubmit: PropTypes.func.isRequired,
   initialData: PropTypes.object,
-  loading: PropTypes.bool
+  loading: PropTypes.bool,
+  permissions: PropTypes.object
 };
 
 export default ProductionSiteDialog;

@@ -1,89 +1,60 @@
 import React from 'react';
-import {
-  Card,
-  CardContent,
-  Typography,
-  Box,
-  Chip,
-  Grid
-} from '@mui/material';
-import {
+import { Paper, Typography, Grid, Box } from '@mui/material';
+import { 
+  Factory as FactoryIcon, 
   LocationOn as LocationIcon,
-  Speed as CapacityIcon,
-  ElectricBolt as VoltageIcon,
-  Assignment as HtscIcon,
-  AccountBalance as BankingIcon
+  Power as PowerIcon,
+  BatteryChargingFull as VoltageIcon
 } from '@mui/icons-material';
 
 const SiteInfoCard = ({ site }) => {
-  // Helper function to format banking status
-  const getBankingStatus = (banking) => {
-    return banking === true || banking === "true" || banking === 1;
+  if (!site) return null;
+
+  const siteInfo = {
+    name: site.name || '',
+    location: site.location || '',
+    capacity: site.capacity_MW || 0,
+    voltage: site.injectionVoltage_KV || 0,
+    type: site.type || '',
+    htscNo: site.htscNo || ''
   };
 
   return (
-    <Card elevation={3} sx={{ mb: 3 }}>
-      <CardContent>
-        <Typography variant="h5" gutterBottom>
-          {site?.name || 'Site Name Not Available'}
-        </Typography>
-        
-        <Grid container spacing={3}>
-          {/* Location */}
-          <Grid item xs={12} sm={6}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <LocationIcon color="primary" />
-              <Typography variant="body1">
-                <strong>Location:</strong> {site?.location || 'Not specified'}
-              </Typography>
-            </Box>
-          </Grid>
-
-          {/* Capacity */}
-          <Grid item xs={12} sm={6}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <CapacityIcon color="secondary" />
-              <Typography variant="body1">
-                <strong>Capacity:</strong> {site?.capacity_MW || '0'} MW
-              </Typography>
-            </Box>
-          </Grid>
-
-          {/* Injection Voltage */}
-          <Grid item xs={12} sm={6}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <VoltageIcon color="warning" />
-              <Typography variant="body1">
-                <strong>Injection Voltage:</strong> {site?.injectionVoltage_KV || '0'} KV
-              </Typography>
-            </Box>
-          </Grid>
-
-          {/* HTSC Number */}
-          <Grid item xs={12} sm={6}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <HtscIcon color="info" />
-              <Typography variant="body1">
-                <strong>HTSC Number:</strong> {site?.htscNo || 'Not specified'}
-              </Typography>
-            </Box>
-          </Grid>
-
-          {/* Banking Status */}
-          <Grid item xs={12}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <BankingIcon color={getBankingStatus(site?.banking) ? "success" : "error"} />
-              <Chip
-                label={getBankingStatus(site?.banking) ? "Banking Enabled" : "Banking Disabled"}
-                color={getBankingStatus(site?.banking) ? "success" : "error"}
-                variant="outlined"
-                size="small"
-              />
-            </Box>
-          </Grid>
+    <Paper sx={{ p: 3, mb: 3 }}>
+      <Typography variant="h5" gutterBottom>
+        Site Information
+      </Typography>
+      <Grid container spacing={3}>
+        <Grid item xs={12} md={6}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <FactoryIcon sx={{ mr: 1, color: 'primary.main' }} />
+            <Typography>
+              <strong>Name:</strong> {siteInfo.name}
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <LocationIcon sx={{ mr: 1, color: 'error.main' }} />
+            <Typography>
+              <strong>Location:</strong> {siteInfo.location}
+            </Typography>
+          </Box>
         </Grid>
-      </CardContent>
-    </Card>
+        <Grid item xs={12} md={6}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <PowerIcon sx={{ mr: 1, color: 'success.main' }} />
+            <Typography>
+              <strong>Capacity:</strong> {siteInfo.capacity} MW
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <VoltageIcon sx={{ mr: 1, color: 'warning.main' }} />
+            <Typography>
+              <strong>Injection Voltage:</strong> {siteInfo.voltage} KV
+            </Typography>
+          </Box>
+        </Grid>
+      </Grid>
+    </Paper>
   );
 };
 

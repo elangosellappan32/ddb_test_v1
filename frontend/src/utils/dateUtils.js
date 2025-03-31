@@ -37,7 +37,10 @@ export const formatToSK = (date) => {
 };
 
 export const parseSKToDate = (sk) => {
-  return parse(sk, 'MMyyyy', new Date());
+  if (!sk || sk.length !== 6) return null;
+  const month = parseInt(sk.substring(0, 2)) - 1;
+  const year = parseInt(sk.substring(2));
+  return new Date(year, month);
 };
 
 export const formatDisplayDate = (sk) => {
@@ -93,4 +96,9 @@ export const parseAPIDate = (dateString) => {
     console.error('Error parsing API date:', error);
     return new Date();
   }
+};
+
+export const formatDateToMMYYYY = (date) => {
+  const d = new Date(date);
+  return `${String(d.getMonth() + 1).padStart(2, '0')}${d.getFullYear()}`;
 };

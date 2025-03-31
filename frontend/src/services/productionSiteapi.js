@@ -1,5 +1,10 @@
-import api, { handleApiError } from './apiUtils';
+import api from './apiUtils';
 import { API_CONFIG } from '../config/api.config';
+
+const handleApiError = (error) => {
+  console.error('API Error:', error);
+  throw new Error(error.response?.data?.message || error.message || 'An error occurred');
+};
 
 const generatePK = (companyId, productionSiteId) => `${companyId}_${productionSiteId}`;
 
@@ -8,14 +13,32 @@ const formatDateToMMYYYY = (date) => {
   return `${String(d.getMonth() + 1).padStart(2, '0')}${d.getFullYear()}`;
 };
 
+const formatSiteData = (data) => ({
+  companyId: Number(data.companyId) || 1,
+  productionSiteId: Number(data.productionSiteId),
+  name: data.name,
+  type: data.type,
+  location: data.location,
+  capacity_MW: Number(data.capacity_MW),
+  injectionVoltage_KV: Number(data.injectionVoltage_KV),
+  annualProduction_L: Number(data.annualProduction), // Match the backend field name
+  htscNo: data.htscNo,
+  banking: Number(data.banking),
+  status: data.status || 'Active',
+  version: Number(data.version) || 1
+});
+
 const productionSiteApi = {
   fetchAll: async () => {
     try {
       console.log('[ProductionSiteAPI] Fetching all sites');
       const response = await api.get(API_CONFIG.ENDPOINTS.PRODUCTION.SITE.GET_ALL);
-      return response.data;
+      return {
+        data: Array.isArray(response.data) ? response.data.map(formatSiteData) : []
+      };
     } catch (error) {
-      throw handleApiError(error);
+      console.error('[ProductionSiteAPI] Error:', error);
+      throw error;
     }
   },
 
@@ -33,13 +56,13 @@ const productionSiteApi = {
 
   create: async (data) => {
     try {
-      // First fetch all sites to determine next productionSiteId
       const response = await api.get(API_CONFIG.ENDPOINTS.PRODUCTION.SITE.GET_ALL);
       const existingSites = response.data || [];
       const nextSiteId = existingSites.length + 1;
 
+      // Transform the data before sending to API
       const siteData = {
-        ...data,
+        ...formatSiteData(data),
         companyId: 1,
         productionSiteId: nextSiteId,
         pk: generatePK(1, nextSiteId),
@@ -54,7 +77,12 @@ const productionSiteApi = {
       const createResponse = await api.post(API_CONFIG.ENDPOINTS.PRODUCTION.SITE.CREATE, siteData);
       return createResponse.data;
     } catch (error) {
-      throw handleApiError(error);
+      if (error.response?.status === 400) {
+        // Add specific error handling for validation errors
+        const errorMessage = error.response.data?.message || 'Validation failed';
+        throw new Error(errorMessage);
+      }
+      return handleApiError(error);
     }
   },
 
@@ -76,7 +104,7 @@ const productionSiteApi = {
       );
       return response.data;
     } catch (error) {
-      throw handleApiError(error);
+      return handleApiError(error);
     }
   },
 
@@ -88,7 +116,7 @@ const productionSiteApi = {
       );
       return response.data;
     } catch (error) {
-      throw handleApiError(error);
+      return handleApiError(error);
     }
   }
 };

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useSnackbar } from 'notistack';
 import {
   Table,
   TableBody,
@@ -6,89 +7,329 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
   IconButton,
-  Tooltip
+  Typography,
+  Paper
 } from '@mui/material';
-import {
-  Edit as EditIcon,
-  Delete as DeleteIcon
-} from '@mui/icons-material';
-import { formatDisplayDate } from '../../utils/dateUtils';
+import { Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
 
 const ProductionDataTable = ({ 
-  data = [], 
-  type = 'unit', 
+  data, 
+  type, 
   onEdit, 
-  onDelete 
+  onDelete, 
+  permissions,
+  isProductionPage = false 
 }) => {
-  const formatValue = (value) => {
-    const num = parseFloat(value);
-    return isNaN(num) ? '0.00' : num.toFixed(2);
-  };
+  const { enqueueSnackbar } = useSnackbar();
 
-  const calculateTotal = (row) => {
-    if (type === 'unit') {
-      return ['c1', 'c2', 'c3', 'c4', 'c5'].reduce((sum, key) => 
-        sum + (parseFloat(row[key]) || 0), 0
-      );
-    }
-    return Array.from({length: 10}, (_, i) => 
-      `c${String(i + 1).padStart(3, '0')}`
-    ).reduce((sum, key) => sum + (parseFloat(row[key]) || 0), 0);
-  };
-
-  const columns = type === 'unit' 
-    ? ['Period', 'C1', 'C2', 'C3', 'C4', 'C5', 'Total', 'Actions']
-    : ['Period', 'C001', 'C002', 'C003', 'C004', 'C005', 'C006', 'C007', 'C008', 'C009', 'C010', 'Total', 'Actions'];
-
-  const renderCells = (row) => {
-    if (type === 'unit') {
-      return ['c1', 'c2', 'c3', 'c4', 'c5'].map(key => (
-        <TableCell key={key}>{formatValue(row[key])}</TableCell>
-      ));
+  const tableData = React.useMemo(() => {
+    // Handle both array and object data structures
+    const dataArray = Array.isArray(data) ? data : (data?.data || []);
+    
+    if (!dataArray.length) {
+      console.log('[ProductionDataTable] No data available');
+      return [];
     }
 
-    return Array.from({length: 10}, (_, i) => {
-      const key = `c${String(i + 1).padStart(3, '0')}`;
-      return <TableCell key={key}>{formatValue(row[key])}</TableCell>;
+    return dataArray.map(row => ({
+      ...row,
+      // Create a truly unique identifier using multiple fields
+      uniqueId: `${row.sk || ''}_${row.productionSiteId || ''}_${type}_${row.id || Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    })).sort((a, b) => {
+      // Handle cases where date might be undefined
+      if (!a.date || !b.date) {
+        return !a.date ? 1 : -1;
+      }
+
+      // Safe substring operations with validation
+      try {
+        const yearA = a.date.substring(2);
+        const yearB = b.date.substring(2);
+        const monthA = a.date.substring(0, 2);
+        const monthB = b.date.substring(0, 2);
+        
+        // Sort by year first
+        if (yearA !== yearB) {
+          return parseInt(yearB, 10) - parseInt(yearA, 10);
+        }
+        // Then by month
+        if (monthA !== monthB) {
+          return parseInt(monthB, 10) - parseInt(monthA, 10);
+        }
+      } catch (error) {
+        console.error('[ProductionDataTable] Sorting error:', error);
+      }
+      
+      // Finally by site ID
+      return (b.productionSiteId || 0) - (a.productionSiteId || 0);
+    });
+  }, [data, type]);
+
+  const formatDisplayDate = (dateString, row) => {
+    if (!dateString) return 'N/A';
+    
+    try {
+      const monthNames = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      ];
+
+      // First check if we have a displayDate field
+      if (row && row.displayDate) {
+        return row.displayDate;
+      }
+      
+      // Otherwise parse from the sk or date field
+      const date = dateString.length === 6 ? dateString : (row?.sk || '');
+      if (!date || date.length !== 6) {
+        console.warn('[ProductionDataTable] Invalid date format:', dateString);
+        return 'N/A';
+      }
+
+      const month = date.substring(0, 2);
+      const year = date.substring(2);
+      const monthIndex = parseInt(month, 10) - 1;
+      
+      if (monthIndex < 0 || monthIndex >= 12) {
+        console.warn('[ProductionDataTable] Invalid month:', month);
+        return dateString;
+      }
+      
+      return `${monthNames[monthIndex]} ${year}`;
+    } catch (error) {
+      console.error('[ProductionDataTable] Date formatting error:', error);
+      return 'N/A';
+    }
+  };
+
+  const renderUnitColumns = () => (
+    <>
+      <TableCell align="right">C1</TableCell>
+      <TableCell align="right">C2</TableCell>
+      <TableCell align="right">C3</TableCell>
+      <TableCell align="right">C4</TableCell>
+      <TableCell align="right">C5</TableCell>
+    </>
+  );
+
+  const renderChargeColumns = () => (
+    <>
+      <TableCell align="right">C001</TableCell>
+      <TableCell align="right">C002</TableCell>
+      <TableCell align="right">C003</TableCell>
+      <TableCell align="right">C004</TableCell>
+      <TableCell align="right">C005</TableCell>
+      <TableCell align="right">C006</TableCell>
+      <TableCell align="right">C007</TableCell>
+      <TableCell align="right">C008</TableCell>
+      <TableCell align="right">C009</TableCell>
+      <TableCell align="right">C010</TableCell>
+    </>
+  );
+
+  const renderUnitValues = (row) => (
+    <>
+      {['c1', 'c2', 'c3', 'c4', 'c5'].map((field) => (
+        <TableCell 
+          key={`${row.uniqueId}_${field}`} 
+          align="right" 
+          sx={{ 
+            color: 'success.main',
+            '&:hover': {
+              color: 'success.dark'
+            }
+          }}
+        >
+          {Number(row[field] || 0).toLocaleString()}
+        </TableCell>
+      ))}
+    </>
+  );
+
+  const renderChargeValues = (row) => (
+    <>
+      {[...Array(10)].map((_, i) => {
+        const field = `c${(i + 1).toString().padStart(3, '0')}`;
+        return (
+          <TableCell 
+            key={`${row.uniqueId}_${field}`} 
+            align="right" 
+            sx={{ 
+              color: 'warning.dark',
+              '&:hover': {
+                color: 'warning.main'
+              }
+            }}
+          >
+            {Number(row[field] || 0).toLocaleString()}
+          </TableCell>
+        );
+      })}
+    </>
+  );
+
+  // Add function to check if date exists for site
+  const checkDateExistsForSite = (dateToCheck, siteId) => {
+    if (!data?.data || !Array.isArray(data.data)) return false;
+    
+    return data.data.some(row => {
+      const existingDate = row.sk || row.date;
+      return existingDate === dateToCheck && row.productionSiteId === siteId;
     });
   };
 
+  // Update renderTableRow to show existing data indicator
+  const renderTableRow = (row) => (
+    <TableRow 
+      key={row.uniqueId}
+      sx={{
+        backgroundColor: row.isExisting ? 'action.hover' : 'inherit'
+      }}
+    >
+      <TableCell>
+        <Typography>
+          {formatDisplayDate(row.sk || row.date, row)}
+          <Typography 
+            variant="caption" 
+            color="textSecondary" 
+            component="span"
+            sx={{ ml: 1 }}
+          >
+            {`(Site ${row.productionSiteId})`}
+            {row.isExisting && (
+              <Typography 
+                component="span" 
+                color="error" 
+                sx={{ ml: 1 }}
+              >
+                • Existing Entry
+              </Typography>
+            )}
+          </Typography>
+        </Typography>
+      </TableCell>
+      {type === 'unit' ? renderUnitValues(row) : renderChargeValues(row)}
+      {renderActions(row)}
+    </TableRow>
+  );
+
+  // Add validation before adding/editing data
+  const handleDataAction = (action, rowData) => {
+    const dateExists = checkDateExistsForSite(
+      rowData.sk || rowData.date, 
+      rowData.productionSiteId
+    );
+
+    if (action === 'add' && dateExists) {
+      enqueueSnackbar(
+        `Data already exists for ${formatDisplayDate(rowData.sk || rowData.date)} in Site ${rowData.productionSiteId}`, 
+        { variant: 'error' }
+      );
+      return false;
+    }
+
+    return true;
+  };
+
+  // Render actions only if permissions allow
+  const renderActions = (row) => {
+    if (!permissions?.update && !permissions?.delete) return null;
+
+    return (
+      <TableCell align="right">
+        {permissions?.update && onEdit && (
+          <IconButton onClick={() => onEdit(row)}>
+            <EditIcon />
+          </IconButton>
+        )}
+        {permissions?.delete && onDelete && (
+          <IconButton onClick={() => onDelete(row)}>
+            <DeleteIcon />
+          </IconButton>
+        )}
+      </TableCell>
+    );
+  };
+
+  if (!tableData.length) {
+    return (
+      <Paper sx={{ p: 2, textAlign: 'center' }}>
+        <Typography color="textSecondary">
+          No {type} data available
+        </Typography>
+      </Paper>
+    );
+  }
+
   return (
     <TableContainer component={Paper}>
-      <Table>
+      <Table size="medium">
         <TableHead>
           <TableRow>
-            {columns.map(column => (
-              <TableCell key={column}>{column}</TableCell>
-            ))}
+            <TableCell>Month</TableCell>
+            {type === 'unit' ? (
+              <>
+                {['C1', 'C2', 'C3', 'C4', 'C5'].map((header) => (
+                  <TableCell 
+                    key={`header_${header}`}
+                    align="right" 
+                    sx={{ 
+                      color: 'success.main',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    {header}
+                  </TableCell>
+                ))}
+              </>
+            ) : (
+              <>
+                {[...Array(10)].map((_, i) => (
+                  <TableCell 
+                    key={`header_c${(i + 1).toString().padStart(3, '0')}`}
+                    align="right"
+                    sx={{ 
+                      color: 'warning.dark',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    {`C${(i + 1).toString().padStart(3, '0')}`}
+                  </TableCell>
+                ))}
+              </>
+            )}
+            <TableCell align="right">Actions</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
-          {data.map((row) => (
-            <TableRow key={row.sk || row.id}>
-              <TableCell>{formatDisplayDate(row.sk)}</TableCell>
-              {renderCells(row)}
-              <TableCell>{formatValue(calculateTotal(row))}</TableCell>
-              <TableCell>
-                <Tooltip title="Edit">
-                  <IconButton onClick={() => onEdit?.(row)}>
-                    <EditIcon />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Delete">
-                  <IconButton onClick={() => onDelete?.(row)}>
-                    <DeleteIcon />
-                  </IconButton>
-                </Tooltip>
-              </TableCell>
-            </TableRow>
-          ))}
+          {tableData.map(renderTableRow)}
         </TableBody>
       </Table>
     </TableContainer>
   );
+};
+
+// Export the validation function to be used in the form component
+export const validateProductionData = (newData, existingData) => {
+  if (!existingData || !Array.isArray(existingData)) return { isValid: true };
+
+  // Check if data exists for this SK (date) and PK (site) and same type
+  const duplicateEntry = existingData.find(item => 
+    item.sk === newData.sk && 
+    item.pk === `${newData.companyId}_${newData.productionSiteId}` &&
+    item.type === newData.type  // Add type check
+  );
+
+  if (duplicateEntry) {
+    const monthYear = newData.sk.replace(/^(\d{2})(\d{4})$/, '$1/$2');
+    return {
+      isValid: false,
+      error: `${newData.type.toLowerCase()} data already exists for period ${monthYear} in Site ${newData.productionSiteId}`
+    };
+  }
+
+  return { isValid: true };
 };
 
 export default ProductionDataTable;

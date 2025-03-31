@@ -1,14 +1,29 @@
 export const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3333/api';
 
 export const API_CONFIG = {
+  BASE_URL: API_BASE_URL,
   TIMEOUT: 10000,
   RETRY_ATTEMPTS: 3,
+  RETRY_DELAY: 1000,
   TABLES: {
-    PRODUCTION_SITE: 'ProductionSite',
-    PRODUCTION_UNIT: 'ProductionUnit',
-    PRODUCTION_CHARGE: 'ProductionCharge'
+    ROLE: 'RoleTable',
+    PRODUCTION_SITE: 'ProductionSiteTable',
+    PRODUCTION_UNIT: 'ProductionUnitTable',
+    PRODUCTION_CHARGE: 'ProductionChargeTable'
   },
   ENDPOINTS: {
+    AUTH: {
+      BASE: '/auth',
+      LOGIN: '/auth/login',
+      VERIFY: '/auth/verify',
+      GET_CURRENT_USER: '/auth/me',
+    },
+    ROLES: {
+      BASE: '/roles',
+      GET_ALL: '/roles/all',
+      GET_BY_ID: (roleId) => `/roles/${roleId}`,
+      GET_BY_USERNAME: (username) => `/roles/user/${username}`,
+    },
     PRODUCTION: {
       SITE: {
         BASE: '/production-site',
@@ -25,27 +40,27 @@ export const API_CONFIG = {
         BASE: '/production-unit',
         GET_ALL: (companyId, productionSiteId) => 
           `/production-unit/${companyId}/${productionSiteId}/all`,
-        GET_ONE: (companyId, productionSiteId, sk) => 
-          `/production-unit/${companyId}/${productionSiteId}/${sk}`,
+        GET_ONE: (companyId, productionSiteId, unitId) => 
+          `/production-unit/${companyId}/${productionSiteId}/${unitId}`,
         CREATE: (companyId, productionSiteId) => 
           `/production-unit/${companyId}/${productionSiteId}`,
-        UPDATE: (companyId, productionSiteId, sk) => 
-          `/production-unit/${companyId}/${productionSiteId}/${sk}`,
-        DELETE: (companyId, productionSiteId, sk) => 
-          `/production-unit/${companyId}/${productionSiteId}/${sk}`
+        UPDATE: (companyId, productionSiteId, unitId) => 
+          `/production-unit/${companyId}/${productionSiteId}/${unitId}`,
+        DELETE: (companyId, productionSiteId, unitId) => 
+          `/production-unit/${companyId}/${productionSiteId}/${unitId}`
       },
       CHARGE: {
         BASE: '/production-charge',
         GET_ALL: (companyId, productionSiteId) => 
-          `/production-charge/${companyId}/${productionSiteId}/all`, 
-        GET_ONE: (companyId, productionSiteId, sk) => 
-          `/production-charge/${companyId}/${productionSiteId}/${sk}`,
+          `/production-charge/${companyId}/${productionSiteId}/all`,
+        GET_ONE: (companyId, productionSiteId, chargeId) => 
+          `/production-charge/${companyId}/${productionSiteId}/${chargeId}`,
         CREATE: (companyId, productionSiteId) => 
           `/production-charge/${companyId}/${productionSiteId}`,
-        UPDATE: (companyId, productionSiteId, sk) => 
-          `/production-charge/${companyId}/${productionSiteId}/${sk}`,
-        DELETE: (companyId, productionSiteId, sk) => 
-          `/production-charge/${companyId}/${productionSiteId}/${sk}`
+        UPDATE: (companyId, productionSiteId, chargeId) => 
+          `/production-charge/${companyId}/${productionSiteId}/${chargeId}`,
+        DELETE: (companyId, productionSiteId, chargeId) => 
+          `/production-charge/${companyId}/${productionSiteId}/${chargeId}`
       }
     }
   }
@@ -54,4 +69,66 @@ export const API_CONFIG = {
 export const API_HEADERS = {
   'Content-Type': 'application/json',
   'Accept': 'application/json'
+};
+
+export const getAuthHeader = () => {
+  const token = localStorage.getItem('token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+};
+
+export const API_MESSAGES = {
+  AUTH: {
+    LOGIN_SUCCESS: 'Login successful',
+    LOGIN_FAILED: 'Invalid username or password',
+    LOGOUT_SUCCESS: 'Logged out successfully',
+    SESSION_EXPIRED: 'Your session has expired. Please login again',
+    UNAUTHORIZED: 'You are not authorized to perform this action'
+  },
+  PRODUCTION: {
+    SITE_CREATED: 'Production site created successfully',
+    SITE_UPDATED: 'Production site updated successfully',
+    SITE_DELETED: 'Production site deleted successfully',
+    UNIT_CREATED: 'Production unit created successfully',
+    UNIT_UPDATED: 'Production unit updated successfully',
+    UNIT_DELETED: 'Production unit deleted successfully',
+    CHARGE_CREATED: 'Production charge created successfully',
+    CHARGE_UPDATED: 'Production charge updated successfully',
+    CHARGE_DELETED: 'Production charge deleted successfully'
+  }
+};
+
+export const ROLES = {
+  ADMIN: 'admin',
+  USER: 'user',
+  VIEWER: 'viewer'
+};
+
+export const ROLE_PERMISSIONS = {
+  [ROLES.ADMIN]: {
+    canCreateUser: true,
+    canUpdateRole: true,
+    canDeleteUser: true,
+    canViewAllUsers: true,
+    canUpdatePassword: true,
+    canAccessProduction: true,
+    roleId: 'ROLE-1'
+  },
+  [ROLES.USER]: {
+    canCreateUser: false,
+    canUpdateRole: false,
+    canDeleteUser: false,
+    canViewAllUsers: false,
+    canUpdatePassword: true,
+    canAccessProduction: true,
+    roleId: 'ROLE-2'
+  },
+  [ROLES.VIEWER]: {
+    canCreateUser: false,
+    canUpdateRole: false,
+    canDeleteUser: false,
+    canViewAllUsers: false,
+    canUpdatePassword: true,
+    canAccessProduction: false,
+    roleId: 'ROLE-3'
+  }
 };

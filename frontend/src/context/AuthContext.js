@@ -1,103 +1,99 @@
-import React, { createContext, useState, useContext, useCallback } from 'react';
-import { navigate } from '../utils/navigation';
-
-// Define user roles and credentials
-const USERS = {
-  'testcase1': {
-    username: 'testcase1',
-    password: 'test123',
-    name: 'TestCase 1',
-    role: 'user',
-    token: 'mock-token-1'
-  },
-  'strio_admin': {
-    username: 'strio_admin',
-    password: 'admin123',
-    name: 'STRIO Admin',
-    role: 'admin',
-    token: 'mock-token-admin'
-  },
-  'strio_user': {
-    username: 'strio_user',
-    password: 'user123',
-    name: 'STRIO User',
-    role: 'user',
-    token: 'mock-token-2'
-  }
-};
+import React, { createContext, useState, useContext, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Box, CircularProgress } from '@mui/material';
+import { useSnackbar } from 'notistack';
+import authService from '../services/authService';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-
-  const login = useCallback(async (credentials) => {
-    const { username, password } = credentials;
-    
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        const foundUser = Object.values(USERS).find(
-          u => u.username === username && u.password === password
-        );
-
-        if (foundUser) {
-          const userInfo = {
-            ...foundUser,
-            password: undefined
-          };
-          
-          setUser(userInfo);
-          localStorage.setItem('user', JSON.stringify(userInfo));
-          navigate('/'); // Use navigation utility
-          resolve(userInfo);
-        } else {
-          reject(new Error('Invalid credentials'));
+    const [user, setUser] = useState(() => {
+        const savedUser = localStorage.getItem('user');
+        if (savedUser) {
+            try {
+                const parsed = JSON.parse(savedUser);
+                // Ensure role is properly set
+                return {
+                    ...parsed,
+                    role: parsed.role?.toUpperCase() || 'VIEWER' // Default to VIEWER if no role
+                };
+            } catch (e) {
+                console.error('Failed to parse saved user:', e);
+                return null;
+            }
         }
-      }, 500);
+        return null;
     });
-  }, []);
+    const [loading, setLoading] = useState(true);
+    const navigate = useNavigate();
+    const { enqueueSnackbar } = useSnackbar();
 
-  const logout = useCallback(() => {
-    setUser(null);
-    localStorage.removeItem('user');
-    navigate('/login'); // Use navigation utility
-  }, []);
+    const initAuth = useCallback(async () => {
+        try {
+            const currentUser = authService.getCurrentUser();
+            if (currentUser) {
+                setUser(currentUser);
+            }
+        } catch (error) {
+            console.error('Auth initialization error:', error);
+            authService.logout();
+            setUser(null);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
 
-  // Check for existing authentication on initial load
-  React.useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      try {
-        const parsedUser = JSON.parse(storedUser);
-        setUser(parsedUser);
-      } catch (error) {
-        localStorage.removeItem('user');
-      }
+    useEffect(() => {
+        initAuth();
+    }, [initAuth]);
+
+    const login = async (username, password) => {
+        try {
+            const response = await authService.login(username, password);
+            setUser(response.user);
+            
+            enqueueSnackbar(`Welcome ${response.user.username}!`, { 
+                variant: 'success',
+                autoHideDuration: 3000
+            });
+
+            navigate('/dashboard');
+            return response;
+        } catch (error) {
+            enqueueSnackbar(error.message || 'Login failed', { 
+                variant: 'error' 
+            });
+            throw error;
+        }
+    };
+
+    const logout = () => {
+        authService.logout();
+        setUser(null);
+        enqueueSnackbar('Logged out successfully', { 
+            variant: 'info' 
+        });
+        navigate('/login');
+    };
+
+    if (loading) {
+        return (
+            <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
+                <CircularProgress />
+            </Box>
+        );
     }
-  }, []);
 
-  const value = {
-    user,
-    login,
-    logout,
-    USERS
-  };
-
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+    return (
+        <AuthContext.Provider value={{
+            user,
+            login,
+            logout,
+            isAuthenticated: !!user
+        }}>
+            {children}
+        </AuthContext.Provider>
+    );
 };
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (context === null) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
-
-export const hasPermission = (user, requiredRole) => {
-  return user && user.role === requiredRole;
-};
+export const useAuth = () => useContext(AuthContext);

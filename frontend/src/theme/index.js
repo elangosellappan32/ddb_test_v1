@@ -6,7 +6,7 @@ const theme = createTheme({
       main: '#1976d2',
       light: '#42a5f5',
       dark: '#1565c0',
-      contrastText: '#ffffff'
+      contrastText: '#fff'
     },
     secondary: {
       main: '#dc004e',
@@ -35,6 +35,9 @@ const theme = createTheme({
   },
   components: {
     MuiButton: {
+      defaultProps: {
+        size: 'medium'
+      },
       styleOverrides: {
         root: {
           textTransform: 'none',
@@ -45,7 +48,7 @@ const theme = createTheme({
         contained: {
           boxShadow: 'none',
           '&:hover': {
-            boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+            boxShadow: 'none'
           }
         }
       }
@@ -66,6 +69,28 @@ const theme = createTheme({
           '&:hover': {
             transform: 'translateY(-4px)'
           }
+        }
+      }
+    },
+    MuiTextField: {
+      defaultProps: {
+        variant: 'outlined',
+        size: 'medium'
+      },
+      styleOverrides: {
+        root: {
+          '& .MuiOutlinedInput-root': {
+            '&.Mui-focused fieldset': {
+              borderColor: '#1976d2'
+            }
+          }
+        }
+      }
+    },
+    MuiInputAdornment: {
+      styleOverrides: {
+        root: {
+          color: '#1976d2'
         }
       }
     }

@@ -6,6 +6,7 @@ const {
     GetCommand,
     QueryCommand,
     ScanCommand,
+    UpdateCommand,
     DeleteCommand
 } = require('@aws-sdk/lib-dynamodb');
 const Decimal = require('decimal.js');

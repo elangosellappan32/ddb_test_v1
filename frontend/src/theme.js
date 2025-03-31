@@ -5,12 +5,14 @@ const theme = createTheme({
     primary: {
       main: '#1976d2',
       light: '#42a5f5',
-      dark: '#1565c0'
+      dark: '#1565c0',
+      contrastText: '#fff',
     },
     secondary: {
       main: '#9c27b0',
       light: '#ba68c8',
-      dark: '#7b1fa2'
+      dark: '#7b1fa2',
+      contrastText: '#fff',
     },
     error: {
       main: '#d32f2f',
@@ -50,7 +52,32 @@ const theme = createTheme({
           }
         }
       }
-    }
+    },
+    MuiDrawer: {
+      styleOverrides: {
+        paper: {
+          backgroundColor: '#fff',
+          borderRight: '1px solid rgba(0, 0, 0, 0.12)',
+        },
+      },
+    },
+    MuiAppBar: {
+      styleOverrides: {
+        root: {
+          backgroundColor: '#fff',
+          color: '#333',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+        },
+      },
+    },
+    MuiCard: {
+      styleOverrides: {
+        root: {
+          borderRadius: '12px',
+          boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+        },
+      },
+    },
   }
 });
 

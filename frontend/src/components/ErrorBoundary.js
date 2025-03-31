@@ -1,15 +1,15 @@
 // src/components/ErrorBoundary.js
 import React from 'react';
-import { Alert } from '@mui/material';
+import { Alert, Box } from '@mui/material';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, error: null };
   }
 
   static getDerivedStateFromError(error) {
-    return { hasError: true };
+    return { hasError: true, error };
   }
 
   componentDidCatch(error, errorInfo) {
@@ -18,7 +18,13 @@ class ErrorBoundary extends React.Component {
 
   render() {
     if (this.state.hasError) {
-      return <Alert severity="error">Something went wrong. Please try refreshing the page.</Alert>;
+      return (
+        <Box sx={{ p: 2 }}>
+          <Alert severity="error">
+            Something went wrong. Please try refreshing the page.
+          </Alert>
+        </Box>
+      );
     }
 
     return this.props.children;

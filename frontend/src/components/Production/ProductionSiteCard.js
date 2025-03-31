@@ -18,14 +18,13 @@ import {
     Engineering,
     Delete as DeleteIcon,
     Edit as EditIcon,
-    Visibility as ViewIcon,
     AccountBalance as BankIcon,
     WindPower as WindIcon,
     WbSunny as SolarIcon,
     FiberManualRecord as StatusDotIcon
 } from '@mui/icons-material';
 
-const ProductionSiteCard = ({ site, onView, onEdit, onDelete }) => {
+const ProductionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) => {
     // Data validation with explicit number conversion
     const safeData = {
         productionSiteId: site?.productionSiteId || '',
@@ -170,19 +169,38 @@ const ProductionSiteCard = ({ site, onView, onEdit, onDelete }) => {
                 </Box>
             </CardActionArea>
 
-            <CardActions sx={{ justifyContent: 'flex-end', p: 1.5 }}>
-            
-                <Tooltip title="Edit Site">
-                    <IconButton size="small" color="info" onClick={onEdit}>
-                        <EditIcon />
-                    </IconButton>
-                </Tooltip>
-                <Tooltip title="Delete Site">
-                    <IconButton size="small" color="error" onClick={onDelete}>
-                        <DeleteIcon />
-                    </IconButton>
-                </Tooltip>
-            </CardActions>
+            {(permissions?.update || permissions?.delete) && (
+                <CardActions sx={{ justifyContent: 'flex-end', p: 1.5 }}>
+                    {permissions?.update && onEdit && (
+                        <Tooltip title="Edit Site">
+                            <IconButton 
+                                size="small" 
+                                color="info" 
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onEdit();
+                                }}
+                            >
+                                <EditIcon />
+                            </IconButton>
+                        </Tooltip>
+                    )}
+                    {permissions?.delete && onDelete && (
+                        <Tooltip title="Delete Site">
+                            <IconButton 
+                                size="small" 
+                                color="error" 
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDelete();
+                                }}
+                            >
+                                <DeleteIcon />
+                            </IconButton>
+                        </Tooltip>
+                    )}
+                </CardActions>
+            )}
         </Card>
     );
 };
@@ -190,8 +208,9 @@ const ProductionSiteCard = ({ site, onView, onEdit, onDelete }) => {
 ProductionSiteCard.propTypes = {
     site: PropTypes.object.isRequired,
     onView: PropTypes.func.isRequired,
-    onEdit: PropTypes.func.isRequired,
-    onDelete: PropTypes.func.isRequired
+    onEdit: PropTypes.func,  // Make optional
+    onDelete: PropTypes.func, // Make optional
+    permissions: PropTypes.object.isRequired
 };
 
 export default ProductionSiteCard;

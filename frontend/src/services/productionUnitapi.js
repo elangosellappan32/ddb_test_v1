@@ -1,3 +1,4 @@
+import axios from 'axios';
 import api, { handleApiError } from './apiUtils';
 import { API_CONFIG } from '../config/api.config';
 
