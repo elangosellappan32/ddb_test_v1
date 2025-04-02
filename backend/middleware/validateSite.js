@@ -1,26 +1,35 @@
 const validateSite = (req, res, next) => {
-    const { name, location, type } = req.body;
+    const { name, location, type, annualConsumption } = req.body;
 
-    if (!name || !location || !type) {
+    if (!name || typeof name !== 'string' || name.trim().length < 3) {
         return res.status(400).json({
-            error: 'Validation error',
-            details: 'Name, location, and type are required fields'
+            success: false,
+            message: 'Name is required and must be at least 3 characters'
         });
     }
 
-    // Additional validation rules
-    if (req.body.capacity_MW && isNaN(parseFloat(req.body.capacity_MW))) {
+    if (!location || typeof location !== 'string') {
         return res.status(400).json({
-            error: 'Validation error',
-            details: 'Capacity must be a valid number'
+            success: false,
+            message: 'Location is required'
         });
     }
 
-    if (req.body.annualProduction_L && isNaN(parseFloat(req.body.annualProduction_L))) {
+    if (!type || typeof type !== 'string') {
         return res.status(400).json({
-            error: 'Validation error',
-            details: 'Annual production must be a valid number'
+            success: false,
+            message: 'Type is required'
         });
+    }
+
+    if (annualConsumption !== undefined) {
+        const consumption = Number(annualConsumption);
+        if (isNaN(consumption) || consumption < 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Annual consumption must be a positive number'
+            });
+        }
     }
 
     next();

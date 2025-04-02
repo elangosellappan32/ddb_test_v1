@@ -27,7 +27,7 @@ import { NavigationProvider } from './context/NavigationContext';
 const Dashboard = lazy(() => import("./components/Dashboard/Dashboard"));
 const Production = lazy(() => import("./components/Production/Production"));
 const ProductionSiteDetails = lazy(() => import("./components/Production/ProductionSiteDetails"));
-const Consumption = lazy(() => import("./components/Consumption"));
+const Consumption = lazy(() => import("./components/Consumption/Consumption"));
 const Reports = lazy(() => import("./components/Reports"));
 
 function App() {

@@ -135,83 +135,30 @@ const createProductionSite = async (req, res) => {
 const updateProductionSite = async (req, res) => {
     try {
         const { companyId, productionSiteId } = req.params;
-        logger.info(`[REQUEST] Update Production Site ${productionSiteId}`);
-        logger.info('[REQUEST BODY]', req.body);
-
-        // Validate version
-        if (!req.body.version) {
-            return res.status(400).json({
-                success: false,
-                message: 'Version is required for updates',
-                code: 'VERSION_REQUIRED'
-            });
+        
+        // Normalize the request body
+        const updates = { ...req.body };
+        if (updates.annualProduction && !updates.annualProduction_L) {
+            updates.annualProduction_L = updates.annualProduction;
+            delete updates.annualProduction;
         }
 
-        // Validate banking if present
-        if (req.body.banking !== undefined) {
-            const bankingValidation = validateBanking(req.body.banking);
-            if (!bankingValidation.isValid) {
-                return res.status(400).json({
-                    success: false,
-                    message: bankingValidation.error,
-                    code: 'INVALID_BANKING'
-                });
-            }
-            req.body.banking = bankingValidation.value.toString();
-        }
-
-        // Validate decimal fields if present
-        const decimalFields = {
-            capacity_MW: 'Capacity (MW)',
-            annualProduction_L: 'Annual Production (L)',
-            htscNo: 'HTSC Number',
-            injectionVoltage_KV: 'Injection Voltage (KV)'
-        };
-
-        for (const [field, label] of Object.entries(decimalFields)) {
-            if (req.body[field] !== undefined) {
-                const validation = validateDecimal(req.body[field], label);
-                if (!validation.isValid) {
-                    return res.status(400).json({
-                        success: false,
-                        message: validation.error,
-                        code: `INVALID_${field.toUpperCase()}`
-                    });
-                }
-                req.body[field] = validation.value;
-            }
-        }
-
-        const result = await productionSiteDAL.updateItem(companyId, productionSiteId, req.body);
-        logger.info('[RESPONSE] Production Site Updated:', result);
-
+        const updatedItem = await productionSiteDAL.updateItem(
+            companyId,
+            productionSiteId,
+            updates
+        );
+        
         res.json({
             success: true,
-            message: 'Production site updated successfully',
-            data: result
+            data: updatedItem
         });
     } catch (error) {
-        if (error.message === 'Version mismatch') {
-            return res.status(409).json({
-                success: false,
-                message: 'Version conflict detected. Please refresh and try again.',
-                code: 'VERSION_CONFLICT'
-            });
-        }
-        if (error.message === 'Item not found') {
-            return res.status(404).json({
-                success: false,
-                message: 'Production site not found',
-                code: 'NOT_FOUND'
-            });
-        }
-
         logger.error('[ProductionSiteController] Update Error:', error);
-        res.status(500).json({
+        const statusCode = error.message.includes('Version mismatch') ? 409 : 500;
+        res.status(statusCode).json({
             success: false,
-            message: 'Failed to update production site',
-            error: error.message,
-            code: 'UPDATE_ERROR'
+            message: error.message
         });
     }
 };

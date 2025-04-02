@@ -1,21 +1,18 @@
-const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
-const { DynamoDBDocumentClient } = require("@aws-sdk/lib-dynamodb");
+const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBDocumentClient } = require('@aws-sdk/lib-dynamodb');
+const logger = require('./logger');
 
+// Create the DynamoDB client
 const client = new DynamoDBClient({
     region: process.env.AWS_REGION || 'local',
     endpoint: process.env.DYNAMODB_ENDPOINT || 'http://localhost:8000',
     credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'local',
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'local'
+        accessKeyId: 'local',
+        secretAccessKey: 'local'
     }
 });
 
-const docClient = DynamoDBDocumentClient.from(client, {
-    marshallOptions: {
-        removeUndefinedValues: true,
-        convertEmptyValues: true,
-        convertClassInstanceToMap: true
-    }
-});
+// Create the DocumentClient with enhanced options
+const docClient = DynamoDBDocumentClient.from(client);
 
 module.exports = docClient;

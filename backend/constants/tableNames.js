@@ -3,7 +3,8 @@ const TableNames = {
     PRODUCTION_UNIT: 'ProductionUnitTable',
     PRODUCTION_CHARGE: 'ProductionChargeTable',
     CONSUMPTION_SITES: 'ConsumptionSiteTable',
-    USERS: 'RoleTable'  // Added users/role table
+    CONSUMPTION_UNIT:'ConsumptionUnitTable',
+    USERS: 'RoleTable'
 };
 
 module.exports = TableNames;

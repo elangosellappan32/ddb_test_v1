@@ -1,21 +1,20 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const morgan = require('morgan');
 const helmet = require('helmet');
-const compression = require('compression');
-const productionRoutes = require('./production/productionRoutes');
-const errorHandler = require('./middleware/errorHandler');
-const productionController = require('./production/productionController');
-const validateJson = require('./middleware/validateJson');
 const bodyParser = require('body-parser');
 const logger = require('./utils/logger');
-const productionDataRoutes = require('./routes/productionDataRoutes');
+const requestLogger = require('./middleware/requestLogger');
+
+// Import routes
+const authRoutes = require('./auth/authRoutes');
+const productionSiteRoutes = require('./productionSite/productionSiteRoutes');
 const productionUnitRoutes = require('./productionUnit/productionUnitRoutes');
 const productionChargeRoutes = require('./productionCharge/productionChargeRoutes');
-const productionSiteRoutes = require('./productionSite/productionSiteRoutes');
+const consumptionSiteRoutes = require('./consumptionSite/consumptionSiteRoutes');
+const consumptionUnitRoutes = require('./consumptionUnit/consumptionUnitRoutes');
 const healthRoutes = require('./routes/healthRoutes');
-const authLogger = require('./middleware/authLogger');
-const authRoutes = require('./auth/authRoutes');
+const roleRoutes = require('./routes/roleRoutes');
 
 const app = express();
 
@@ -25,72 +24,80 @@ app.use(helmet());
 // CORS configuration
 app.use(cors({
     origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: false
+    allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Request parsing middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Body parsing middleware
 app.use(bodyParser.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Compression middleware
-app.use(compression());
-
-// Logging middleware
-if (process.env.NODE_ENV !== 'production') {
-    app.use(morgan('dev'));
-}
-
-// JSON validation middleware
-app.use(validateJson);
-
-// Add logger middleware
-app.use(authLogger);
+// Request logging
+app.use(requestLogger);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-    res.json({
-        status: 'ok',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-    });
+    res.json({ status: 'up', timestamp: new Date().toISOString() });
 });
 
-// API routes
+// API Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/production-site', productionSiteRoutes);
 app.use('/api/production-unit', productionUnitRoutes);
 app.use('/api/production-charge', productionChargeRoutes);
-app.use('/api/production-site', productionSiteRoutes);
-app.use('/api/auth', authRoutes);
+app.use('/api/consumption-site', consumptionSiteRoutes);
+app.use('/api/consumption-unit', consumptionUnitRoutes);
+app.use('/api/health', healthRoutes);
+app.use('/api/roles', roleRoutes);
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+    logger.error('Error:', err);
+    
+    // Specific error handling
+    if (err.name === 'ValidationError') {
+        return res.status(400).json({
+            success: false,
+            message: 'Validation Error',
+            errors: err.errors
+        });
+    }
+
+    if (err.name === 'UnauthorizedError') {
+        return res.status(401).json({
+            success: false,
+            message: 'Unauthorized'
+        });
+    }
+
+    if (err.name === 'ConditionalCheckFailedException') {
+        return res.status(409).json({
+            success: false,
+            message: 'Version conflict or item already exists'
+        });
+    }
+
+    // Default error response
+    res.status(500).json({
+        success: false,
+        message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
+});
 
 // 404 handler
 app.use((req, res) => {
     logger.warn(`Route not found: ${req.method} ${req.url}`);
     res.status(404).json({
-        error: 'Not Found',
-        message: `Route ${req.method} ${req.url} not found`
+        success: false,
+        message: 'Route not found'
     });
 });
 
-// Global error handler
-app.use(errorHandler);
+const PORT = process.env.PORT || 3333;
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-    if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
-        logger.error('JSON Parse Error:', err);
-        return res.status(400).json({
-            error: 'Bad Request',
-            message: 'Invalid JSON format'
-        });
-    }
-    logger.error('Server error:', err);
-    res.status(500).json({
-        error: 'Internal Server Error',
-        message: err.message
-    });
+app.listen(PORT, () => {
+    logger.info(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
 });
 
-// Export app
 module.exports = app;

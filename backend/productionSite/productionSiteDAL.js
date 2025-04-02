@@ -1,4 +1,3 @@
-// productionSiteDAL.js
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { 
     DynamoDBDocumentClient, 
@@ -32,7 +31,7 @@ const getLastProductionSiteId = async (companyId) => {
         const lastId = Math.max(...Items.map(item => Number(item.productionSiteId)));
         return lastId;
     } catch (error) {
-        logger.error('[ProductionSiteDAL] GetLastId Error:', error);
+        logger.error('[ProductionSiteDAL] Get Last ProductionSiteId Error:', error);
         throw error;
     }
 };
@@ -43,6 +42,9 @@ const create = async (item) => {
         const lastId = await getLastProductionSiteId(item.companyId);
         const newId = lastId + 1;
 
+        // Normalize the annualProduction field
+        const annualProduction = item.annualProduction_L || item.annualProduction || 0;
+
         const newItem = {
             companyId: item.companyId,
             productionSiteId: newId,
@@ -51,7 +53,7 @@ const create = async (item) => {
             type: item.type,
             banking: new Decimal(item.banking || 0).toString(),
             capacity_MW: new Decimal(item.capacity_MW || 0).toString(),
-            annualProduction_L: new Decimal(item.annualProduction_L || 0).toString(),
+            annualProduction_L: new Decimal(annualProduction).toString(), // Store as annualProduction_L
             htscNo: new Decimal(item.htscNo || 0).toString(),
             injectionVoltage_KV: new Decimal(item.injectionVoltage_KV || 0).toString(),
             status: item.status,
@@ -93,7 +95,6 @@ const getItem = async (companyId, productionSiteId) => {
 
 const updateItem = async (companyId, productionSiteId, updates) => {
     try {
-        const now = new Date().toISOString();
         const existing = await getItem(companyId, productionSiteId);
         
         if (!existing) {
@@ -104,6 +105,9 @@ const updateItem = async (companyId, productionSiteId, updates) => {
             throw new Error('Version mismatch');
         }
 
+        // Normalize the annualProduction field
+        const annualProduction = updates.annualProduction_L || updates.annualProduction || existing.annualProduction_L;
+
         const updatedItem = {
             ...existing,
             name: updates.name || existing.name,
@@ -111,22 +115,28 @@ const updateItem = async (companyId, productionSiteId, updates) => {
             type: updates.type || existing.type,
             banking: updates.banking ? new Decimal(updates.banking).toString() : existing.banking,
             capacity_MW: updates.capacity_MW ? new Decimal(updates.capacity_MW).toString() : existing.capacity_MW,
-            annualProduction_L: updates.annualProduction_L ? new Decimal(updates.annualProduction_L).toString() : existing.annualProduction_L,
+            annualProduction_L: new Decimal(annualProduction).toString(),
             htscNo: updates.htscNo ? new Decimal(updates.htscNo).toString() : existing.htscNo,
-            injectionVoltage_KV: updates.injectionVoltage_KV ? new Decimal(updates.injectionVoltage_KV).toString() : existing.injectionVoltage_KV,
+            injectionVoltage_KV: updates.injectionVoltage_KV ? 
+                new Decimal(updates.injectionVoltage_KV).toString() : 
+                existing.injectionVoltage_KV,
             status: updates.status || existing.status,
             version: existing.version + 1,
-            updatedat: now
+            updatedat: new Date().toISOString()
         };
 
         await docClient.send(new PutCommand({
             TableName,
-            Item: updatedItem
+            Item: updatedItem,
+            ConditionExpression: 'version = :expectedVersion',
+            ExpressionAttributeValues: {
+                ':expectedVersion': updates.version
+            }
         }));
 
         return updatedItem;
     } catch (error) {
-        logger.error('[ProductionSiteDAL] UpdateItem Error:', error);
+        logger.error('[ProductionSiteDAL] Update Error:', error);
         throw error;
     }
 };
