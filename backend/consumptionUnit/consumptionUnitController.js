@@ -42,6 +42,15 @@ const createConsumptionUnit = async (req, res) => {
         });
     } catch (error) {
         logger.error('[ConsumptionUnitController] Create Error:', error);
+        
+        // Handle specific error cases
+        if (error.statusCode === 409) {
+            return res.status(409).json({
+                success: false,
+                message: error.message
+            });
+        }
+
         res.status(error.statusCode || 500).json({
             success: false,
             message: error.message

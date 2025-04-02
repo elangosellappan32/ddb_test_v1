@@ -13,22 +13,31 @@ const TableName = TableNames.CONSUMPTION_UNIT;
 
 const createConsumptionUnit = async (item) => {
     try {
-        const now = new Date().toISOString();
-        const newItem = {
-            ...item,
-            createdat: now,
-            updatedat: now
-        };
+        // First check if item exists
+        const existing = await getConsumptionUnit(item.pk, item.sk);
+        if (existing) {
+            const error = new Error('Consumption unit already exists for this period');
+            error.statusCode = 409;
+            throw error;
+        }
 
+        // If not exists, create new item
         await docClient.send(new PutCommand({
             TableName,
-            Item: newItem,
-            ConditionExpression: 'attribute_not_exists(pk) AND attribute_not_exists(sk)'
+            Item: item
         }));
 
-        return newItem;
+        return item;
     } catch (error) {
         logger.error('[ConsumptionUnitDAL] Create Error:', error);
+        
+        // Handle specific DynamoDB errors
+        if (error.name === 'ConditionalCheckFailedException') {
+            const customError = new Error('Consumption unit already exists for this period');
+            customError.statusCode = 409;
+            throw customError;
+        }
+        
         throw error;
     }
 };
