@@ -62,6 +62,24 @@ export const API_CONFIG = {
         DELETE: (companyId, productionSiteId, chargeId) => 
           `/production-charge/${companyId}/${productionSiteId}/${chargeId}`
       }
+    },
+    CONSUMPTION: {
+      SITE: {
+        BASE: '/consumption-site',
+        GET_ALL: '/consumption-site/all',
+        GET_ONE: (companyId, siteId) => `/consumption-site/${companyId}/${siteId}`,
+        CREATE: '/consumption-site',
+        UPDATE: (companyId, siteId) => `/consumption-site/${companyId}/${siteId}`,
+        DELETE: (companyId, siteId) => `/consumption-site/${companyId}/${siteId}`
+      },
+      UNIT: {
+        BASE: '/consumption-unit',
+        GET_ALL: (companyId, siteId) => `/consumption-unit/${companyId}/${siteId}/all`,
+        GET_ONE: (companyId, siteId, sk) => `/consumption-unit/${companyId}/${siteId}/${sk}`,
+        CREATE: (companyId, siteId) => `/consumption-unit/${companyId}/${siteId}`,
+        UPDATE: (companyId, siteId, sk) => `/consumption-unit/${companyId}/${siteId}/${sk}`,
+        DELETE: (companyId, siteId, sk) => `/consumption-unit/${companyId}/${siteId}/${sk}`
+      }
     }
   }
 };

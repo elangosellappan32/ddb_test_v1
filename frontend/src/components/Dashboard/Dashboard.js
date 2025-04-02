@@ -23,6 +23,8 @@ import {
   Speed as EfficiencyIcon
 } from '@mui/icons-material';
 import productionSiteApi from '../../services/productionSiteapi';
+import { useConsumptionStats } from '../../hooks/useConsumptionStats';
+import { Factory as IndustryIcon, Settings as TextileIcon } from '@mui/icons-material';
 
 const DashboardCard = ({ icon: Icon, title, content, color, onClick }) => (
   <Card 
@@ -62,6 +64,7 @@ const Dashboard = () => {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { stats: consumptionStats, loading: consumptionLoading, error: consumptionError } = useConsumptionStats();
 
   const calculateStats = useCallback((response) => {
     try {
@@ -120,6 +123,63 @@ const Dashboard = () => {
   useEffect(() => {
     fetchStats();
   }, [fetchStats]);
+
+  const ConsumptionCardContent = () => {
+    if (consumptionLoading) {
+      return (
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
+          <CircularProgress size={24} />
+        </Box>
+      );
+    }
+
+    if (consumptionError) {
+      return (
+        <Alert severity="error" sx={{ m: 1 }}>
+          {consumptionError}
+        </Alert>
+      );
+    }
+
+    return (
+      <Box>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+          <Typography color="textSecondary">Total Sites:</Typography>
+          <Typography>{consumptionStats.totalSites}</Typography>
+        </Box>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <IndustryIcon sx={{ mr: 0.5, color: 'warning.main', fontSize: 'small' }} />
+            <Typography color="textSecondary">Industrial:</Typography>
+          </Box>
+          <Typography>{consumptionStats.industrial}</Typography>
+        </Box>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <TextileIcon sx={{ mr: 0.5, color: 'info.main', fontSize: 'small' }} />
+            <Typography color="textSecondary">Textile:</Typography>
+          </Box>
+          <Typography>{consumptionStats.textile}</Typography>
+        </Box>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+          <Typography color="textSecondary">Other:</Typography>
+          <Typography>{consumptionStats.other}</Typography>
+        </Box>
+        <Divider sx={{ my: 1 }} />
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+          <Typography color="textSecondary">Total Consumption:</Typography>
+          <Typography>{consumptionStats.totalConsumption} MW</Typography>
+        </Box>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <EfficiencyIcon sx={{ mr: 0.5, color: 'success.main', fontSize: 'small' }} />
+            <Typography color="textSecondary">Efficiency:</Typography>
+          </Box>
+          <Typography>{consumptionStats.efficiency}%</Typography>
+        </Box>
+      </Box>
+    );
+  };
 
   return (
     <Box sx={{ p: 3 }}>
@@ -180,33 +240,14 @@ const Dashboard = () => {
           />
         </Grid>
 
-        {/* Consumption Card */}
+        {/* Updated Consumption Card */}
         <Grid item xs={12} md={6} lg={3}>
           <DashboardCard
             icon={ConsumptionIcon}
             title="Consumption"
             color="success"
             onClick={() => navigate('/consumption')}
-            content={
-              <Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                  <Typography color="textSecondary">Total Consumption:</Typography>
-                  <Typography>450 MW</Typography>
-                </Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                  <Typography color="textSecondary">Peak Load:</Typography>
-                  <Typography>680 MW</Typography>
-                </Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                  <Typography color="textSecondary">Current Load:</Typography>
-                  <Typography>425 MW</Typography>
-                </Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography color="textSecondary">Load Factor:</Typography>
-                  <Typography>85%</Typography>
-                </Box>
-              </Box>
-            }
+            content={<ConsumptionCardContent />}
           />
         </Grid>
 
