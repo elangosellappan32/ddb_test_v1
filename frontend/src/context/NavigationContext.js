@@ -1,16 +1,12 @@
 import React, { createContext, useContext, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { setNavigate } from '../utils/navigation';
 
 const NavigationContext = createContext(null);
 
 export const NavigationProvider = ({ children }) => {
   const navigate = useNavigate();
 
-  useEffect(() => {
-    setNavigate(navigate);
-  }, [navigate]);
-
+  // Store navigation function in context
   return (
     <NavigationContext.Provider value={navigate}>
       {children}

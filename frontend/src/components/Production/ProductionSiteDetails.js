@@ -74,16 +74,16 @@ const ProductionSiteDetails = () => {
   // Define permissions using the updated hasPermission function
   const permissions = useMemo(() => ({
     units: {
-      create: hasPermission(user, 'units', 'CREATE'),
-      read: hasPermission(user, 'units', 'READ'),
-      update: hasPermission(user, 'units', 'UPDATE'),
-      delete: hasPermission(user, 'units', 'DELETE')
+      create: hasPermission(user, 'production-units', 'CREATE'),
+      read: hasPermission(user, 'production-units', 'READ'),
+      update: hasPermission(user, 'production-units', 'UPDATE'),
+      delete: hasPermission(user, 'production-units', 'DELETE')
     },
     charges: {
-      create: hasPermission(user, 'charges', 'CREATE'),
-      read: hasPermission(user, 'charges', 'READ'),
-      update: hasPermission(user, 'charges', 'UPDATE'),
-      delete: hasPermission(user, 'charges', 'DELETE')
+      create: hasPermission(user, 'production-charges', 'CREATE'),
+      read: hasPermission(user, 'production-charges', 'READ'),
+      update: hasPermission(user, 'production-charges', 'UPDATE'),
+      delete: hasPermission(user, 'production-charges', 'DELETE')
     }
   }), [user]);
 
@@ -164,6 +164,7 @@ const ProductionSiteDetails = () => {
             <Button
               startIcon={<AddIcon />}
               variant="contained"
+              color="primary"
               onClick={() => handleAddClick(type)}
             >
               Add {type === 'unit' ? 'Unit' : 'Charge'} Data

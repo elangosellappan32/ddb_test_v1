@@ -49,21 +49,29 @@ export const AuthProvider = ({ children }) => {
 
     const login = async (username, password) => {
         try {
-            const response = await authService.login(username, password);
-            setUser(response.user);
+            setLoading(true);
+            const data = await authService.login(username, password);
             
-            enqueueSnackbar(`Welcome ${response.user.username}!`, { 
-                variant: 'success',
-                autoHideDuration: 3000
-            });
-
-            navigate('/dashboard');
-            return response;
+            if (data.user && data.token) {
+                localStorage.setItem('user', JSON.stringify(data.user));
+                localStorage.setItem('token', data.token);
+                setUser(data.user);
+                enqueueSnackbar(`Welcome ${data.user.username}!`, { 
+                    variant: 'success',
+                    autoHideDuration: 3000
+                });
+                navigate('/dashboard');
+                return true;
+            }
+            return false;
         } catch (error) {
+            console.error('Login error:', error);
             enqueueSnackbar(error.message || 'Login failed', { 
                 variant: 'error' 
             });
             throw error;
+        } finally {
+            setLoading(false);
         }
     };
 

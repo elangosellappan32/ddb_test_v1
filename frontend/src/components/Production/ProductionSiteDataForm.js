@@ -20,53 +20,72 @@ const ProductionSiteDataForm = ({
   onSubmit, 
   onCancel, 
   loading = false,
-  existingData = [], // Add default empty array
+  existingData = [], 
   companyId,
   productionSiteId
 }) => {
   const { enqueueSnackbar } = useSnackbar();
   const { user } = useAuth();
-  const canEdit = useMemo(() => 
-    hasPermission(user, type === 'unit' ? 'units' : 'charges', 
-        initialData ? 'UPDATE' : 'CREATE'
-    ), [user, type, initialData]);
+  
+  // Update permission check to use correct module name
+  const canEdit = useMemo(() => {
+    const moduleType = type === 'unit' ? 'production-units' : 'production-charges';
+    const action = initialData ? 'UPDATE' : 'CREATE';
+    return hasPermission(user, moduleType, action);
+  }, [user, type, initialData]);
 
-  // Function to generate SK in MMYYYY format
+  // Add near the top of the component
+  console.log('User permissions:', {
+    role: user?.role,
+    type,
+    canEdit,
+    moduleType: type === 'unit' ? 'production-units' : 'production-charges'
+  });
+
+  // Update the generateSK function to handle dates properly
   const generateSK = (date) => {
-    return format(date, 'MMyyyy');
+    if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
+      return null;
+    }
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${month}${year}`;
   };
 
-  // Keep only the functions you're using
-  const formatSK = (date) => {
-    const d = new Date(date);
-    return `${String(d.getMonth() + 1).padStart(2, '0')}${d.getFullYear()}`;
+  // Add a function to format date for display
+  const formatDateForDisplay = (date) => {
+    if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
+      return '';
+    }
+    return format(date, 'MMMM yyyy'); // This will show as "March 2024"
   };
 
   // Generate initial values based on type
   function generateInitialValues(type, data) {
     if (type === 'unit') {
       return {
-        c1: data?.c1?.toString() || '0',
-        c2: data?.c2?.toString() || '0',
-        c3: data?.c3?.toString() || '0',
-        c4: data?.c4?.toString() || '0',
-        c5: data?.c5?.toString() || '0'
+        c1: (data?.c1 ?? '0').toString(),
+        c2: (data?.c2 ?? '0').toString(),
+        c3: (data?.c3 ?? '0').toString(),
+        c4: (data?.c4 ?? '0').toString(),
+        c5: (data?.c5 ?? '0').toString()
       };
     }
     
     return Array.from({ length: 10 }, (_, i) => {
       const key = `c${String(i + 1).padStart(3, '0')}`;
-      return { [key]: data?.[key]?.toString() || '0' };
+      return { [key]: (data?.[key] ?? '0').toString() };
     }).reduce((acc, curr) => ({ ...acc, ...curr }), {});
   }
 
   // Initialize form data with proper date handling
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState(() => ({
     date: initialData?.date ? new Date(initialData.date) : new Date(),
     version: initialData?.version || 1,
     ...generateInitialValues(type, initialData)
-  });
+  }));
 
+  // Initialize with empty errors
   const [errors, setErrors] = useState({});
 
   const getFields = () => {
@@ -123,27 +142,53 @@ const ProductionSiteDataForm = ({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!validateForm()) return;
-
-    const sk = generateSK(formData.date);
     
-    const submitData = {
-      ...formData,
-      sk,
-      pk: `${companyId}_${productionSiteId}`,
-      companyId,
-      productionSiteId,
-      date: format(formData.date, 'yyyy-MM-dd'),
-      type: type.toUpperCase(),
-      ...getFields().reduce((acc, field) => ({
-        ...acc,
-        [field.id]: parseFloat(formData[field.id]) || 0
-      }), {}),
-      version: parseInt(formData.version) || 1
-    };
+    // Validate all fields before submission
+    const newErrors = {};
+    
+    if (!formData.date || isNaN(formData.date.getTime())) {
+      newErrors.date = 'Valid date is required';
+    }
+
+    getFields().forEach(field => {
+      const value = parseFloat(formData[field.id]);
+      if (isNaN(value)) {
+        newErrors[field.id] = 'Must be a valid number';
+      }
+      if (value < 0) {
+        newErrors[field.id] = 'Must be non-negative';
+      }
+    });
+
+    setErrors(newErrors);
+    
+    if (Object.keys(newErrors).length > 0) {
+      enqueueSnackbar('Please correct the errors before submitting', { 
+        variant: 'error' 
+      });
+      return;
+    }
 
     try {
+      const sk = generateSK(formData.date);
+      
+      const submitData = {
+        ...formData,
+        sk,
+        pk: `${companyId}_${productionSiteId}`,
+        companyId,
+        productionSiteId,
+        date: format(formData.date, 'yyyy-MM-dd'),
+        type: type.toUpperCase(),
+        ...getFields().reduce((acc, field) => ({
+          ...acc,
+          [field.id]: parseFloat(formData[field.id]) || 0
+        }), {}),
+        version: parseInt(formData.version) || 1
+      };
+
       await onSubmit(submitData);
+      enqueueSnackbar('Data saved successfully', { variant: 'success' });
     } catch (error) {
       enqueueSnackbar(error.message || 'Failed to save data', { 
         variant: 'error' 
@@ -151,19 +196,52 @@ const ProductionSiteDataForm = ({
     }
   };
 
+  // Update handleChange to properly handle numeric inputs
   const handleChange = (field, value) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value
-    }));
-    // Clear error when field is changed
-    if (errors[field]) {
-      setErrors(prev => ({
+    const inputValue = value?.target?.value ?? value;
+    
+    // Allow empty string and numeric values (including decimals)
+    if (inputValue === '' || /^-?\d*\.?\d*$/.test(inputValue)) {
+      setFormData(prev => ({
         ...prev,
-        [field]: undefined
+        [field]: inputValue === '' ? '0' : inputValue
       }));
+      
+      if (errors[field]) {
+        setErrors(prev => ({
+          ...prev,
+          [field]: undefined
+        }));
+      }
     }
   };
+
+  // Update TextField rendering
+  const renderField = (field) => (
+    <Grid item xs={12} sm={6} key={field.id}>
+      <TextField
+        fullWidth
+        label={field.label}
+        name={field.id}
+        value={formData[field.id]}
+        onChange={(e) => handleChange(field.id, e.target.value)}
+        onBlur={() => {
+          const value = formData[field.id];
+          if (value === '' || isNaN(parseFloat(value))) {
+            handleChange(field.id, '0');
+          }
+        }}
+        type="text"
+        required
+        inputProps={{ 
+          pattern: "^-?\\d*\\.?\\d*$"
+        }}
+        error={!!errors[field.id]}
+        helperText={errors[field.id]}
+        disabled={!canEdit}
+      />
+    </Grid>
+  );
 
   return (
     <Box component="form" onSubmit={handleSubmit} sx={{ mt: 2 }}>
@@ -194,26 +272,7 @@ const ProductionSiteDataForm = ({
           />
         </Grid>
 
-        {getFields().map(field => (
-          <Grid item xs={12} sm={6} key={field.id}>
-            <TextField
-              fullWidth
-              label={field.label}
-              name={field.id}
-              value={formData[field.id]}
-              onChange={(e) => handleChange(field.id, e.target.value)}
-              type="number"
-              required
-              inputProps={{ 
-                step: "0.01",
-                min: "0"
-              }}
-              error={!!errors[field.id]}
-              helperText={errors[field.id]}
-              disabled={!canEdit}
-            />
-          </Grid>
-        ))}
+        {getFields().map(field => renderField(field))}
 
         <Grid item xs={12}>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
@@ -225,16 +284,15 @@ const ProductionSiteDataForm = ({
             >
               Cancel
             </Button>
-            {canEdit && (
-              <Button
-                type="submit"
-                variant="contained"
-                disabled={loading}
-                startIcon={loading && <CircularProgress size={20} />}
-              >
-                {initialData ? 'Update' : 'Create'}
-              </Button>
-            )}
+            <Button
+              type="submit"
+              variant="contained"
+              color="primary"
+              disabled={loading || !canEdit}
+              startIcon={loading ? <CircularProgress size={20} /> : null}
+            >
+              {initialData ? 'Update' : 'Create'}
+            </Button>
           </Box>
         </Grid>
       </Grid>

@@ -78,6 +78,16 @@ const theme = createTheme({
         },
       },
     },
+    MuiDataGrid: {
+      styleOverrides: {
+        root: {
+          border: 'none',
+          '& .MuiDataGrid-cell:focus': {
+            outline: 'none'
+          }
+        }
+      }
+    }
   }
 });
 

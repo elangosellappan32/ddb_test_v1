@@ -168,7 +168,7 @@ const Dashboard = () => {
         <Divider sx={{ my: 1 }} />
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
           <Typography color="textSecondary">Total Consumption:</Typography>
-          <Typography>{consumptionStats.totalConsumption} MW</Typography>
+          <Typography>{consumptionStats.totalConsumption} units</Typography>
         </Box>
         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
           <Box sx={{ display: 'flex', alignItems: 'center' }}>

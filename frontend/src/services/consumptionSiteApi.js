@@ -12,7 +12,6 @@ const consumptionSiteApi = {
                 companyId: Number(site.companyId),
                 consumptionSiteId: Number(site.consumptionSiteId),
                 annualConsumption: Number(site.annualConsumption || 0),
-                injectionVoltage_KV: Number(site.injectionVoltage_KV || 0),
                 version: Number(site.version || 1)
             })) || [];
 
@@ -24,9 +23,17 @@ const consumptionSiteApi = {
 
     fetchOne: async (companyId, consumptionSiteId) => {
         try {
-            console.log('[ConsumptionSiteAPI] Fetching site:', { companyId, consumptionSiteId });
+            // Ensure parameters are valid numbers
+            const validCompanyId = parseInt(companyId, 10);
+            const validConsumptionSiteId = parseInt(consumptionSiteId, 10);
+
+            if (isNaN(validCompanyId) || isNaN(validConsumptionSiteId)) {
+                throw new Error('Invalid company ID or site ID');
+            }
+
+            console.log('[ConsumptionSiteAPI] Fetching site:', { companyId: validCompanyId, siteId: validConsumptionSiteId });
             const response = await api.get(
-                API_CONFIG.ENDPOINTS.CONSUMPTION.SITE.GET_ONE(companyId, consumptionSiteId)
+                API_CONFIG.ENDPOINTS.CONSUMPTION.SITE.GET_ONE(validCompanyId, validConsumptionSiteId)
             );
             return response.data;
         } catch (error) {
@@ -36,31 +43,50 @@ const consumptionSiteApi = {
 
     create: async (data) => {
         try {
-            console.log('[ConsumptionSiteAPI] Creating site:', data);
-            const response = await api.post(
-                API_CONFIG.ENDPOINTS.CONSUMPTION.SITE.CREATE,
-                data
-            );
+            // Format the data with proper types
+            const payload = {
+                companyId: '1', // Default company ID
+                consumptionSiteId: data.consumptionSiteId,
+                name: data.name,
+                type: data.type,
+                location: data.location,
+                annualConsumption: Number(data.annualConsumption),
+                status: data.status,
+                version: 1
+            };
+
+            console.log('[ConsumptionSiteAPI] Create payload:', payload);
+
+            const response = await api.post('/consumption-site', payload);
             return response.data;
         } catch (error) {
-            throw handleApiError(error);
+            console.error('[ConsumptionSiteAPI] Create error:', error);
+            throw error;
         }
     },
 
     update: async (companyId, consumptionSiteId, data) => {
         try {
-            console.log('[ConsumptionSiteAPI] Updating site:', {
-                companyId,
-                consumptionSiteId,
-                data
-            });
+            // Ensure we have the required fields and proper format
+            const payload = {
+                name: data.name,
+                type: data.type,
+                location: data.location,
+                annualConsumption: Number(data.annualConsumption),
+                status: data.status,
+                version: Number(data.version) || 1
+            };
+
+            console.log('[ConsumptionSiteAPI] Update payload:', payload);
+
             const response = await api.put(
                 API_CONFIG.ENDPOINTS.CONSUMPTION.SITE.UPDATE(companyId, consumptionSiteId),
-                data
+                payload
             );
             return response.data;
         } catch (error) {
-            throw handleApiError(error);
+            console.error('[ConsumptionSiteAPI] Update error:', error);
+            throw error;
         }
     },
 

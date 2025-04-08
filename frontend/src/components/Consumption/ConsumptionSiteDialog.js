@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import {
   Dialog,
@@ -11,38 +11,59 @@ import {
   Grid,
   CircularProgress,
   FormControlLabel,
-  Switch
+  Switch,
+  InputAdornment
 } from '@mui/material';
+import {
+  Business as BusinessIcon,
+  LocationOn as LocationIcon,
+  Speed as ConsumptionIcon,
+  PowerSettingsNew as StatusIcon,
+  Label as NameIcon
+} from '@mui/icons-material';
+import { useSnackbar } from 'notistack';
+import { useAuth } from '../../context/AuthContext';
+import consumptionSiteApi from '../../services/consumptionSiteApi';
 
 const ConsumptionSiteDialog = ({ 
   open, 
   onClose, 
   onSubmit, 
   initialData, 
-  loading 
+  loading: externalLoading,
+  permissions,
+  totalSites 
 }) => {
+  const { user } = useAuth();
+  const { enqueueSnackbar } = useSnackbar();
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     type: 'industrial',
     location: '',
     annualConsumption: '',
-    htscNo: '',
-    injectionVoltage_KV: '',
-    status: 'active'
+    status: 'active',
+    timetolive: 0
   });
 
   const [errors, setErrors] = useState({});
 
   useEffect(() => {
     if (initialData) {
+      // Ensure type value matches available options
+      const validTypes = ['industrial', 'textile', 'other'];
+      const sanitizedType = validTypes.includes(initialData.type?.toLowerCase())
+        ? initialData.type.toLowerCase()
+        : 'other';
+
       setFormData({
         name: initialData.name || '',
-        type: initialData.type || 'industrial',
+        type: sanitizedType,
         location: initialData.location || '',
         annualConsumption: initialData.annualConsumption || '',
-        htscNo: initialData.htscNo || '',
-        injectionVoltage_KV: initialData.injectionVoltage_KV || '',
-        status: initialData.status || 'active'
+        status: initialData.status || 'active',
+        timetolive: initialData.timetolive || 0,
+        version: initialData.version || 1
       });
     } else {
       setFormData({
@@ -50,9 +71,8 @@ const ConsumptionSiteDialog = ({
         type: 'industrial',
         location: '',
         annualConsumption: '',
-        htscNo: '',
-        injectionVoltage_KV: '',
-        status: 'active'
+        status: 'active',
+        timetolive: 0
       });
     }
     setErrors({});
@@ -64,26 +84,53 @@ const ConsumptionSiteDialog = ({
     if (!formData.location) newErrors.location = 'Location is required';
     if (!formData.annualConsumption) {
       newErrors.annualConsumption = 'Annual consumption is required';
-    } else if (isNaN(formData.annualConsumption) || formData.annualConsumption <= 0) {
+    } else if (isNaN(formData.annualConsumption) || Number(formData.annualConsumption) <= 0) {
       newErrors.annualConsumption = 'Annual consumption must be a positive number';
     }
-    if (!formData.htscNo) newErrors.htscNo = 'HTSC number is required';
-    if (!formData.injectionVoltage_KV) {
-      newErrors.injectionVoltage_KV = 'Injection voltage is required';
-    } else if (isNaN(formData.injectionVoltage_KV) || formData.injectionVoltage_KV <= 0) {
-      newErrors.injectionVoltage_KV = 'Injection voltage must be a positive number';
+    if (formData.timetolive < 0) {
+      newErrors.timetolive = 'Time to live must be a non-negative number';
     }
     return newErrors;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!permissions?.create && !permissions?.update) {
+      enqueueSnackbar('You do not have permission to perform this action', { 
+        variant: 'error' 
+      });
+      return;
+    }
+
     const newErrors = validateForm();
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       return;
     }
-    onSubmit(formData);
+
+    try {
+      setLoading(true);
+      // Format the data before submission
+      const submissionData = {
+        ...formData,
+        annualConsumption: Number(formData.annualConsumption),
+        version: initialData?.version || 1,
+        timetolive: Number(formData.timetolive || 0),
+        // Add consumptionSiteId for new sites
+        ...(initialData ? {} : { consumptionSiteId: String(totalSites + 1) })
+      };
+      
+      await onSubmit(submissionData);
+      onClose();
+    } catch (error) {
+      console.error('[ConsumptionSiteDialog] Submit error:', error);
+      enqueueSnackbar(error.message || 'Failed to save site', { 
+        variant: 'error' 
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleChange = (e) => {
@@ -105,26 +152,37 @@ const ConsumptionSiteDialog = ({
     <Dialog 
       open={open} 
       onClose={loading ? undefined : onClose}
-      maxWidth="sm" 
+      maxWidth="md" 
       fullWidth
     >
-      <DialogTitle>
+      <DialogTitle sx={{ 
+        borderBottom: '2px solid #1976d2',
+        mb: 2
+      }}>
         {initialData ? 'Edit Consumption Site' : 'Add Consumption Site'}
       </DialogTitle>
       <form onSubmit={handleSubmit}>
         <DialogContent>
-          <Grid container spacing={2}>
+          <Grid container spacing={3}>
+            {/* Basic Info Section */}
             <Grid item xs={12}>
               <TextField
                 name="name"
                 label="Site Name"
                 fullWidth
+                required
                 value={formData.name}
                 onChange={handleChange}
+                disabled={loading}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <NameIcon />
+                    </InputAdornment>
+                  ),
+                }}
                 error={!!errors.name}
                 helperText={errors.name}
-                disabled={loading}
-                required
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -137,6 +195,13 @@ const ConsumptionSiteDialog = ({
                 onChange={handleChange}
                 disabled={loading}
                 required
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <BusinessIcon />
+                    </InputAdornment>
+                  ),
+                }}
               >
                 <MenuItem value="industrial">Industrial</MenuItem>
                 <MenuItem value="textile">Textile</MenuItem>
@@ -154,6 +219,13 @@ const ConsumptionSiteDialog = ({
                 helperText={errors.location}
                 disabled={loading}
                 required
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <LocationIcon />
+                    </InputAdornment>
+                  ),
+                }}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -168,35 +240,36 @@ const ConsumptionSiteDialog = ({
                 helperText={errors.annualConsumption}
                 disabled={loading}
                 required
-                InputProps={{ inputProps: { min: 0 } }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <ConsumptionIcon />
+                    </InputAdornment>
+                  ),
+                  inputProps: { 
+                    min: 0,
+                    step: "0.01" // Allow decimal values
+                  }
+                }}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
-                name="htscNo"
-                label="HTSC Number"
-                fullWidth
-                value={formData.htscNo}
-                onChange={handleChange}
-                error={!!errors.htscNo}
-                helperText={errors.htscNo}
-                disabled={loading}
-                required
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                name="injectionVoltage_KV"
-                label="Injection Voltage (KV)"
+                name="timetolive"
+                label="Time to Live (days)"
                 type="number"
                 fullWidth
-                value={formData.injectionVoltage_KV}
+                value={formData.timetolive}
                 onChange={handleChange}
-                error={!!errors.injectionVoltage_KV}
-                helperText={errors.injectionVoltage_KV}
+                error={!!errors.timetolive}
+                helperText={errors.timetolive}
                 disabled={loading}
-                required
-                InputProps={{ inputProps: { min: 0 } }}
+                InputProps={{
+                  inputProps: { 
+                    min: 0,
+                    step: "1" // Allow integer values
+                  }
+                }}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -213,15 +286,25 @@ const ConsumptionSiteDialog = ({
                     disabled={loading}
                   />
                 }
-                label="Active Status"
+                label={
+                  <Grid container alignItems="center" spacing={1}>
+                    <Grid item>
+                      <StatusIcon />
+                    </Grid>
+                    <Grid item>
+                      Status ({formData.status})
+                    </Grid>
+                  </Grid>
+                }
               />
             </Grid>
           </Grid>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ p: 2.5, borderTop: '1px solid rgba(0, 0, 0, 0.12)' }}>
           <Button 
             onClick={onClose} 
             disabled={loading}
+            variant="outlined"
           >
             Cancel
           </Button>
@@ -231,7 +314,7 @@ const ConsumptionSiteDialog = ({
             disabled={loading}
             startIcon={loading && <CircularProgress size={20} />}
           >
-            {initialData ? 'Update' : 'Create'}
+            {initialData ? 'Update Site' : 'Create Site'}
           </Button>
         </DialogActions>
       </form>
@@ -244,7 +327,13 @@ ConsumptionSiteDialog.propTypes = {
   onClose: PropTypes.func.isRequired,
   onSubmit: PropTypes.func.isRequired,
   initialData: PropTypes.object,
-  loading: PropTypes.bool
+  loading: PropTypes.bool,
+  permissions: PropTypes.shape({
+    create: PropTypes.bool,
+    update: PropTypes.bool,
+    delete: PropTypes.bool
+  }).isRequired,
+  totalSites: PropTypes.number.isRequired
 };
 
 export default ConsumptionSiteDialog;

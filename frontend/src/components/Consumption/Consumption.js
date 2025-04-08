@@ -2,17 +2,20 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSnackbar } from 'notistack';
 import {
-  Box, Grid, Typography, Alert, Button, CircularProgress, Paper
-} from '@mui/material';
-import {
-  Add as AddIcon,
-  Refresh as RefreshIcon
-} from '@mui/icons-material';
+  Box,
+  Grid, 
+  Typography,
+  Alert,
+  Button,
+  CircularProgress,
+  Paper
+} from '@mui/material'; // Fixed import
+import { Add as AddIcon, Refresh as RefreshIcon } from '@mui/icons-material';
 import consumptionSiteApi from '../../services/consumptionSiteApi';
 import ConsumptionSiteCard from './ConsumptionSiteCard';
 import ConsumptionSiteDialog from './ConsumptionSiteDialog';
 import { useAuth } from '../../context/AuthContext';
-import { hasPermission } from '../../utils/permissions';
+import { hasPermission, isAdmin } from '../../utils/permissions';
 
 const Consumption = () => {
   const navigate = useNavigate();
@@ -24,13 +27,17 @@ const Consumption = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSite, setSelectedSite] = useState(null);
 
-  // Check permissions
   const permissions = useMemo(() => ({
     create: hasPermission(user, 'consumption', 'CREATE'),
     read: hasPermission(user, 'consumption', 'READ'),
     update: hasPermission(user, 'consumption', 'UPDATE'),
     delete: hasPermission(user, 'consumption', 'DELETE')
   }), [user]);
+
+  const adminUser = useMemo(() => isAdmin(user), [user]);
+
+  // Add this computed value
+  const totalSites = useMemo(() => sites.length, [sites]);
 
   // Fetch sites data
   const fetchSites = useCallback(async () => {
@@ -124,24 +131,28 @@ const Consumption = () => {
     try {
       setLoading(true);
       if (selectedSite) {
+        // Ensure we have all required data for update
         await consumptionSiteApi.update(
-          selectedSite.companyId,
+          selectedSite.companyId || '1',
           selectedSite.consumptionSiteId,
-          { ...formData, version: selectedSite.version || 1 }
+          {
+            ...formData,
+            version: selectedSite.version || 1
+          }
         );
+        enqueueSnackbar('Site updated successfully', { variant: 'success' });
       } else {
         await consumptionSiteApi.create(formData);
+        enqueueSnackbar('Site created successfully', { variant: 'success' });
       }
       
-      enqueueSnackbar(`Site ${selectedSite ? 'updated' : 'created'} successfully`, { 
-        variant: 'success' 
-      });
       setDialogOpen(false);
       setSelectedSite(null);
       fetchSites();
     } catch (error) {
       console.error('[Consumption] Submit error:', error);
-      enqueueSnackbar(error.message || 'Failed to save site', { variant: 'error' });
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to save site';
+      enqueueSnackbar(errorMessage, { variant: 'error' });
     } finally {
       setLoading(false);
     }
@@ -229,23 +240,27 @@ const Consumption = () => {
                 onDelete={permissions.delete ? () => handleDeleteClick(site) : null}
                 userRole={user?.role}
                 permissions={permissions}
+                isAdmin={adminUser}
               />
             </Grid>
           ))
         )}
       </Grid>
 
-      <ConsumptionSiteDialog
-        open={dialogOpen}
-        onClose={() => {
-          setDialogOpen(false);
-          setSelectedSite(null);
-        }}
-        onSubmit={handleSubmit}
-        initialData={selectedSite}
-        loading={loading}
-        permissions={permissions}
-      />
+      {dialogOpen && (
+        <ConsumptionSiteDialog
+          open={dialogOpen}
+          onClose={() => {
+            setDialogOpen(false);
+            setSelectedSite(null);
+          }}
+          onSubmit={handleSubmit}
+          initialData={selectedSite}
+          loading={loading}
+          permissions={permissions}
+          totalSites={totalSites} // Pass total sites count
+        />
+      )}
     </Paper>
   );
 };

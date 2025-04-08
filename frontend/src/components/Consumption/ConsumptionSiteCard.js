@@ -12,16 +12,16 @@ import {
   Tooltip
 } from '@mui/material';
 import {
-  LocationOn as LocationIcon,
+  LocationOn,
   Speed as ConsumptionIcon,
-  Business as BusinessIcon,
+  Business as IndustryIcon,
+  Engineering,
   Delete as DeleteIcon,
   Edit as EditIcon,
   FiberManualRecord as StatusDotIcon
 } from '@mui/icons-material';
 
 const ConsumptionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) => {
-  // Data validation with explicit number conversion
   const safeData = {
     consumptionSiteId: site?.consumptionSiteId || '',
     companyId: site?.companyId || '',
@@ -29,7 +29,11 @@ const ConsumptionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) =>
     type: site?.type || 'Unknown',
     status: site?.status || 'Unknown',
     location: site?.location || 'Location not specified',
-    annualConsumption: Number(site?.annualConsumption || 0)
+    annualConsumption: Number(site?.annualConsumption || 0),
+    version: Number(site?.version || 1),
+    timetolive: Number(site?.timetolive || 0),
+    createdat: site?.createdat,
+    updatedat: site?.updatedat
   };
 
   const getStatusColor = (status) => {
@@ -43,11 +47,17 @@ const ConsumptionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) =>
   const getTypeIcon = (type) => {
     switch (type?.toLowerCase()) {
       case 'industrial':
-        return <BusinessIcon sx={{ mr: 1, fontSize: 20, color: 'warning.main' }} />;
+        return <IndustryIcon sx={{ mr: 1, fontSize: 20, color: 'warning.main' }} />;
       case 'textile':
-        return <BusinessIcon sx={{ mr: 1, fontSize: 20, color: 'info.main' }} />;
+        return <IndustryIcon sx={{ mr: 1, fontSize: 20, color: 'info.main' }} />;
       default:
-        return <BusinessIcon sx={{ mr: 1, fontSize: 20, color: 'text.secondary' }} />;
+        return <IndustryIcon sx={{ mr: 1, fontSize: 20, color: 'text.secondary' }} />;
+    }
+  };
+
+  const handleClick = () => {
+    if (onView) {
+      onView(`/consumption/${site.companyId}/${site.consumptionSiteId}`);
     }
   };
 
@@ -66,7 +76,7 @@ const ConsumptionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) =>
         }
       }}
     >
-      <CardActionArea onClick={onView} sx={{ p: 2 }}>
+      <CardActionArea onClick={handleClick} sx={{ p: 2 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
           <Typography variant="h6" noWrap sx={{ maxWidth: '70%' }}>
             {safeData.name}
@@ -97,7 +107,7 @@ const ConsumptionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) =>
 
           <Grid item xs={6}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-              <LocationIcon sx={{ mr: 1, fontSize: 20, color: 'primary.main' }} />
+              <LocationOn sx={{ mr: 1, fontSize: 20, color: 'primary.main' }} />
               <Typography variant="body2" color="text.secondary">Location</Typography>
             </Box>
             <Typography variant="body1" noWrap>{safeData.location}</Typography>
@@ -111,6 +121,15 @@ const ConsumptionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) =>
             <Typography variant="body1">{safeData.annualConsumption} MW</Typography>
           </Grid>
         </Grid>
+
+        <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="caption" color="text.secondary">
+            Version: {safeData.version}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Last Updated: {new Date(safeData.updatedat).toLocaleDateString()}
+          </Typography>
+        </Box>
       </CardActionArea>
 
       {(permissions?.update || permissions?.delete) && (
@@ -151,10 +170,14 @@ const ConsumptionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) =>
 
 ConsumptionSiteCard.propTypes = {
   site: PropTypes.object.isRequired,
-  onView: PropTypes.func.isRequired, 
+  onView: PropTypes.func.isRequired,
   onEdit: PropTypes.func,
   onDelete: PropTypes.func,
-  permissions: PropTypes.object.isRequired
+  permissions: PropTypes.shape({
+    create: PropTypes.bool,
+    update: PropTypes.bool,
+    delete: PropTypes.bool
+  }).isRequired
 };
 
 export default ConsumptionSiteCard;

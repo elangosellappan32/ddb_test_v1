@@ -8,32 +8,13 @@ const api = axios.create({
 });
 
 export const handleApiError = (error) => {
-  const errorDetails = {
-    status: error.response?.status,
-    data: error.response?.data,
-    message: error.message,
-    details: error.response?.data?.details || error.response?.data?.message
-  };
-  
-  console.error('[API Error Details]:', errorDetails);
+  console.log('[API Error Details]:', error);
 
-  // Handle specific DynamoDB errors
-  if (error.message?.includes('ValidationException')) {
-    throw new Error('Data validation failed. Please check your input values.');
+  if (error.response?.status === 404) {
+    return new Error('Resource not found - Please check the URL parameters');
   }
 
-  switch (error.response?.status) {
-    case 400:
-      throw new Error('Invalid request data. Please check your input.');
-    case 404:
-      throw new Error('Resource not found.');
-    case 409:
-      throw new Error('Version conflict. Please refresh and try again.');
-    case 500:
-      throw new Error('Server error. Please try again later.');
-    default:
-      throw new Error(error.message || 'An unexpected error occurred.');
-  }
+  return error;
 };
 
 export default api;
