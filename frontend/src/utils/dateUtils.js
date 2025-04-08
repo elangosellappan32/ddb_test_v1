@@ -102,3 +102,20 @@ export const formatDateToMMYYYY = (date) => {
   const d = new Date(date);
   return `${String(d.getMonth() + 1).padStart(2, '0')}${d.getFullYear()}`;
 };
+
+export const formatSKDisplay = (sk) => {
+  if (!sk) return '';
+  
+  // Extract month and year from SK (format: MMYYYY)
+  const month = sk.substring(0, 2);
+  const year = sk.substring(2);
+  
+  // Create a date object (using 1st of the month)
+  const date = new Date(year, parseInt(month) - 1, 1);
+  
+  // Format the date to show month and year
+  return date.toLocaleDateString('en-US', { 
+    month: 'long',
+    year: 'numeric'
+  });
+};

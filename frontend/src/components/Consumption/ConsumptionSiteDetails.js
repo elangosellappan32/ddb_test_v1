@@ -134,32 +134,37 @@ const ConsumptionSiteDetails = () => {
   const handleSubmit = async (formData) => {
     try {
       const sk = formatSK(formData.date);
+      const pk = `${companyId}_${consumptionSiteId}`;
       
       if (dialog.mode === 'create') {
-        const existingCheck = siteData.units.find(unit => unit.sk === sk);
-        
-        if (existingCheck) {
+        // Check if data already exists for this date
+        const existingEntry = siteData.units.find(item => 
+          item.sk === sk && 
+          item.pk === pk
+        );
+
+        if (existingEntry) {
           const displayDate = formatDisplayDate(formData.date);
-          const confirmUpdate = await new Promise(resolve => {
-            const message = `Consumption unit data already exists for ${displayDate}. Would you like to update the existing record?`;
-            resolve(window.confirm(message));
-          });
+          const confirmUpdate = window.confirm(
+            `Data already exists for ${displayDate}. Would you like to update the existing record?`
+          );
 
           if (confirmUpdate) {
-            // Merge existing data with new form data
+            // Switch to update mode and update existing record
             const updatedData = {
-              ...existingCheck,
               ...formData,
-              version: (existingCheck.version || 0) + 1,
+              sk: existingEntry.sk,
+              version: (existingEntry.version || 0) + 1,
               type: 'UNIT'
             };
-            await consumptionUnitApi.update(companyId, consumptionSiteId, sk, updatedData);
+            await consumptionUnitApi.update(companyId, consumptionSiteId, existingEntry.sk, updatedData);
             enqueueSnackbar('Unit updated successfully', { variant: 'success' });
           } else {
             enqueueSnackbar('Operation cancelled', { variant: 'info' });
             return;
           }
         } else {
+          // Create new record
           await consumptionUnitApi.create(companyId, consumptionSiteId, {
             ...formData,
             sk,
@@ -168,10 +173,10 @@ const ConsumptionSiteDetails = () => {
           enqueueSnackbar('Unit created successfully', { variant: 'success' });
         }
       } else {
-        // For edit mode, merge existing data with new form data
+        // Regular edit mode update
         const updatedData = {
-          ...dialog.data,
           ...formData,
+          sk: dialog.data.sk,
           version: (dialog.data.version || 0) + 1,
           type: 'UNIT'
         };

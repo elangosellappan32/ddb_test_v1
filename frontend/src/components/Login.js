@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
     Box,
     Paper,
@@ -21,16 +21,21 @@ import logo from "../assets/logo.jpg";
 import { useAuth } from '../context/AuthContext';
 
 const Login = () => {
+    const { login } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
-    const { login } = useAuth();
     const [formData, setFormData] = useState({ username: '', password: '' });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [showPassword, setShowPassword] = useState(false);
 
-    // Get the redirect path from location state or default to dashboard
-    const from = location.state?.from || '/dashboard';
+    // Clear any stored credentials on component mount
+    useEffect(() => {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('auth_user');
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+    }, []);
 
     const handleLogin = async (e) => {
         e.preventDefault();
@@ -38,13 +43,10 @@ const Login = () => {
         setLoading(true);
 
         try {
-            // Attempt login with provided credentials
-            const response = await login(formData.username, formData.password);
-            
-            if (response.success) {
-                // Navigate to dashboard on successful login
-                navigate(from, { replace: true });
-            }
+            await login(formData.username, formData.password);
+            // Immediately navigate to dashboard or the page user tried to access before login
+            const redirect = location.state?.from?.pathname || '/dashboard';
+            navigate(redirect, { replace: true });
         } catch (error) {
             setError(error.message || 'Invalid credentials. Please try again.');
             setFormData(prev => ({...prev, password: ''}));

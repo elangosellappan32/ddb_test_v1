@@ -15,7 +15,7 @@ const createConsumptionUnit = async (req, res) => {
         
         const unitData = {
             pk: `${companyId}_${consumptionSiteId}`,
-            sk: req.body.sk || formatDateToMMYYYY(now),
+            sk: formatDateToMMYYYY(req.body.date),
             companyId,
             consumptionSiteId,
             c1: Number(req.body.c1 || 0),
@@ -30,7 +30,8 @@ const createConsumptionUnit = async (req, res) => {
                    Number(req.body.c5 || 0),
             createdat: now,
             updatedat: now,
-            version: 1
+            version: 1,
+            type: 'UNIT'
         };
 
         logger.info('[ConsumptionUnitController] Creating unit:', unitData);
@@ -43,7 +44,6 @@ const createConsumptionUnit = async (req, res) => {
     } catch (error) {
         logger.error('[ConsumptionUnitController] Create Error:', error);
         
-        // Handle specific error cases
         if (error.statusCode === 409) {
             return res.status(409).json({
                 success: false,

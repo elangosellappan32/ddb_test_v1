@@ -21,6 +21,7 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon
 } from '@mui/icons-material';
+import { format } from 'date-fns';
 
 const ConsumptionDataTable = ({ 
   data, 
@@ -41,9 +42,8 @@ const ConsumptionDataTable = ({
   const sortedData = useMemo(() => {
     if (!Array.isArray(data)) return [];
     return [...data].sort((a, b) => {
-      const dateA = new Date(a.date || a.createdat);
-      const dateB = new Date(b.date || b.createdat);
-      return dateB - dateA;
+      // Sort by SK in descending order (most recent first)
+      return b.sk.localeCompare(a.sk);
     });
   }, [data]);
 
@@ -53,12 +53,17 @@ const ConsumptionDataTable = ({
     return total.toFixed(2);
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-GB', {
-      year: 'numeric',
-      month: 'long'
-    });
+  const formatSKPeriod = (sk) => {
+    if (!sk || sk.length !== 6) return 'N/A';
+    try {
+      const month = parseInt(sk.substring(0, 2)) - 1;
+      const year = sk.substring(2);
+      const date = new Date(year, month);
+      return format(date, 'MMMM yyyy');
+    } catch (error) {
+      console.error('Error formatting SK period:', error);
+      return 'N/A';
+    }
   };
 
   const handleEditClick = (row) => {
@@ -122,7 +127,9 @@ const ConsumptionDataTable = ({
                 hover 
                 sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
               >
-                <TableCell>{formatDate(row.date || row.createdat)}</TableCell>
+                <TableCell>
+                  <Typography>{formatSKPeriod(row.sk)}</Typography>
+                </TableCell>
                 <TableCell align="right">{formatNumber(row.c1)}</TableCell>
                 <TableCell align="right">{formatNumber(row.c2)}</TableCell>
                 <TableCell align="right">{formatNumber(row.c3)}</TableCell>
@@ -175,7 +182,6 @@ const ConsumptionDataTable = ({
         </Table>
       </TableContainer>
 
-      {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialog.open} onClose={handleDeleteCancel}>
         <DialogTitle sx={{ color: 'error.main' }}>
           Confirm Delete
@@ -183,7 +189,7 @@ const ConsumptionDataTable = ({
         <DialogContent>
           <Typography>
             Are you sure you want to delete the consumption data for{' '}
-            {deleteDialog.selectedItem && formatDate(deleteDialog.selectedItem.date)}?
+            {deleteDialog.selectedItem && formatSKPeriod(deleteDialog.selectedItem.sk)}?
             This action cannot be undone.
           </Typography>
         </DialogContent>

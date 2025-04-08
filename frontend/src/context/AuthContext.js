@@ -1,96 +1,38 @@
-import React, { createContext, useState, useContext, useCallback, useEffect } from 'react';
+import React, { createContext, useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, CircularProgress } from '@mui/material';
 import { useSnackbar } from 'notistack';
 import authService from '../services/authService';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-    const [user, setUser] = useState(() => {
-        const savedUser = localStorage.getItem('user');
-        if (savedUser) {
-            try {
-                const parsed = JSON.parse(savedUser);
-                // Ensure role is properly set
-                return {
-                    ...parsed,
-                    role: parsed.role?.toUpperCase() || 'VIEWER' // Default to VIEWER if no role
-                };
-            } catch (e) {
-                console.error('Failed to parse saved user:', e);
-                return null;
-            }
-        }
-        return null;
-    });
-    const [loading, setLoading] = useState(true);
+    const [user, setUser] = useState(null);
     const navigate = useNavigate();
     const { enqueueSnackbar } = useSnackbar();
 
-    const initAuth = useCallback(async () => {
-        try {
-            const currentUser = authService.getCurrentUser();
-            if (currentUser) {
-                setUser(currentUser);
-            }
-        } catch (error) {
-            console.error('Auth initialization error:', error);
-            authService.logout();
-            setUser(null);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        initAuth();
-    }, [initAuth]);
-
     const login = async (username, password) => {
-        try {
-            setLoading(true);
-            const data = await authService.login(username, password);
-            
-            if (data.user && data.token) {
-                localStorage.setItem('user', JSON.stringify(data.user));
-                localStorage.setItem('token', data.token);
-                setUser(data.user);
-                enqueueSnackbar(`Welcome ${data.user.username}!`, { 
-                    variant: 'success',
-                    autoHideDuration: 3000
-                });
-                navigate('/dashboard');
-                return true;
-            }
-            return false;
-        } catch (error) {
-            console.error('Login error:', error);
-            enqueueSnackbar(error.message || 'Login failed', { 
-                variant: 'error' 
+        const data = await authService.login(username, password);
+        
+        if (data.success && data.user) {
+            setUser(data.user);
+            enqueueSnackbar(`Welcome ${data.user.username}!`, { 
+                variant: 'success',
+                autoHideDuration: 2000
             });
-            throw error;
-        } finally {
-            setLoading(false);
+            return true;
         }
+        return false;
     };
 
     const logout = () => {
         authService.logout();
         setUser(null);
         enqueueSnackbar('Logged out successfully', { 
-            variant: 'info' 
+            variant: 'info',
+            autoHideDuration: 2000
         });
-        navigate('/login');
+        navigate('/login', { replace: true });
     };
-
-    if (loading) {
-        return (
-            <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
-                <CircularProgress />
-            </Box>
-        );
-    }
 
     return (
         <AuthContext.Provider value={{

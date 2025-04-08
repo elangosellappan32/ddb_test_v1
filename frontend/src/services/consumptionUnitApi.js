@@ -60,19 +60,7 @@ const consumptionUnitApi = {
 
   create: async (companyId, consumptionSiteId, data) => {
     try {
-      // Check for existing record first
       const sk = formatDateToMMYYYY(data.date);
-      const existingRecord = await consumptionUnitApi.fetchOne(companyId, consumptionSiteId, sk);
-
-      if (existingRecord) {
-        console.log('[ConsumptionUnitAPI] Record exists, returning conflict');
-        return {
-          status: 409,
-          existingRecord,
-          message: 'Unit data already exists for this period'
-        };
-      }
-
       const pk = generatePK(companyId, consumptionSiteId);
       const unitData = {
         ...data,

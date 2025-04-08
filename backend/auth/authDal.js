@@ -13,21 +13,28 @@ class AuthDAL {
         try {
             const params = {
                 TableName: this.tableName,
-                Key: { username }
+                FilterExpression: '#username = :username',
+                ExpressionAttributeNames: {
+                    '#username': 'username'
+                },
+                ExpressionAttributeValues: {
+                    ':username': username
+                }
             };
 
-            const result = await this.dynamoDB.get(params).promise();
+            const result = await this.dynamoDB.scan(params).promise();
             
-            if (!result.Item) {
+            if (!result.Items || result.Items.length === 0) {
                 return null;
             }
 
+            const user = result.Items[0];
             return {
-                username: result.Item.username,
-                password: result.Item.password,
-                role: result.Item.role,
-                emailId: result.Item.emailId,
-                version: result.Item.version
+                username: user.username,
+                password: user.password,
+                role: user.role,
+                emailId: user.emailId,
+                version: user.version
             };
         } catch (error) {
             logger.error('Get user error:', error);

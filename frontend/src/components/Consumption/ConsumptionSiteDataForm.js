@@ -46,17 +46,15 @@ const ConsumptionSiteDataForm = ({
     }
   
     try {
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear().toString();
+      // Normalize date to first day of month to avoid timezone issues
+      const normalizedDate = new Date(date.getFullYear(), date.getMonth(), 1);
+      const month = String(normalizedDate.getMonth() + 1).padStart(2, '0');
+      const year = normalizedDate.getFullYear();
       
-      if (month.length !== 2 || year.length !== 4) {
-        throw new Error('Invalid month/year format');
-      }
-  
       return `${month}${year}`;
     } catch (error) {
       console.error('Error generating SK:', error);
-      return null;
+      throw new Error('Invalid month/year format');
     }
   };
 
@@ -102,15 +100,8 @@ const ConsumptionSiteDataForm = ({
     }
   
     try {
-      // Ensure we're working with a valid Date object
+      // Normalize to first day of month
       const normalizedDate = new Date(newDate.getFullYear(), newDate.getMonth(), 1);
-      
-      // Validate the generated SK before setting the date
-      const sk = generateSK(normalizedDate);
-      if (!sk) {
-        throw new Error('Failed to generate valid SK');
-      }
-      
       setFormData(prev => ({
         ...prev,
         date: normalizedDate
@@ -122,35 +113,41 @@ const ConsumptionSiteDataForm = ({
     }
   };
 
-  // Update handleSubmit to check for existing data
+  // Update handleSubmit to properly handle data updates
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Validate all fields before submission
+    const newErrors = {};
     
     if (!formData.date || isNaN(formData.date.getTime())) {
-      setErrors(prev => ({ ...prev, date: 'Valid date is required' }));
-      enqueueSnackbar('Please select a valid date', { variant: 'error' });
-      return;
+      newErrors.date = 'Valid date is required';
     }
-  
-    const sk = generateSK(formData.date);
-    if (!sk || sk.length !== 6) {
-      setErrors(prev => ({ ...prev, date: 'Invalid date format' }));
-      enqueueSnackbar('Invalid date format', { variant: 'error' });
-      return;
-    }
-  
-    // Check for existing data with same SK
-    const existingEntry = existingData.find(item => item.sk === sk);
-    if (existingEntry && !initialData) {
-      const confirmUpdate = window.confirm(
-        `Data already exists for ${formatDateForDisplay(formData.date)}. Do you want to update it?`
-      );
-      if (!confirmUpdate) {
-        return;
+
+    // Validate numeric fields
+    getFields().forEach(field => {
+      const value = parseFloat(formData[field.id]);
+      if (isNaN(value)) {
+        newErrors[field.id] = 'Must be a valid number';
       }
+      if (value < 0) {
+        newErrors[field.id] = 'Must be non-negative';
+      }
+    });
+
+    setErrors(newErrors);
+    if (Object.keys(newErrors).length > 0) {
+      enqueueSnackbar('Please correct the errors before submitting', { 
+        variant: 'error' 
+      });
+      return;
     }
-  
+
     try {
+      const sk = generateSK(formData.date);
+      
+      // When updating, create new data object with all fields reset to zero
+      // Then apply only the non-zero values from the form
       const submitData = {
         ...formData,
         sk,
@@ -159,18 +156,29 @@ const ConsumptionSiteDataForm = ({
         consumptionSiteId,
         date: format(formData.date, 'yyyy-MM-dd'),
         type: type.toUpperCase(),
-        ...getFields().reduce((acc, field) => ({
-          ...acc,
-          [field.id]: parseFloat(formData[field.id]) || 0
-        }), {}),
-        version: existingEntry ? (existingEntry.version + 1) : 1
+        version: initialData ? (initialData.version || 0) + 1 : 1,
+        // Reset all fields to zero first
+        c1: 0,
+        c2: 0,
+        c3: 0,
+        c4: 0,
+        c5: 0
       };
-  
+
+      // Only include non-zero values from the form
+      getFields().forEach(field => {
+        const value = parseFloat(formData[field.id]);
+        if (!isNaN(value) && value !== 0) {
+          submitData[field.id] = value;
+        }
+      });
+
       await onSubmit(submitData);
       enqueueSnackbar('Data saved successfully', { variant: 'success' });
     } catch (error) {
-      console.error('Submit error:', error);
-      enqueueSnackbar(error.message || 'Failed to save data', { variant: 'error' });
+      enqueueSnackbar(error.message || 'Failed to save data', { 
+        variant: 'error' 
+      });
     }
   };
 
@@ -233,39 +241,6 @@ const ConsumptionSiteDataForm = ({
         disabled={!canEdit}
       />
     </Grid>
-  );
-
-  const renderActions = (data) => (
-    <Box sx={{ display: 'flex', gap: 1 }}>
-      <Tooltip title="Edit">
-        <IconButton
-          size="small"
-          onClick={() => onEdit(data)}
-          sx={{ 
-            color: 'primary.main',
-            '&:hover': {
-              backgroundColor: 'primary.lighter',
-            }
-          }}
-        >
-          <EditIcon />
-        </IconButton>
-      </Tooltip>
-      <Tooltip title="Delete">
-        <IconButton
-          size="small"
-          onClick={() => onDelete(data)}
-          sx={{ 
-            color: 'error.main',
-            '&:hover': {
-              backgroundColor: 'error.lighter',
-            }
-          }}
-        >
-          <DeleteIcon />
-        </IconButton>
-      </Tooltip>
-    </Box>
   );
 
   const renderTotal = () => {
