@@ -28,7 +28,8 @@ import {
   Logout as LogoutIcon,
   Menu as MenuIcon,
   ChevronLeft as ChevronLeftIcon,
-  AccountCircle as ProfileIcon
+  AccountCircle as ProfileIcon,
+  AssignmentTurnedIn as AssignmentTurnedInIcon
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '../context/NavigationContext';
@@ -62,6 +63,12 @@ const Navbar = () => {
       label: 'Consumption', 
       path: '/consumption',
       color: '#ED6C02' // Orange
+    },
+    {
+      icon: <AssignmentTurnedInIcon />,
+      label: 'Allocation',
+      path: '/allocation',
+      color: '#F44336' // Red
     },
     { 
       icon: <ReportsIcon />, 

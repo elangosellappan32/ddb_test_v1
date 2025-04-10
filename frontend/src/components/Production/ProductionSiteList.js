@@ -35,100 +35,81 @@ const SiteCard = ({ site, onEdit, onDelete, userRole }) => {
     }
   };
 
-  const getTypeIcon = (type) => {
-    switch (type?.toLowerCase()) {
-      case 'wind':
-        return <PowerIcon sx={{ color: '#1976D2' }} />;
-      case 'solar':
-        return <PowerIcon sx={{ color: '#FFC107' }} />;
-      default:
-        return <PowerIcon sx={{ color: 'text.secondary' }} />;
-    }
+  const getBankingStatus = (banking) => {
+    return {
+      text: banking ? 'Banking Enabled' : 'Banking Disabled',
+      color: banking ? 'success.main' : 'text.secondary'
+    };
   };
 
+  const bankingStatus = getBankingStatus(site.banking);
+
   return (
-    <Card
-      elevation={1}
-      sx={{
-        p: 3,
-        cursor: 'pointer',
-        height: '100%',
-        transition: 'transform 0.2s ease-in-out',
-        '&:hover': {
-          transform: 'translateY(-4px)',
-          boxShadow: 3
-        }
-      }}
-      onClick={handleClick}
-    >
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="h6" component="div" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {getTypeIcon(site.type)}
-          {site.name}
-        </Typography>
-      </Box>
-
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <LocationIcon sx={{ mr: 1, color: 'text.secondary' }} />
-          <Typography variant="body2" color="text.secondary">
-            {site.location}
+    <Card sx={{ 
+      cursor: 'pointer',
+      transition: 'transform 0.2s ease-in-out',
+      '&:hover': {
+        transform: 'translateY(-4px)',
+        boxShadow: 3
+      }
+    }}>
+      <CardContent onClick={handleClick}>
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="h6" sx={{ color: 'primary.main' }}>
+            {site.name || 'Unnamed Site'}
           </Typography>
         </Box>
 
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <CapacityIcon sx={{ mr: 1, color: 'text.secondary' }} />
-          <Typography variant="body2" color="text.secondary">
-            {site.capacity_MW} MW
-          </Typography>
-        </Box>
-
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <VoltageIcon sx={{ mr: 1, color: 'text.secondary' }} />
-          <Typography variant="body2" color="text.secondary">
-            {site.injectionVoltage_KV} kV
-          </Typography>
-        </Box>
-
-        {site.banking && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <BankingIcon sx={{ mr: 1, color: 'success.main' }} />
-            <Typography variant="body2" color="success.main">
-              Banking Enabled
+            <LocationIcon sx={{ mr: 1, color: 'text.secondary' }} />
+            <Typography variant="body2" color="text.secondary">
+              {site.location || 'Location not specified'}
             </Typography>
           </Box>
-        )}
-      </Box>
+
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <CapacityIcon sx={{ mr: 1, color: 'text.secondary' }} />
+            <Typography variant="body2" color="text.secondary">
+              {site.capacity_MW || 0} MW
+            </Typography>
+          </Box>
+
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <VoltageIcon sx={{ mr: 1, color: 'text.secondary' }} />
+            <Typography variant="body2" color="text.secondary">
+              {site.injectionVoltage_KV || 0} kV
+            </Typography>
+          </Box>
+
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <BankingIcon sx={{ mr: 1, color: bankingStatus.color }} />
+            <Typography variant="body2" color={bankingStatus.color}>
+              {bankingStatus.text}
+            </Typography>
+          </Box>
+        </Box>
+      </CardContent>
 
       {userRole === 'admin' && (
-        <Box sx={{
-          mt: 2,
-          display: 'flex',
-          justifyContent: 'flex-end',
-          gap: 1
-        }}>
-          <Button
-            size="small"
-            startIcon={<EditIcon />}
-            onClick={(e) => {
+        <CardActions sx={{ justifyContent: 'flex-end', p: 1.5 }}>
+          <Tooltip title="Edit Site">
+            <IconButton size="small" onClick={(e) => {
               e.stopPropagation();
               onEdit(site);
-            }}
-          >
-            Edit
-          </Button>
-          <Button
-            size="small"
-            color="error"
-            startIcon={<DeleteIcon />}
-            onClick={(e) => {
+            }}>
+              <EditIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete Site">
+            <IconButton size="small" color="error" onClick={(e) => {
               e.stopPropagation();
               onDelete(site);
-            }}
-          >
-            Delete
-          </Button>
-        </Box>
+            }}>
+              <DeleteIcon />
+            </IconButton>
+          </Tooltip>
+        </CardActions>
       )}
     </Card>
   );

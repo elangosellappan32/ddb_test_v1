@@ -1,0 +1,166 @@
+const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+const { 
+    DynamoDBDocumentClient, 
+    PutCommand,
+    GetCommand,
+    QueryCommand,
+    UpdateCommand,
+    DeleteCommand,
+    ScanCommand
+} = require('@aws-sdk/lib-dynamodb');
+const TableNames = require('../constants/tableNames');
+const logger = require('../utils/logger');
+const docClient = require('../utils/db');
+
+const TableName = TableNames.BANKING;
+
+const createBanking = async (item) => {
+    try {
+        const now = new Date().toISOString();
+        const bankingItem = {
+            ...item,
+            c1: Number(item.c1 || 0),
+            c2: Number(item.c2 || 0),
+            c3: Number(item.c3 || 0),
+            c4: Number(item.c4 || 0),
+            c5: Number(item.c5 || 0),
+            totalBanking: calculateTotal(item),
+            siteName: item.siteName || '',
+            createdAt: now,
+            updatedAt: now,
+            version: 1
+        };
+
+        await docClient.send(new PutCommand({
+            TableName,
+            Item: bankingItem,
+            ConditionExpression: 'attribute_not_exists(pk) AND attribute_not_exists(sk)'
+        }));
+
+        return bankingItem;
+    } catch (error) {
+        logger.error('[BankingDAL] Create Error:', error);
+        throw error;
+    }
+};
+
+const calculateTotal = (item) => {
+    return ['c1', 'c2', 'c3', 'c4', 'c5']
+        .reduce((sum, key) => sum + Number(item[key] || 0), 0);
+};
+
+const getBanking = async (pk, sk) => {
+    try {
+        const response = await docClient.send(new GetCommand({
+            TableName,
+            Key: { pk, sk }
+        }));
+        return response.Item;
+    } catch (error) {
+        logger.error('[BankingDAL] Get Error:', error);
+        throw error;
+    }
+};
+
+const queryBankingByPeriod = async (pk, sk) => {
+    try {
+        const response = await docClient.send(new QueryCommand({
+            TableName,
+            KeyConditionExpression: 'pk = :pk AND begins_with(sk, :sk)',
+            ExpressionAttributeValues: {
+                ':pk': pk,
+                ':sk': sk
+            }
+        }));
+        return response.Items || [];
+    } catch (error) {
+        logger.error('[BankingDAL] Query Error:', error);
+        throw error;
+    }
+};
+
+const updateBanking = async (pk, sk, updates) => {
+    try {
+        const updateExpression = [];
+        const expressionAttributeValues = {
+            ':updatedAt': new Date().toISOString(),
+            ':inc': 1
+        };
+        const expressionAttributeNames = {};
+
+        Object.entries(updates).forEach(([key, value]) => {
+            if (value !== undefined && !['pk', 'sk'].includes(key)) {
+                const attrKey = `#${key}`;
+                const attrValue = `:${key}`;
+                updateExpression.push(`${attrKey} = ${attrValue}`);
+                expressionAttributeValues[attrValue] = value;
+                expressionAttributeNames[attrKey] = key;
+            }
+        });
+
+        expressionAttributeNames['#updatedAt'] = 'updatedAt';
+        expressionAttributeNames['#version'] = 'version';
+        updateExpression.push('#updatedAt = :updatedAt');
+        updateExpression.push('#version = #version + :inc');
+
+        const response = await docClient.send(new UpdateCommand({
+            TableName,
+            Key: { pk, sk },
+            UpdateExpression: `SET ${updateExpression.join(', ')}`,
+            ExpressionAttributeNames: expressionAttributeNames,
+            ExpressionAttributeValues: expressionAttributeValues,
+            ReturnValues: 'ALL_NEW'
+        }));
+
+        return response.Attributes;
+    } catch (error) {
+        logger.error('[BankingDAL] Update Error:', error);
+        throw error;
+    }
+};
+
+const deleteBanking = async (pk, sk) => {
+    try {
+        await docClient.send(new DeleteCommand({
+            TableName,
+            Key: { pk, sk }
+        }));
+        return true;
+    } catch (error) {
+        logger.error('[BankingDAL] Delete Error:', error);
+        throw error;
+    }
+};
+
+const getAllBanking = async () => {
+    try {
+        const response = await docClient.send(new ScanCommand({
+            TableName
+        }));
+        
+        // Transform and validate the data
+        const items = response.Items || [];
+        return items.map(item => ({
+            ...item,
+            c1: Number(item.c1 || 0),
+            c2: Number(item.c2 || 0),
+            c3: Number(item.c3 || 0),
+            c4: Number(item.c4 || 0),
+            c5: Number(item.c5 || 0),
+            totalBanking: Number(item.totalBanking || 0),
+            siteName: item.siteName || ''
+        }));
+    } catch (error) {
+        logger.error('[BankingDAL] GetAll Error:', error);
+        throw error;
+    }
+};
+
+module.exports = {
+    createBanking,
+    getBanking,
+    queryBankingByPeriod,
+    updateBanking,
+    deleteBanking,
+    getAllBanking
+};

@@ -9,7 +9,8 @@ export const API_CONFIG = {
     ROLE: 'RoleTable',
     PRODUCTION_SITE: 'ProductionSiteTable',
     PRODUCTION_UNIT: 'ProductionUnitTable',
-    PRODUCTION_CHARGE: 'ProductionChargeTable'
+    PRODUCTION_CHARGE: 'ProductionChargeTable',
+    BANKING: 'BankingTable'
   },
   ENDPOINTS: {
     AUTH: {
@@ -80,6 +81,15 @@ export const API_CONFIG = {
         UPDATE: (companyId, siteId, sk) => `/consumption-unit/${companyId}/${siteId}/${sk}`,
         DELETE: (companyId, siteId, sk) => `/consumption-unit/${companyId}/${siteId}/${sk}`
       }
+    },
+    BANKING: {
+      BASE: '/banking',
+      GET_ALL: '/banking',
+      GET_ONE: (pk, sk) => `/banking/${pk}/${sk}`,
+      CREATE: '/banking',
+      UPDATE: (pk, sk) => `/banking/${pk}/${sk}`,
+      DELETE: (pk, sk) => `/banking/${pk}/${sk}`,
+      GET_BY_PERIOD: (pk, period) => `/banking/${pk}/period/${period}`
     }
   }
 };

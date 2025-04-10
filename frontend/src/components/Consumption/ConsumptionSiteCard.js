@@ -15,7 +15,6 @@ import {
   LocationOn,
   Speed as ConsumptionIcon,
   Business as IndustryIcon,
-  Engineering,
   Delete as DeleteIcon,
   Edit as EditIcon,
   FiberManualRecord as StatusDotIcon
@@ -23,24 +22,26 @@ import {
 
 const ConsumptionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) => {
   const safeData = {
-    consumptionSiteId: site?.consumptionSiteId || '',
-    companyId: site?.companyId || '',
+    consumptionSiteId: site?.consumptionSiteId || 'N/A',
+    companyId: site?.companyId || '1',
     name: site?.name || 'Unnamed Site',
-    type: site?.type || 'Unknown',
-    status: site?.status || 'Unknown',
+    type: (site?.type || 'unknown').toLowerCase(),
+    status: (site?.status || 'inactive').toLowerCase(),
     location: site?.location || 'Location not specified',
     annualConsumption: Number(site?.annualConsumption || 0),
     version: Number(site?.version || 1),
     timetolive: Number(site?.timetolive || 0),
-    createdat: site?.createdat,
-    updatedat: site?.updatedat
+    createdat: site?.createdat || new Date().toISOString(),
+    updatedat: site?.updatedat || new Date().toISOString()
   };
 
   const getStatusColor = (status) => {
-    switch (status?.toLowerCase()) {
+    const normalizedStatus = status?.toLowerCase()?.trim() || 'unknown';
+    switch (normalizedStatus) {
       case 'active': return 'success';
       case 'inactive': return 'error';
-      default: return 'warning';
+      case 'pending': return 'warning';
+      default: return 'default';
     }
   };
 
@@ -57,7 +58,7 @@ const ConsumptionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) =>
 
   const handleClick = () => {
     if (onView) {
-      onView(`/consumption/${site.companyId}/${site.consumptionSiteId}`);
+      onView();
     }
   };
 
@@ -88,7 +89,7 @@ const ConsumptionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) =>
                 color: `${getStatusColor(safeData.status)}.main`
               }} 
             />
-            <Typography variant="caption" color={`${getStatusColor(safeData.status)}.main`}>
+            <Typography variant="caption" color={`${getStatusColor(safeData.status)}.main`} sx={{ textTransform: 'capitalize' }}>
               {safeData.status}
             </Typography>
           </Box>
@@ -100,7 +101,7 @@ const ConsumptionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) =>
               {getTypeIcon(safeData.type)}
               <Typography variant="body2" color="text.secondary">Type</Typography>
             </Box>
-            <Typography variant="body1" color="primary.main">
+            <Typography variant="body1" color="primary.main" sx={{ textTransform: 'capitalize' }}>
               {safeData.type}
             </Typography>
           </Grid>

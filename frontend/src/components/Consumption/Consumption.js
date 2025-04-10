@@ -35,8 +35,6 @@ const Consumption = () => {
   }), [user]);
 
   const adminUser = useMemo(() => isAdmin(user), [user]);
-
-  // Add this computed value
   const totalSites = useMemo(() => sites.length, [sites]);
 
   // Fetch sites data
@@ -46,19 +44,21 @@ const Consumption = () => {
       setLoading(true);
       const response = await consumptionSiteApi.fetchAll();
       
-      // Transform data
+      // Transform data with proper defaults and type handling
       const formattedData = response?.data?.map(site => ({
         companyId: String(site.companyId) || '1',
         consumptionSiteId: String(site.consumptionSiteId),
-        name: site.name,
-        type: site.type,
-        location: site.location,
-        annualConsumption: Number(site.annualConsumption),
-        status: site.status || 'active',
-        version: Number(site.version) || 1
+        name: site.name || 'Unnamed Site',
+        type: (site.type || 'unknown').toLowerCase(),
+        location: site.location || 'Location not specified',
+        annualConsumption: Number(site.annualConsumption || 0),
+        status: (site.status || 'inactive').toLowerCase(),
+        version: Number(site.version || 1),
+        timetolive: Number(site.timetolive || 0),
+        createdat: site.createdat || new Date().toISOString(),
+        updatedat: site.updatedat || new Date().toISOString()
       })) || [];
 
-      console.log('[Consumption] Formatted Sites:', formattedData);
       setSites(formattedData);
     } catch (err) {
       console.error('[Consumption] Fetch error:', err);

@@ -72,13 +72,31 @@ const getConsumptionSite = async (req, res) => {
             });
         }
 
+        // Additional validation at controller level
+        if (!item.name || !item.type || !item.location) {
+            return res.status(500).json({
+                success: false,
+                message: 'Invalid site data structure'
+            });
+        }
+
         res.json({
             success: true,
-            data: item
+            data: {
+                ...item,
+                type: item.type.toLowerCase(),
+                status: item.status?.toLowerCase() || 'active',
+                version: Number(item.version || 1),
+                timetolive: Number(item.timetolive || 0),
+                annualConsumption: Number(item.annualConsumption || 0),
+                createdat: item.createdat || new Date().toISOString(),
+                updatedat: item.updatedat || new Date().toISOString()
+            }
         });
     } catch (error) {
         logger.error('[ConsumptionSiteController] Get Error:', error);
-        res.status(500).json({
+        const statusCode = error.statusCode || 500;
+        res.status(statusCode).json({
             success: false,
             message: error.message
         });

@@ -29,7 +29,6 @@ const ConsumptionSiteDetails = () => {
   const { enqueueSnackbar } = useSnackbar();
   const { user } = useAuth();
   
-  // State declarations
   const [siteData, setSiteData] = useState({
     site: null,
     units: [],
@@ -39,24 +38,55 @@ const ConsumptionSiteDetails = () => {
   const [error, setError] = useState(null);
   const [dialog, setDialog] = useState({
     open: false,
-    type: 'unit',
     mode: 'create',
     data: null
   });
 
-  // Data fetching
   const fetchData = useCallback(async () => {
     try {
       setError(null);
       setLoading(true);
       
+      const validCompanyId = String(companyId || '1');
+      const validConsumptionSiteId = String(consumptionSiteId);
+
+      if (!validConsumptionSiteId) {
+        throw new Error('Invalid site ID');
+      }
+      
       const [siteResponse, unitsResponse] = await Promise.all([
-        consumptionSiteApi.fetchOne(companyId, consumptionSiteId),
-        consumptionUnitApi.fetchAll(companyId, consumptionSiteId)
+        consumptionSiteApi.fetchOne(validCompanyId, validConsumptionSiteId),
+        consumptionUnitApi.fetchAll(validCompanyId, validConsumptionSiteId)
       ]);
 
-      const site = siteResponse?.data;
-      const units = unitsResponse?.data || [];
+      // Format site data with proper validation
+      const site = {
+        companyId: validCompanyId,
+        consumptionSiteId: validConsumptionSiteId,
+        name: siteResponse?.data?.name || 'Unnamed Site',
+        type: (siteResponse?.data?.type || 'unknown').toLowerCase(),
+        location: siteResponse?.data?.location || 'Location not specified',
+        annualConsumption: Number(siteResponse?.data?.annualConsumption || 0),
+        status: (siteResponse?.data?.status || 'inactive').toLowerCase(),
+        description: siteResponse?.data?.description || '',
+        version: Number(siteResponse?.data?.version || 1),
+        timetolive: Number(siteResponse?.data?.timetolive || 0),
+        createdat: siteResponse?.data?.createdat || new Date().toISOString(),
+        updatedat: siteResponse?.data?.updatedat || new Date().toISOString()
+      };
+
+      // Format units data with proper validation
+      const units = (unitsResponse?.data || []).map(unit => ({
+        ...unit,
+        c1: Number(unit.c1 || 0),
+        c2: Number(unit.c2 || 0),
+        c3: Number(unit.c3 || 0),
+        c4: Number(unit.c4 || 0),
+        c5: Number(unit.c5 || 0),
+        total: Number(unit.total || 0),
+        date: formatDisplayDate(unit.sk),
+        version: Number(unit.version || 1)
+      }));
 
       setSiteData({
         site,
@@ -65,48 +95,71 @@ const ConsumptionSiteDetails = () => {
       });
     } catch (error) {
       console.error('[ConsumptionSiteDetails] Fetch error:', error);
-      setError(error.message);
-      enqueueSnackbar(error.message, { variant: 'error' });
+      setError(error.message || 'Failed to load site data');
+      enqueueSnackbar(error.message || 'Failed to load site data', { variant: 'error' });
     } finally {
       setLoading(false);
     }
   }, [companyId, consumptionSiteId, enqueueSnackbar]);
 
-  // Permissions
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
   const permissions = useMemo(() => ({
-    units: {
-      create: hasPermission(user, 'consumption-units', 'CREATE'),
-      read: hasPermission(user, 'consumption-units', 'READ'),
-      update: hasPermission(user, 'consumption-units', 'UPDATE'),
-      delete: hasPermission(user, 'consumption-units', 'DELETE')
-    }
+    create: hasPermission(user, 'consumption-units', 'CREATE'),
+    read: hasPermission(user, 'consumption-units', 'READ'),
+    update: hasPermission(user, 'consumption-units', 'UPDATE'),
+    delete: hasPermission(user, 'consumption-units', 'DELETE')
   }), [user]);
 
-  // Handlers
+  const checkExistingDate = useCallback((date) => {
+    const sk = formatSK(date);
+    const pk = `${companyId}_${consumptionSiteId}`;
+
+    const existingEntry = siteData.units.find(item => 
+      item.sk === sk && 
+      item.pk === pk
+    );
+
+    if (existingEntry) {
+      return {
+        exists: true,
+        data: existingEntry,
+        displayDate: formatDisplayDate(date)
+      };
+    }
+
+    return {
+      exists: false,
+      displayDate: formatDisplayDate(date)
+    };
+  }, [companyId, consumptionSiteId, siteData.units]);
+
   const handleAddClick = useCallback(() => {
-    if (!permissions.units.create) {
+    if (!permissions.create) {
       enqueueSnackbar('You do not have permission to add new records', { 
         variant: 'error' 
       });
       return;
     }
 
-    setDialog({ open: true, type: 'unit', mode: 'create', data: null });
-  }, [permissions.units.create, enqueueSnackbar]);
+    setDialog({ open: true, mode: 'create', data: null });
+  }, [permissions.create, enqueueSnackbar]);
 
   const handleEditClick = useCallback((data) => {
-    if (!permissions.units.update) {
+    if (!permissions.update) {
       enqueueSnackbar('You do not have permission to edit records', { 
         variant: 'error' 
       });
       return;
     }
 
-    setDialog({ open: true, type: 'unit', mode: 'edit', data });
-  }, [permissions.units.update, enqueueSnackbar]);
+    setDialog({ open: true, mode: 'edit', data });
+  }, [permissions.update, enqueueSnackbar]);
 
   const handleDeleteClick = useCallback(async (data) => {
-    if (!permissions.units.delete) {
+    if (!permissions.delete) {
       enqueueSnackbar('You do not have permission to delete records', { 
         variant: 'error' 
       });
@@ -124,42 +177,39 @@ const ConsumptionSiteDetails = () => {
     } catch (err) {
       enqueueSnackbar(err.message, { variant: 'error' });
     }
-  }, [permissions.units.delete, companyId, consumptionSiteId, enqueueSnackbar, fetchData]);
+  }, [permissions.delete, companyId, consumptionSiteId, enqueueSnackbar, fetchData]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  // Handle form submission
   const handleSubmit = async (formData) => {
     try {
       const sk = formatSK(formData.date);
-      const pk = `${companyId}_${consumptionSiteId}`;
-      
-      if (dialog.mode === 'create') {
-        // Check if data already exists for this date
-        const existingEntry = siteData.units.find(item => 
-          item.sk === sk && 
-          item.pk === pk
-        );
 
-        if (existingEntry) {
-          const displayDate = formatDisplayDate(formData.date);
-          const confirmUpdate = window.confirm(
-            `Data already exists for ${displayDate}. Would you like to update the existing record?`
-          );
+      if (dialog.mode === 'create') {
+        // Check for existing data on create
+        const existingCheck = checkExistingDate(formData.date);
+        
+        if (existingCheck.exists) {
+          const confirmUpdate = await new Promise(resolve => {
+            const message = `Unit data already exists for ${existingCheck.displayDate}. Would you like to update the existing record?`;
+            resolve(window.confirm(message));
+          });
 
           if (confirmUpdate) {
-            // Switch to update mode and update existing record
-            const updatedData = {
+            // Switch to update mode
+            setDialog(prev => ({
+              ...prev,
+              mode: 'edit',
+              data: existingCheck.data
+            }));
+            
+            // Update existing record
+            await consumptionUnitApi.update(companyId, consumptionSiteId, existingCheck.data.sk, {
               ...formData,
-              sk: existingEntry.sk,
-              version: (existingEntry.version || 0) + 1,
+              version: existingCheck.data.version,
               type: 'UNIT'
-            };
-            await consumptionUnitApi.update(companyId, consumptionSiteId, existingEntry.sk, updatedData);
+            });
             enqueueSnackbar('Unit updated successfully', { variant: 'success' });
           } else {
+            // User chose not to update
             enqueueSnackbar('Operation cancelled', { variant: 'info' });
             return;
           }
@@ -173,7 +223,7 @@ const ConsumptionSiteDetails = () => {
           enqueueSnackbar('Unit created successfully', { variant: 'success' });
         }
       } else {
-        // Regular edit mode update
+        // Regular update
         const updatedData = {
           ...formData,
           sk: dialog.data.sk,
@@ -185,58 +235,15 @@ const ConsumptionSiteDetails = () => {
       }
 
       await fetchData();
-      setDialog({ open: false, type: 'unit', mode: 'create', data: null });
+      setDialog({ open: false, mode: 'create', data: null });
     } catch (err) {
       console.error('Form submission error:', err);
-      enqueueSnackbar(err.message || 'Failed to save unit', { 
+      enqueueSnackbar(err.message || 'Failed to save record', { 
         variant: 'error',
-        autoHideDuration: 5000 
+        autoHideDuration: 5000
       });
     }
   };
-
-  // Render data table
-  const renderDataTable = useCallback(() => {
-    return (
-      <Paper sx={{ p: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-          <Typography variant="h6">Consumption Units</Typography>
-          {permissions.units.create && (
-            <Button
-              startIcon={<AddIcon />}
-              variant="contained"
-              color="primary"
-              onClick={handleAddClick}
-            >
-              Add Consumption Unit
-            </Button>
-          )}
-        </Box>
-        
-        {loading ? (
-          <Box display="flex" justifyContent="center" p={3}>
-            <CircularProgress />
-          </Box>
-        ) : error ? (
-          <Alert severity="error" sx={{ mt: 2 }}>
-            {error}
-          </Alert>
-        ) : !siteData.units.length ? (
-          <Alert severity="info" sx={{ mt: 2 }}>
-            No consumption unit data available.
-            {user?.role?.toUpperCase() === 'ADMIN' && ' Click the Add button to create new data.'}
-          </Alert>
-        ) : (
-          <ConsumptionDataTable
-            data={siteData.units}
-            onEdit={permissions.units.update ? handleEditClick : undefined}
-            onDelete={permissions.units.delete ? handleDeleteClick : undefined}
-            permissions={permissions.units}
-          />
-        )}
-      </Paper>
-    );
-  }, [loading, error, siteData.units, permissions.units, handleAddClick, handleEditClick, handleDeleteClick, user]);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -260,11 +267,38 @@ const ConsumptionSiteDetails = () => {
       ) : (
         <>
           <SiteInfoCard site={siteData.site} />
-          {renderDataTable()}
+          <Paper sx={{ p: 3, mb: 3 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+              <Typography variant="h6">Consumption Units</Typography>
+              {permissions.create && (
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={handleAddClick}
+                >
+                  Add Unit
+                </Button>
+              )}
+            </Box>
+
+            {!siteData.units?.length ? (
+              <Alert severity="info">
+                No units data available.
+                {permissions.create && ' Click the Add button to create new data.'}
+              </Alert>
+            ) : (
+              <ConsumptionDataTable
+                data={siteData.units}
+                onEdit={handleEditClick}
+                onDelete={handleDeleteClick}
+                permissions={permissions}
+              />
+            )}
+          </Paper>
 
           <Dialog
             open={dialog.open}
-            onClose={() => setDialog({ open: false, type: 'unit', mode: 'create', data: null })}
+            onClose={() => setDialog({ open: false, mode: 'create', data: null })}
             maxWidth="md"
             fullWidth
           >
@@ -276,7 +310,7 @@ const ConsumptionSiteDetails = () => {
                 type="unit"
                 initialData={dialog.data}
                 onSubmit={handleSubmit}
-                onCancel={() => setDialog({ open: false, type: 'unit', mode: 'create', data: null })}
+                onCancel={() => setDialog({ open: false, mode: 'create', data: null })}
                 companyId={companyId}
                 consumptionSiteId={consumptionSiteId}
               />

@@ -74,7 +74,35 @@ const getConsumptionSite = async (companyId, consumptionSiteId) => {
                 consumptionSiteId: consumptionSiteId.toString()
             }
         }));
-        return Item;
+
+        if (!Item) {
+            const error = new Error('Consumption site not found');
+            error.statusCode = 404;
+            throw error;
+        }
+
+        // Validate required fields
+        if (!Item.name || !Item.type || !Item.location) {
+            logger.error('[ConsumptionSiteDAL] Invalid data in database:', Item);
+            const error = new Error('Invalid site data in database');
+            error.statusCode = 500;
+            throw error;
+        }
+
+        // Format and validate the data before returning
+        return {
+            companyId: Item.companyId,
+            consumptionSiteId: Item.consumptionSiteId,
+            name: Item.name,
+            location: Item.location,
+            type: Item.type.toLowerCase(),
+            annualConsumption: new Decimal(Item.annualConsumption || 0).toString(),
+            status: Item.status?.toLowerCase() || 'active',
+            version: Number(Item.version || 1),
+            timetolive: Number(Item.timetolive || 0),
+            createdat: Item.createdat || new Date().toISOString(),
+            updatedat: Item.updatedat || new Date().toISOString()
+        };
     } catch (error) {
         logger.error('[ConsumptionSiteDAL] Get Error:', error);
         throw error;

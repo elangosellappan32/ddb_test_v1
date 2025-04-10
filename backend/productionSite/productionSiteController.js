@@ -138,9 +138,37 @@ const updateProductionSite = async (req, res) => {
         
         // Normalize the request body
         const updates = { ...req.body };
+
+        // Handle both annualProduction and annualProduction_L
         if (updates.annualProduction && !updates.annualProduction_L) {
             updates.annualProduction_L = updates.annualProduction;
             delete updates.annualProduction;
+        }
+
+        // Validate banking when status is changing
+        if (updates.status === 'Inactive' || updates.status === 'Maintenance') {
+            updates.banking = 0;
+        }
+
+        // Validate decimal fields
+        const decimalFields = {
+            capacity_MW: 'Capacity (MW)',
+            annualProduction_L: 'Annual Production (L)',
+            htscNo: 'HTSC Number',
+            injectionVoltage_KV: 'Injection Voltage (KV)'
+        };
+
+        for (const [field, label] of Object.entries(decimalFields)) {
+            if (updates[field] !== undefined) {
+                const validation = validateDecimal(updates[field], label);
+                if (!validation.isValid) {
+                    return res.status(400).json({
+                        success: false,
+                        message: validation.error
+                    });
+                }
+                updates[field] = validation.value;
+            }
         }
 
         const updatedItem = await productionSiteDAL.updateItem(

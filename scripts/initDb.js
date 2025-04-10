@@ -3,6 +3,7 @@ const {
     DynamoDBDocumentClient, 
     PutCommand 
 } = require("@aws-sdk/lib-dynamodb");
+const TableNames = require('../backend/constants/tableNames');
 
 const client = new DynamoDBClient({
     region: 'local',
@@ -17,7 +18,7 @@ const docClient = DynamoDBDocumentClient.from(client);
 
 const timestamp = new Date().toISOString();
 
-const createTable = async () => {
+const createRoleTable = async () => {
     const params = {
         TableName: 'RoleTable',
         KeySchema: [
@@ -56,6 +57,35 @@ const createTable = async () => {
     } catch (error) {
         if (error.name === 'ResourceInUseException') {
             console.log('Table already exists');
+        } else {
+            throw error;
+        }
+    }
+};
+
+const createBankingTable = async () => {
+    const params = {
+        TableName: TableNames.BANKING,
+        KeySchema: [
+            { AttributeName: 'pk', KeyType: 'HASH' },
+            { AttributeName: 'sk', KeyType: 'RANGE' }
+        ],
+        AttributeDefinitions: [
+            { AttributeName: 'pk', AttributeType: 'S' },
+            { AttributeName: 'sk', AttributeType: 'S' }
+        ],
+        ProvisionedThroughput: {
+            ReadCapacityUnits: 5,
+            WriteCapacityUnits: 5
+        }
+    };
+
+    try {
+        await client.send(new CreateTableCommand(params));
+        console.log('Banking table created successfully');
+    } catch (error) {
+        if (error.name === 'ResourceInUseException') {
+            console.log('Banking table already exists');
         } else {
             throw error;
         }
@@ -131,7 +161,8 @@ const createDefaultUsers = async () => {
 };
 
 const init = async () => {
-    await createTable();
+    await createRoleTable();
+    await createBankingTable();
     await createDefaultUsers();
 };
 

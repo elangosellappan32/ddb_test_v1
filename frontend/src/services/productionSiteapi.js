@@ -21,9 +21,9 @@ const formatSiteData = (data) => ({
   location: data.location,
   capacity_MW: Number(data.capacity_MW),
   injectionVoltage_KV: Number(data.injectionVoltage_KV),
-  annualProduction_L: Number(data.annualProduction), // Match the backend field name
+  annualProduction_L: Number(data.annualProduction_L), // Only use annualProduction_L
   htscNo: data.htscNo,
-  banking: Number(data.banking),
+  banking: Number(data.banking || 0),
   status: data.status || 'Active',
   version: Number(data.version) || 1
 });

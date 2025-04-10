@@ -105,15 +105,26 @@ const updateItem = async (companyId, productionSiteId, updates) => {
             throw new Error('Version mismatch');
         }
 
-        // Normalize the annualProduction field
-        const annualProduction = updates.annualProduction_L || updates.annualProduction || existing.annualProduction_L;
+        // Handle annualProduction field consistently
+        let annualProduction;
+        if (updates.annualProduction_L !== undefined) {
+            annualProduction = updates.annualProduction_L;
+        } else if (updates.annualProduction !== undefined) {
+            annualProduction = updates.annualProduction;
+        } else {
+            annualProduction = existing.annualProduction_L;
+        }
+
+        // Force banking to 0 if status is Inactive or Maintenance
+        const banking = (updates.status === 'Inactive' || updates.status === 'Maintenance') ? 0 : 
+                       (updates.banking !== undefined ? updates.banking : existing.banking);
 
         const updatedItem = {
             ...existing,
             name: updates.name || existing.name,
             location: updates.location || existing.location,
             type: updates.type || existing.type,
-            banking: updates.banking ? new Decimal(updates.banking).toString() : existing.banking,
+            banking: new Decimal(banking).toString(),
             capacity_MW: updates.capacity_MW ? new Decimal(updates.capacity_MW).toString() : existing.capacity_MW,
             annualProduction_L: new Decimal(annualProduction).toString(),
             htscNo: updates.htscNo ? new Decimal(updates.htscNo).toString() : existing.htscNo,

@@ -63,12 +63,12 @@ const ProductionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) => 
     const getBankingStatus = (bankingValue) => {
         return Number(bankingValue) === 1 ? {
             color: 'success.main',
-            text: 'Enabled',
-            icon: <BankIcon sx={{ color: 'success.main' }} />
+            text: 'Available',
+            icon: <BankIcon sx={{ fontSize: 20, color: 'success.main' }} />
         } : {
             color: 'error.main',
-            text: 'Disabled',
-            icon: <BankIcon sx={{ color: 'error.main' }} />
+            text: 'Not Available',
+            icon: <BankIcon sx={{ fontSize: 20, color: 'error.main' }} />
         };
     };
 
@@ -148,7 +148,7 @@ const ProductionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) => 
                     <Grid item xs={6}>
                         <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                             {bankingStatus.icon}
-                            <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>Banking</Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>Banking Status</Typography>
                         </Box>
                         <Typography variant="body1" color={bankingStatus.color}>
                             {bankingStatus.text}

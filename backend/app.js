@@ -15,6 +15,7 @@ const consumptionSiteRoutes = require('./consumptionSite/consumptionSiteRoutes')
 const consumptionUnitRoutes = require('./consumptionUnit/consumptionUnitRoutes');
 const healthRoutes = require('./routes/healthRoutes');
 const roleRoutes = require('./routes/roleRoutes');
+const bankingRoutes = require('./banking/bankingRoutes');
 
 const app = express();
 
@@ -50,6 +51,7 @@ app.use('/api/consumption-site', consumptionSiteRoutes);
 app.use('/api/consumption-unit', consumptionUnitRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/roles', roleRoutes);
+app.use('/api/banking', bankingRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

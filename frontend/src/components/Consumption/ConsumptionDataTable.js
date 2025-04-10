@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import {
   Table,
   TableBody,
@@ -47,13 +47,13 @@ const ConsumptionDataTable = ({
     });
   }, [data]);
 
-  const calculateRowTotal = (row) => {
+  const calculateRowTotal = useCallback((row) => {
     const total = ['c1', 'c2', 'c3', 'c4', 'c5']
       .reduce((sum, key) => sum + Number(row[key] || 0), 0);
     return total.toFixed(2);
-  };
+  }, []);
 
-  const formatSKPeriod = (sk) => {
+  const formatSKPeriod = useCallback((sk) => {
     if (!sk || sk.length !== 6) return 'N/A';
     try {
       const month = parseInt(sk.substring(0, 2)) - 1;
@@ -64,31 +64,31 @@ const ConsumptionDataTable = ({
       console.error('Error formatting SK period:', error);
       return 'N/A';
     }
-  };
+  }, []);
 
-  const handleEditClick = (row) => {
+  const handleEditClick = useCallback((row) => {
     if (onEdit) {
       onEdit(row);
     }
-  };
+  }, [onEdit]);
 
-  const handleDeleteClick = (row) => {
+  const handleDeleteClick = useCallback((row) => {
     setDeleteDialog({
       open: true,
       selectedItem: row
     });
-  };
+  }, []);
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = useCallback(() => {
     if (onDelete && deleteDialog.selectedItem) {
       onDelete(deleteDialog.selectedItem);
     }
     setDeleteDialog({ open: false, selectedItem: null });
-  };
+  }, [onDelete, deleteDialog.selectedItem]);
 
-  const handleDeleteCancel = () => {
+  const handleDeleteCancel = useCallback(() => {
     setDeleteDialog({ open: false, selectedItem: null });
-  };
+  }, []);
 
   return (
     <>

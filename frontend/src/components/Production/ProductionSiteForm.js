@@ -12,22 +12,16 @@ import {
   CircularProgress,
   Switch,
   FormControlLabel,
-  Typography,
-  Tooltip,
-  FormHelperText,
   DialogTitle,
   DialogContent,
   DialogActions,
   InputAdornment
 } from '@mui/material';
 import {
-  Info as InfoIcon,
   LocationOn as LocationIcon,
   Speed as CapacityIcon,
   ElectricBolt as VoltageIcon,
-  Assessment as ProductionIcon,
   Assignment as HtscIcon,
-  AccountBalance as BankIcon,
   Factory as TypeIcon,
   Assessment as AnnualProductionIcon
 } from '@mui/icons-material';
@@ -43,8 +37,8 @@ const INITIAL_FORM_STATE = {
   htscNo: '',
   type: '',
   status: 'Active',
-  banking: false,
-  annualProduction: ''
+  banking: 0,
+  annualProduction_L: ''  // Changed from annualProduction
 };
 
 const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) => {
@@ -56,7 +50,12 @@ const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) 
   // Initialize form with either initialData or site data
   useEffect(() => {
     if (initialData) {
-      setFormData({ ...INITIAL_FORM_STATE, ...initialData });
+      setFormData({ 
+        ...INITIAL_FORM_STATE, 
+        ...initialData,
+        banking: Number(initialData.banking) || 0,
+        annualProduction_L: initialData.annualProduction_L || initialData.annualProduction || ''  // Handle both field names
+      });
     } else if (site) {
       setFormData({
         ...INITIAL_FORM_STATE,
@@ -67,8 +66,8 @@ const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) 
         status: site.status || 'Active',
         injectionVoltage_KV: site.injectionVoltage_KV || '',
         htscNo: site.htscNo || '',
-        banking: site.banking || false,
-        annualProduction: site.annualProduction || ''
+        banking: Number(site.banking) || 0,
+        annualProduction_L: site.annualProduction_L || site.annualProduction || ''  // Handle both field names
       });
     }
   }, [initialData, site]);
@@ -83,7 +82,7 @@ const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) 
       'capacity_MW',
       'injectionVoltage_KV',
       'htscNo',
-      'annualProduction'
+      'annualProduction_L'
     ];
 
     const allFieldsFilled = requiredFields.every(field => {
@@ -111,10 +110,19 @@ const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) 
       processedValue = checked ? 1 : 0;
     }
 
-    setFormData(prev => ({
-      ...prev,
-      [name]: processedValue
-    }));
+    // If status is being changed to Inactive or Maintenance, disable banking
+    if (name === 'status' && (value === 'Inactive' || value === 'Maintenance')) {
+      setFormData(prev => ({
+        ...prev,
+        [name]: processedValue,
+        banking: 0
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: processedValue
+      }));
+    }
 
     // Clear error when field is modified
     const fieldError = validateField(name, processedValue);
@@ -165,7 +173,7 @@ const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) 
         if (value.length < 4) return 'HTSC No must be at least 4 characters';
         return '';
 
-      case 'annualProduction':
+      case 'annualProduction_L':
         if (!value && value !== 0) return 'Annual Production is required';
         if (value <= 0) return 'Annual Production must be greater than 0';
         if (isNaN(value)) return 'Annual Production must be a number';
@@ -184,7 +192,7 @@ const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) 
       capacity_MW: 'Capacity (MW)',
       injectionVoltage_KV: 'Injection Voltage (KV)',
       htscNo: 'HTSC No',
-      annualProduction: 'Annual Production (L)'
+      annualProduction_L: 'Annual Production (L)'
     };
 
     const newErrors = {};
@@ -193,7 +201,7 @@ const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) 
       if (value === '' || value === null || value === undefined) {
         newErrors[field] = `${label} is required`;
       } else if (
-        ['capacity_MW', 'injectionVoltage_KV', 'annualProduction'].includes(field) &&
+        ['capacity_MW', 'injectionVoltage_KV', 'annualProduction_L'].includes(field) &&
         (isNaN(value) || Number(value) <= 0)
       ) {
         newErrors[field] = `${label} must be a positive number`;
@@ -222,8 +230,9 @@ const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) 
           // Ensure all numeric fields are numbers
           capacity_MW: Number(formData.capacity_MW),
           injectionVoltage_KV: Number(formData.injectionVoltage_KV),
-          annualProduction: Number(formData.annualProduction),
-          banking: formData.banking ? 1 : 0
+          annualProduction_L: Number(formData.annualProduction_L), // Use correct field name
+          htscNo: formData.htscNo,
+          banking: formData.status === 'Inactive' || formData.status === 'Maintenance' ? 0 : Number(formData.banking)
         };
 
         await onSubmit(submitData);
@@ -395,6 +404,7 @@ const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) 
                       value: e.target.checked ? 1 : 0
                     }
                   })}
+                  disabled={formData.status === 'Inactive' || formData.status === 'Maintenance'}
                 />
               }
               label="Banking Enabled"
@@ -404,14 +414,14 @@ const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) 
             <TextField
               fullWidth
               required
-              id="annualProduction"
-              name="annualProduction"
+              id="annualProduction_L"
+              name="annualProduction_L"
               label="Annual Production (L)"
               type="number"
-              value={formData.annualProduction}
+              value={formData.annualProduction_L}
               onChange={handleChange}
-              error={touched.annualProduction && !!errors.annualProduction}
-              helperText={touched.annualProduction && errors.annualProduction}
+              error={touched.annualProduction_L && !!errors.annualProduction_L}
+              helperText={touched.annualProduction_L && errors.annualProduction_L}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">

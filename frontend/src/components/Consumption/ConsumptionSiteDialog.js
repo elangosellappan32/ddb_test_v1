@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import {
   Dialog,
@@ -22,8 +22,6 @@ import {
   Label as NameIcon
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
-import { useAuth } from '../../context/AuthContext';
-import consumptionSiteApi from '../../services/consumptionSiteApi';
 
 const ConsumptionSiteDialog = ({ 
   open, 
@@ -34,7 +32,6 @@ const ConsumptionSiteDialog = ({
   permissions,
   totalSites 
 }) => {
-  const { user } = useAuth();
   const { enqueueSnackbar } = useSnackbar();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -56,12 +53,18 @@ const ConsumptionSiteDialog = ({
         ? initialData.type.toLowerCase()
         : 'other';
 
+      // Ensure status value is normalized
+      const validStatuses = ['active', 'inactive', 'pending'];
+      const sanitizedStatus = validStatuses.includes(initialData.status?.toLowerCase())
+        ? initialData.status.toLowerCase()
+        : 'inactive';
+
       setFormData({
         name: initialData.name || '',
         type: sanitizedType,
         location: initialData.location || '',
         annualConsumption: initialData.annualConsumption || '',
-        status: initialData.status || 'active',
+        status: sanitizedStatus,
         timetolive: initialData.timetolive || 0,
         version: initialData.version || 1
       });
