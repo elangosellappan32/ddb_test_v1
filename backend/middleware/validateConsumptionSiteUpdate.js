@@ -19,7 +19,7 @@ const validateConsumptionSiteUpdate = (req, res, next) => {
     }
 
     if (updates.type !== undefined) {
-        const validTypes = ['industrial', 'commercial', 'residential'];
+        const validTypes = ['industrial', 'textile', 'other'];
         if (!validTypes.includes(updates.type.toLowerCase())) {
             errors.push(`Type must be one of: ${validTypes.join(', ')}`);
         }

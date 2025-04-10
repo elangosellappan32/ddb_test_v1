@@ -10,7 +10,7 @@ const validateConsumptionSite = (req, res, next) => {
         errors.push('Location is required and must be at least 2 characters');
     }
 
-    const validTypes = ['industrial', 'commercial', 'residential'];
+    const validTypes = ['industrial', 'textile', 'other'];
     if (!item.type || !validTypes.includes(item.type.toLowerCase())) {
         errors.push(`Type must be one of: ${validTypes.join(', ')}`);
     }

@@ -117,13 +117,20 @@ const ConsumptionSiteDialog = ({
       // Format the data before submission
       const submissionData = {
         ...formData,
+        type: formData.type.toLowerCase(), // Ensure type is lowercase
         annualConsumption: Number(formData.annualConsumption),
         version: initialData?.version || 1,
         timetolive: Number(formData.timetolive || 0),
+        status: formData.status.toLowerCase(), // Ensure status is lowercase
         // Add consumptionSiteId for new sites
         ...(initialData ? {} : { consumptionSiteId: String(totalSites + 1) })
       };
       
+      // Make sure all required fields are present
+      if (!submissionData.type || !submissionData.name || !submissionData.location) {
+        throw new Error('Missing required fields');
+      }
+
       await onSubmit(submissionData);
       onClose();
     } catch (error) {
