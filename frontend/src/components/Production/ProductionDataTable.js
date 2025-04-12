@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 import { Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import { formatNumber } from '../../utils/numberFormat';
+import { format } from 'date-fns';
 
 const ProductionDataTable = ({ 
   data, 
@@ -71,35 +72,35 @@ const ProductionDataTable = ({
     if (!dateString) return 'N/A';
     
     try {
-      const monthNames = [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-      ];
-
       // First check if we have a displayDate field
       if (row && row.displayDate) {
         return row.displayDate;
       }
       
-      // Otherwise parse from the sk or date field
-      const date = dateString.length === 6 ? dateString : (row?.sk || '');
-      if (!date || date.length !== 6) {
-        console.warn('[ProductionDataTable] Invalid date format:', dateString);
+      // Handle both mmyyyy format and month/year format
+      let month, year;
+      
+      if (dateString.includes('/')) {
+        // Handle month/year format
+        [month, year] = dateString.split('/');
+        month = month.padStart(2, '0');
+        // Convert to mmyyyy format
+        dateString = `${month}${year}`;
+      }
+
+      // Parse from mmyyyy format
+      month = parseInt(dateString.substring(0, 2)) - 1;
+      year = parseInt(`20${dateString.substring(4)}`, 10);
+      
+      if (isNaN(month) || isNaN(year)) {
+        console.warn('[ProductionDataTable] Invalid date values:', { month, year, dateString });
         return 'N/A';
       }
 
-      const month = date.substring(0, 2);
-      const year = date.substring(2);
-      const monthIndex = parseInt(month, 10) - 1;
-      
-      if (monthIndex < 0 || monthIndex >= 12) {
-        console.warn('[ProductionDataTable] Invalid month:', month);
-        return dateString;
-      }
-      
-      return `${monthNames[monthIndex]} ${year}`;
+      const dateObj = new Date(year, month);
+      return format(dateObj, 'MMMM yyyy');
     } catch (error) {
-      console.error('[ProductionDataTable] Date formatting error:', error);
+      console.error('[ProductionDataTable] Date formatting error:', error, { dateString });
       return 'N/A';
     }
   };
@@ -176,7 +177,10 @@ const ProductionDataTable = ({
     
     return data.data.some(row => {
       const existingDate = row.sk || row.date;
-      return existingDate === dateToCheck && row.productionSiteId === siteId;
+      // Normalize both dates to mmyyyy format for comparison
+      const normalizedExistingDate = existingDate.replace('/', '');
+      const normalizedCheckDate = dateToCheck.replace('/', '');
+      return normalizedExistingDate === normalizedCheckDate && row.productionSiteId === siteId;
     });
   };
 

@@ -10,7 +10,8 @@ export const API_CONFIG = {
     PRODUCTION_SITE: 'ProductionSiteTable',
     PRODUCTION_UNIT: 'ProductionUnitTable',
     PRODUCTION_CHARGE: 'ProductionChargeTable',
-    BANKING: 'BankingTable'
+    BANKING: 'BankingTable',
+    ALLOCATION: 'AllocationTable'
   },
   ENDPOINTS: {
     AUTH: {
@@ -90,6 +91,15 @@ export const API_CONFIG = {
       UPDATE: (pk, sk) => `/banking/${pk}/${sk}`,
       DELETE: (pk, sk) => `/banking/${pk}/${sk}`,
       GET_BY_PERIOD: (pk, period) => `/banking/${pk}/period/${period}`
+    },
+    ALLOCATION: {
+      BASE: '/allocation',
+      GET_ALL: (month) => `/allocation/month/${month}`,
+      GET_BY_PERIOD: (period, month) => `/allocation/period/${period}/month/${month}`,
+      CREATE: '/allocation',
+      CREATE_BATCH: '/allocation/batch',
+      UPDATE: (pk, sk) => `/allocation/${pk}/${sk}`,
+      DELETE: (pk, sk) => `/allocation/${pk}/${sk}`
     }
   }
 };

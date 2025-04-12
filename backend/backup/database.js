@@ -1,24 +1,25 @@
-const AWS = require('aws-sdk');
+const { DynamoDBClient, ListTablesCommand } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBDocumentClient } = require('@aws-sdk/lib-dynamodb');
 
-// Configure AWS SDK for DynamoDB Local
-const dynamoDBConfig = {
-    region: 'localhost',
+// DynamoDB Local Configuration
+const client = new DynamoDBClient({
+    region: 'local',
     endpoint: 'http://localhost:8000',
-    accessKeyId: 'local',
-    secretAccessKey: 'local'
-};
-
-AWS.config.update(dynamoDBConfig);
+    credentials: {
+        accessKeyId: 'local',
+        secretAccessKey: 'local'
+    }
+});
 
 // Create DynamoDB document client
-const dynamoDB = new AWS.DynamoDB.DocumentClient();
+const docClient = DynamoDBDocumentClient.from(client);
 
 // Test database connection
 const testConnection = async () => {
     try {
         // List tables to test connection
-        const ddb = new AWS.DynamoDB(dynamoDBConfig);
-        await ddb.listTables({}).promise();
+        const command = new ListTablesCommand({});
+        await client.send(command);
         return true;
     } catch (error) {
         console.error('DynamoDB Local connection test failed:', error);
@@ -27,6 +28,7 @@ const testConnection = async () => {
 };
 
 module.exports = {
-    dynamoDB,
+    docClient,
+    client,
     testConnection
 };

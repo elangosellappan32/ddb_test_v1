@@ -5,7 +5,8 @@ const TableNames = {
     CONSUMPTION_SITES: 'ConsumptionSiteTable',
     CONSUMPTION_UNIT:'ConsumptionUnitTable',
     USERS: 'RoleTable',
-    BANKING: 'BankingTable'
+    BANKING: 'BankingTable',
+    ALLOCATION: 'AllocationTable'
 };
 
 module.exports = TableNames;

@@ -1,12 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
-const AWS = require('aws-sdk');
 const jwt = require('jsonwebtoken');
+const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBDocumentClient, ScanCommand } = require('@aws-sdk/lib-dynamodb');
 
-const dynamoDB = new AWS.DynamoDB.DocumentClient({
+const client = new DynamoDBClient({
     endpoint: process.env.DYNAMODB_ENDPOINT || 'http://localhost:8000'
 });
+
+const docClient = DynamoDBDocumentClient.from(client);
 
 // Login route
 router.post('/login', async (req, res) => {
@@ -22,7 +25,7 @@ router.post('/login', async (req, res) => {
 
         logger.info(`Login attempt for user: ${username}`);
 
-        const params = {
+        const command = new ScanCommand({
             TableName: 'RoleTable',
             FilterExpression: '#username = :username',
             ExpressionAttributeNames: {
@@ -31,10 +34,10 @@ router.post('/login', async (req, res) => {
             ExpressionAttributeValues: {
                 ':username': username
             }
-        };
+        });
 
         try {
-            const result = await dynamoDB.scan(params).promise();
+            const result = await docClient.send(command);
             
             if (!result.Items || result.Items.length === 0) {
                 logger.warn(`User not found: ${username}`);

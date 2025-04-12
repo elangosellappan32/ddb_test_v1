@@ -4,10 +4,39 @@ import { API_CONFIG } from '../config/api.config';
 const generatePK = (companyId, consumptionSiteId) => `${companyId}_${consumptionSiteId}`;
 
 const formatDateToMMYYYY = (dateString) => {
-  const date = new Date(dateString);
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = date.getFullYear();
-  return `${month}${year}`;
+  try {
+    if (!dateString) {
+      const date = new Date();
+      return `${String(date.getMonth() + 1).padStart(2, '0')}${date.getFullYear()}`;
+    }
+    
+    // If already in MMYYYY format
+    if (dateString.length === 6 && !dateString.includes('-')) {
+      const month = parseInt(dateString.substring(0, 2));
+      if (month >= 1 && month <= 12) {
+        return dateString;
+      }
+      throw new Error('Invalid month value in MMYYYY format');
+    }
+    
+    // Handle YYYY-MM format
+    if (dateString.includes('-')) {
+      const [yearStr, monthStr] = dateString.split('-');
+      if (!yearStr || !monthStr || yearStr.length !== 4) {
+        throw new Error('Invalid YYYY-MM format');
+      }
+      return `${monthStr}${yearStr}`;
+    }
+    
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      throw new Error('Invalid date format');
+    }
+    return `${String(date.getMonth() + 1).padStart(2, '0')}${date.getFullYear()}`;
+  } catch (error) {
+    console.error('[ConsumptionUnitAPI] Date format error:', error);
+    throw new Error('Invalid date format. Expected YYYY-MM or MMYYYY');
+  }
 };
 
 const stripUnitPrefix = (sk) => {

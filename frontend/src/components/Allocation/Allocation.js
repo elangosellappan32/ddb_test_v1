@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { format } from 'date-fns';
 import {
   Box,
   Paper,
@@ -12,30 +13,58 @@ import {
   Button,
   Alert,
   CircularProgress,
-  Grid
+  Grid,
+  Tooltip,
+  IconButton,
+  TextField
 } from '@mui/material';
+import {
+  Assignment as AssignmentIcon,
+  AccountBalance as BankingIcon,
+  Warning as WarningIcon,
+  CheckCircle as CheckCircleIcon,
+  Refresh as RefreshIcon,
+  TrendingDown as LapseIcon
+} from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import productionUnitApi from '../../services/productionUnitapi';
 import consumptionUnitApi from '../../services/consumptionUnitApi';
 import productionSiteApi from '../../services/productionSiteapi';
 import consumptionSiteApi from '../../services/consumptionSiteApi';
 import bankingApi from '../../services/bankingApi';
+import allocationApi from '../../services/allocationApi';
 
 const Allocation = () => {
+  const { enqueueSnackbar } = useSnackbar();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'));
   const [productionData, setProductionData] = useState([]);
   const [consumptionData, setConsumptionData] = useState([]);
   const [bankingData, setBankingData] = useState([]);
   const [allProduction, setAllProduction] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const { enqueueSnackbar } = useSnackbar();
+  const [calculatedAllocations, setCalculatedAllocations] = useState([]);
+
+  const handleError = useCallback((error, context) => {
+    const errorMessage = error?.response?.data?.message || error.message || 'An error occurred';
+    console.error(`${context}:`, error);
+    setError(errorMessage);
+    enqueueSnackbar(errorMessage, { 
+      variant: 'error',
+      autoHideDuration: 5000,
+      preventDuplicate: true
+    });
+  }, [enqueueSnackbar]);
 
   const fetchAllData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Fetch production sites and their units
+      // Convert selected month to proper format for filtering (MMYYYY)
+      const monthKey = selectedMonth.split('-')[1] + selectedMonth.split('-')[0].substring(2);
+
+      // Fetch production sites and their units for the selected month
       const prodSitesResp = await productionSiteApi.fetchAll();
       const prodSites = prodSitesResp.data || [];
       
@@ -45,12 +74,13 @@ const Allocation = () => {
         map[pk] = {
           name: site.name,
           banking: Number(site.banking) || 0,
-          status: site.status || 'Active'
+          status: site.status || 'Active',
+          productionSiteId: site.productionSiteId
         };
         return map;
       }, {});
       
-      // Fetch all production units for each site
+      // Fetch production units with proper date handling
       const productionUnits = await Promise.all(
         prodSites.map(async (site) => {
           try {
@@ -59,12 +89,21 @@ const Allocation = () => {
               Number(site.productionSiteId)
             );
             const units = unitsResp.data || [];
-            return units.map(unit => ({
-              ...unit,
-              siteName: site.name,
-              status: 'Available',
-              banking: Number(site.banking) || 0
-            }));
+            
+            return units
+              .filter(unit => unit.sk === monthKey)
+              .map(unit => ({
+                ...unit,
+                siteName: site.name,
+                status: 'Available',
+                banking: Number(site.banking) || 0,
+                productionSiteId: site.productionSiteId,
+                c1: Number(unit.c1 || 0),
+                c2: Number(unit.c2 || 0),
+                c3: Number(unit.c3 || 0),
+                c4: Number(unit.c4 || 0),
+                c5: Number(unit.c5 || 0)
+              }));
           } catch (err) {
             console.error('Error fetching production units:', err);
             return [];
@@ -72,11 +111,10 @@ const Allocation = () => {
         })
       );
 
-      // Fetch consumption sites and their units
+      // Fetch consumption sites and their units with proper date handling
       const consSitesResp = await consumptionSiteApi.fetchAll();
       const consSites = consSitesResp.data || [];
 
-      // Fetch all consumption units for each site
       const consumptionUnits = await Promise.all(
         consSites.map(async (site) => {
           try {
@@ -85,10 +123,19 @@ const Allocation = () => {
               Number(site.consumptionSiteId)
             );
             const units = unitsResp.data || [];
-            return units.map(unit => ({
-              ...unit,
-              siteName: site.name
-            }));
+            
+            return units
+              .filter(unit => unit.sk === monthKey)
+              .map(unit => ({
+                ...unit,
+                siteName: site.name,
+                consumptionSiteId: site.consumptionSiteId,
+                c1: Number(unit.c1 || 0),
+                c2: Number(unit.c2 || 0),
+                c3: Number(unit.c3 || 0),
+                c4: Number(unit.c4 || 0),
+                c5: Number(unit.c5 || 0)
+              }));
           } catch (err) {
             console.error('Error fetching consumption units:', err);
             return [];
@@ -96,53 +143,74 @@ const Allocation = () => {
         })
       );
 
-      // Fetch banking data and merge with site information
+      // Fetch and process banking data
       const bankingResp = await bankingApi.fetchAll();
-      const bankingUnits = (bankingResp.data || []).map(unit => {
-        const siteInfo = siteNameMap[unit.pk] || { name: 'Unknown Site', banking: 0, status: 'Unknown' };
-        return {
-          ...unit,
-          siteName: siteInfo.name,
-          banking: siteInfo.banking,
-          status: siteInfo.status
-        };
-      }).filter(unit => unit.banking === 1); // Only include sites with banking enabled
+      const bankingUnits = (bankingResp.data || [])
+        .filter(unit => unit.sk === monthKey)
+        .map(unit => {
+          const siteInfo = siteNameMap[unit.pk] || { name: 'Unknown Site', banking: 0, status: 'Unknown' };
+          return {
+            ...unit,
+            siteName: siteInfo.name,
+            banking: siteInfo.banking,
+            status: siteInfo.status,
+            productionSiteId: siteInfo.productionSiteId,
+            c1: Number(unit.c1 || 0),
+            c2: Number(unit.c2 || 0),
+            c3: Number(unit.c3 || 0),
+            c4: Number(unit.c4 || 0),
+            c5: Number(unit.c5 || 0)
+          };
+        })
+        .filter(unit => unit.banking === 1);
+
+      // Fetch existing allocations for the selected month
+      const allocationsResp = await allocationApi.fetchAll(selectedMonth);
+      const monthlyAllocations = allocationsResp.data || [];
 
       setProductionData(productionUnits.flat());
       setConsumptionData(consumptionUnits.flat());
       setBankingData(bankingUnits);
+      setCalculatedAllocations(monthlyAllocations);
+
     } catch (err) {
-      console.error('Error fetching allocation data:', err);
-      setError(err.message || 'Failed to load allocation data');
-      enqueueSnackbar(err.message || 'Failed to load allocation data', { variant: 'error' });
+      handleError(err, 'Error fetching allocation data');
     } finally {
       setLoading(false);
     }
-  }, [enqueueSnackbar]);
+  }, [selectedMonth, handleError]);
 
   useEffect(() => {
     fetchAllData();
-  }, [fetchAllData]);
+  }, [fetchAllData, selectedMonth]);
 
   const handleAutoAllocate = async () => {
     try {
       setLoading(true);
+      setError(null);
       
-      // First, handle non-banking production units
-      const nonBankingAllocation = productionData.map(prod => ({
-        ...prod,
-        remainingC1: prod.c1,
-        remainingC2: prod.c2,
-        remainingC3: prod.c3,
-        remainingC4: prod.c4,
-        remainingC5: prod.c5,
-        allocations: []
-      }));
+      // Filter data for selected month
+      const monthlyProduction = productionData.filter(prod => prod.sk === selectedMonth);
+      const monthlyConsumption = consumptionData.filter(cons => cons.sk === selectedMonth);
+      const monthlyBanking = bankingData.filter(bank => bank.sk === selectedMonth);
 
-      // Then add banking units
+      // First, handle non-banking production units for the selected month
+      const nonBankingAllocation = monthlyProduction
+        .filter(prod => !prod.banking)
+        .map(prod => ({
+          ...prod,
+          remainingC1: prod.c1,
+          remainingC2: prod.c2,
+          remainingC3: prod.c3,
+          remainingC4: prod.c4,
+          remainingC5: prod.c5,
+          allocations: []
+        }));
+
+      // Then add banking units for the selected month
       const newAllProduction = [
         ...nonBankingAllocation,
-        ...bankingData.map(bank => ({
+        ...monthlyBanking.map(bank => ({
           ...bank,
           remainingC1: bank.c1,
           remainingC2: bank.c2,
@@ -153,25 +221,53 @@ const Allocation = () => {
         }))
       ];
 
+      const allocations = [];
+
       // Process each consumption unit
-      consumptionData.forEach(cons => {
+      monthlyConsumption.forEach(cons => {
         // Handle peak periods (C2, C3) first
         ['c2', 'c3'].forEach(period => {
           if (cons[period] > 0) {
             let remaining = cons[period];
-            // Try to allocate from production units
-            newAllProduction.forEach(prod => {
-              if (prod[`remaining${period.toUpperCase()}`] > 0) {
+            // First try to allocate from non-banking units
+            nonBankingAllocation.forEach(prod => {
+              if (remaining > 0 && prod[`remaining${period.toUpperCase()}`] > 0) {
                 const allocation = Math.min(remaining, prod[`remaining${period.toUpperCase()}`]);
                 remaining -= allocation;
                 prod[`remaining${period.toUpperCase()}`] -= allocation;
-                prod.allocations.push({
-                  consumptionSite: cons.siteName,
+                
+                allocations.push({
+                  productionSiteId: prod.productionSiteId,
+                  consumptionSiteId: cons.consumptionSiteId,
                   period: period.toUpperCase(),
-                  amount: allocation
+                  amount: allocation,
+                  month: selectedMonth,
+                  status: 'ALLOCATED',
+                  isBanking: false
                 });
               }
             });
+
+            // If there's still remaining demand, try banking units
+            if (remaining > 0) {
+              monthlyBanking.forEach(bank => {
+                if (remaining > 0 && bank[`remaining${period.toUpperCase()}`] > 0) {
+                  const allocation = Math.min(remaining, bank[`remaining${period.toUpperCase()}`]);
+                  remaining -= allocation;
+                  bank[`remaining${period.toUpperCase()}`] -= allocation;
+                  
+                  allocations.push({
+                    productionSiteId: bank.productionSiteId,
+                    consumptionSiteId: cons.consumptionSiteId,
+                    period: period.toUpperCase(),
+                    amount: allocation,
+                    month: selectedMonth,
+                    status: 'BANKED',
+                    isBanking: true
+                  });
+                }
+              });
+            }
           }
         });
 
@@ -179,40 +275,73 @@ const Allocation = () => {
         ['c1', 'c4', 'c5'].forEach(period => {
           if (cons[period] > 0) {
             let remaining = cons[period];
-            newAllProduction.forEach(prod => {
-              // Can use both peak and non-peak periods for non-peak consumption
-              ['c1', 'c2', 'c3', 'c4', 'c5'].forEach(prodPeriod => {
-                if (remaining > 0 && prod[`remaining${prodPeriod.toUpperCase()}`] > 0) {
-                  const allocation = Math.min(remaining, prod[`remaining${prodPeriod.toUpperCase()}`]);
-                  remaining -= allocation;
-                  prod[`remaining${prodPeriod.toUpperCase()}`] -= allocation;
-                  prod.allocations.push({
-                    consumptionSite: cons.siteName,
-                    period: period.toUpperCase(),
-                    amount: allocation
-                  });
-                }
-              });
+            
+            // First try non-banking units with exact period match
+            nonBankingAllocation.forEach(prod => {
+              if (remaining > 0 && prod[`remaining${period.toUpperCase()}`] > 0) {
+                const allocation = Math.min(remaining, prod[`remaining${period.toUpperCase()}`]);
+                remaining -= allocation;
+                prod[`remaining${period.toUpperCase()}`] -= allocation;
+                
+                allocations.push({
+                  productionSiteId: prod.productionSiteId,
+                  consumptionSiteId: cons.consumptionSiteId,
+                  period: period.toUpperCase(),
+                  amount: allocation,
+                  month: selectedMonth,
+                  status: 'ALLOCATED',
+                  isBanking: false
+                });
+              }
             });
+
+            // If there's still remaining demand, try banking units with any period
+            if (remaining > 0) {
+              monthlyBanking.forEach(bank => {
+                ['c1', 'c2', 'c3', 'c4', 'c5'].forEach(bankPeriod => {
+                  if (remaining > 0 && bank[`remaining${bankPeriod.toUpperCase()}`] > 0) {
+                    const allocation = Math.min(remaining, bank[`remaining${bankPeriod.toUpperCase()}`]);
+                    remaining -= allocation;
+                    bank[`remaining${bankPeriod.toUpperCase()}`] -= allocation;
+                    
+                    allocations.push({
+                      productionSiteId: bank.productionSiteId,
+                      consumptionSiteId: cons.consumptionSiteId,
+                      period: period.toUpperCase(),
+                      amount: allocation,
+                      month: selectedMonth,
+                      status: 'BANKED',
+                      isBanking: true
+                    });
+                  }
+                });
+              });
+            }
           }
         });
       });
 
+      // Save allocations to backend
+      if (allocations.length > 0) {
+        await allocationApi.createBatch(allocations);
+      }
+
       // Update production data with allocation status
       const updatedProductionData = productionData.map(prod => {
-        const allocated = newAllProduction.find(p => p.siteName === prod.siteName);
+        if (prod.sk !== selectedMonth.replace(/-/g, '')) return prod;
+        const hasAllocations = allocations.some(a => a.productionSiteId === prod.productionSiteId);
         return {
           ...prod,
-          status: allocated?.allocations.length > 0 ? 'Allocated' : 'Available'
+          status: hasAllocations ? 'Allocated' : 'Available'
         };
       });
 
       setAllProduction(newAllProduction);
       setProductionData(updatedProductionData);
+      setCalculatedAllocations(allocations);
       enqueueSnackbar('Auto allocation completed successfully', { variant: 'success' });
-    } catch (error) {
-      console.error('Auto allocation failed:', error);
-      enqueueSnackbar('Auto allocation failed', { variant: 'error' });
+    } catch (err) {
+      handleError(err, 'Auto allocation failed');
     } finally {
       setLoading(false);
     }
@@ -387,60 +516,128 @@ const Allocation = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">Allocation Management</Typography>
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        mb: 3,
+        borderBottom: '2px solid #1976d2',
+        pb: 2
+      }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <AssignmentIcon color="primary" sx={{ fontSize: 32 }} />
+          <Typography variant="h4">Allocation Management</Typography>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <TextField
+            type="month"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            label="Select Month"
+            InputLabelProps={{ shrink: true }}
+            sx={{ minWidth: 200 }}
+          />
+          <Tooltip title="Refresh Data">
+            <IconButton onClick={fetchAllData} disabled={loading}>
+              <RefreshIcon />
+            </IconButton>
+          </Tooltip>
+        </Box>
       </Box>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
+        <Alert severity="error" sx={{ mb: 3 }} icon={<WarningIcon />}>
           {error}
         </Alert>
       )}
 
-      {/* Summary Statistics */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid item xs={12} md={3}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary">Total Allocated</Typography>
-            <Typography variant="h6">
-              {productionData.reduce((sum, prod) => 
-                sum + (prod.status === 'Allocated' ? calculateTotal(prod) : 0), 0
-              )} units
-            </Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={3}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary">Total Banking</Typography>
-            <Typography variant="h6">
-              {bankingData.reduce((sum, bank) => sum + calculateTotal(bank), 0)} units
-            </Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={3}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary">Total Lapse</Typography>
-            <Typography variant="h6">
-              {productionData.reduce((sum, prod) => 
-                sum + (prod.status === 'Available' ? calculateTotal(prod) : 0), 0
-              )} units
-            </Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={3}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary">Total Surge</Typography>
-            <Typography variant="h6">
-              {consumptionData.reduce((sum, cons) => sum + calculateTotal(cons), 0) - 
-               productionData.reduce((sum, prod) => sum + calculateTotal(prod), 0)} units
-            </Typography>
-          </Paper>
-        </Grid>
-      </Grid>
-
       {renderProductionTable(productionData, 'Production Units')}
       {renderBankingTable(bankingData)}
       {renderProductionTable(consumptionData, 'Consumption Units')}
+
+      {/* Statistics Cards below allocation details */}
+      <Grid container spacing={3} sx={{ mt: 3 }}>
+        <Grid item xs={12} md={3}>
+          <Paper sx={{ 
+            p: 2, 
+            display: 'flex', 
+            alignItems: 'center',
+            background: 'linear-gradient(45deg, #2196F3 30%, #21CBF3 90%)',
+            color: 'white',
+            boxShadow: 3,
+            borderRadius: 2
+          }}>
+            <CheckCircleIcon sx={{ fontSize: 40, mr: 2 }} />
+            <Box>
+              <Typography variant="subtitle2">Total Allocated</Typography>
+              <Typography variant="h6">
+                {calculatedAllocations.reduce((sum, alloc) => sum + Number(alloc.amount || 0), 0)} units
+              </Typography>
+            </Box>
+          </Paper>
+        </Grid>
+        <Grid item xs={12} md={3}>
+          <Paper sx={{ 
+            p: 2, 
+            display: 'flex', 
+            alignItems: 'center',
+            background: 'linear-gradient(45deg, #4CAF50 30%, #81C784 90%)',
+            color: 'white',
+            boxShadow: 3,
+            borderRadius: 2
+          }}>
+            <BankingIcon sx={{ fontSize: 40, mr: 2 }} />
+            <Box>
+              <Typography variant="subtitle2">Total Banking</Typography>
+              <Typography variant="h6">
+                {bankingData.reduce((sum, bank) => sum + calculateTotal(bank), 0)} units
+              </Typography>
+            </Box>
+          </Paper>
+        </Grid>
+        <Grid item xs={12} md={3}>
+          <Paper sx={{ 
+            p: 2, 
+            display: 'flex', 
+            alignItems: 'center',
+            background: 'linear-gradient(45deg, #FF9800 30%, #FFB74D 90%)',
+            color: 'white',
+            boxShadow: 3,
+            borderRadius: 2
+          }}>
+            <LapseIcon sx={{ fontSize: 40, mr: 2 }} />
+            <Box>
+              <Typography variant="subtitle2">Total Lapse</Typography>
+              <Typography variant="h6">
+                {productionData
+                  .filter(prod => prod.status === 'Available' && !prod.banking)
+                  .reduce((sum, prod) => sum + calculateTotal(prod), 0)} units
+              </Typography>
+            </Box>
+          </Paper>
+        </Grid>
+        <Grid item xs={12} md={3}>
+          <Paper sx={{ 
+            p: 2, 
+            display: 'flex', 
+            alignItems: 'center',
+            background: 'linear-gradient(45deg, #F44336 30%, #E57373 90%)',
+            color: 'white',
+            boxShadow: 3,
+            borderRadius: 2
+          }}>
+            <WarningIcon sx={{ fontSize: 40, mr: 2 }} />
+            <Box>
+              <Typography variant="subtitle2">Total Surge</Typography>
+              <Typography variant="h6">
+                {consumptionData.reduce((sum, cons) => sum + calculateTotal(cons), 0) - 
+                 (calculatedAllocations.reduce((sum, alloc) => sum + Number(alloc.amount || 0), 0) + 
+                  bankingData.reduce((sum, bank) => sum + calculateTotal(bank), 0))} units
+              </Typography>
+            </Box>
+          </Paper>
+        </Grid>
+      </Grid>
     </Box>
   );
 };
