@@ -156,11 +156,54 @@ const getAllBanking = async () => {
     }
 };
 
+const getYearlyBanking = async (year) => {
+    try {
+        const params = {
+            TableName: process.env.DYNAMODB_TABLE_NAME,
+            FilterExpression: 'begins_with(sk, :yearPrefix)',
+            ExpressionAttributeValues: {
+                ':yearPrefix': year
+            }
+        };
+
+        const result = await dynamoDB.scan(params).promise();
+        return result.Items;
+    } catch (error) {
+        console.error('Error in getYearlyBanking:', error);
+        throw error;
+    }
+};
+
+const getAprilMayData = async (year) => {
+    try {
+        // Get data specifically for April-May period
+        const aprilSK = `04${year}`;
+        const maySK = `05${year}`;
+        
+        const params = {
+            TableName: process.env.DYNAMODB_TABLE_NAME,
+            FilterExpression: 'sk = :april OR sk = :may',
+            ExpressionAttributeValues: {
+                ':april': aprilSK,
+                ':may': maySK
+            }
+        };
+
+        const result = await dynamoDB.scan(params).promise();
+        return result.Items;
+    } catch (error) {
+        console.error('Error in getAprilMayData:', error);
+        throw error;
+    }
+};
+
 module.exports = {
     createBanking,
     getBanking,
     queryBankingByPeriod,
     updateBanking,
     deleteBanking,
-    getAllBanking
+    getAllBanking,
+    getYearlyBanking,
+    getAprilMayData
 };

@@ -57,7 +57,7 @@ const ConsumptionDataTable = ({
     if (!sk || sk.length !== 6) return 'N/A';
     try {
       const month = parseInt(sk.substring(0, 2)) - 1;
-      const year = `20${sk.substring(2)}`;
+      const year = `${sk.substring(2)}`;
       const date = new Date(year, month);
       return format(date, 'MMMM yyyy');
     } catch (error) {

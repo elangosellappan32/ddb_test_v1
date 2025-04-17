@@ -165,11 +165,57 @@ const getAllBanking = async (req, res) => {
     }
 };
 
+const getBankingData = async (req, res) => {
+    try {
+        const { year, month } = req.query;
+        const startMonth = '04'; // April
+        const endMonth = '03';   // May
+        
+        const bankingData = await bankingDAL.getAll();
+        
+        // Filter for the specified year's April-March period
+        const filteredData = bankingData.filter(item => {
+            const itemYear = item.sk.substring(2);
+            const itemMonth = item.sk.substring(0, 2);
+            return itemYear === year && 
+                   parseInt(itemMonth) >= parseInt(startMonth) && 
+                   parseInt(itemMonth) <= parseInt(endMonth);
+        });
+
+        // Aggregate the data
+        const aggregatedData = filteredData.reduce((acc, curr) => {
+            const key = curr.pk;
+            if (!acc[key]) {
+                acc[key] = {
+                    ...curr,
+                    c1: 0, c2: 0, c3: 0, c4: 0, c5: 0,
+                    totalAmount: 0
+                };
+            }
+            
+            ['c1', 'c2', 'c3', 'c4', 'c5'].forEach(period => {
+                acc[key][period] += Number(curr[period] || 0);
+            });
+            
+            acc[key].totalAmount = ['c1', 'c2', 'c3', 'c4', 'c5']
+                .reduce((sum, period) => sum + Number(acc[key][period] || 0), 0);
+            
+            return acc;
+        }, {});
+
+        res.json(Object.values(aggregatedData));
+    } catch (error) {
+        console.error('Error in getBankingData:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
     createBanking,
     getBanking,
     queryBankingByPeriod,
     updateBanking,
     deleteBanking,
-    getAllBanking
+    getAllBanking,
+    getBankingData
 };
