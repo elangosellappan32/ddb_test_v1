@@ -1,41 +1,41 @@
-const { DynamoDB } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocument } = require('@aws-sdk/lib-dynamodb');
-const logger = require('../utils/logger');
+const docClient = require('../utils/db');
 const TableNames = require('../constants/tableNames');
-
-const dynamoDB = new DynamoDB({
-    region: process.env.AWS_REGION || 'local',
-    endpoint: process.env.DYNAMODB_ENDPOINT || 'http://localhost:8000'
-});
-
-const docClient = DynamoDBDocument.from(dynamoDB);
+const logger = require('../utils/logger');
 
 const formatMonthYearKey = (monthStr) => {
     try {
         if (!monthStr) {
-            throw new Error('Month string is required');
+            throw new Error('Month is required');
         }
 
         // Handle YYYY-MM format
         if (monthStr.includes('-')) {
             const [year, month] = monthStr.split('-');
-            if (!year || !month || year.length !== 4) {
-                throw new Error('Invalid YYYY-MM format');
-            }
             return `${month.padStart(2, '0')}${year}`;
         }
         
-        // Handle MMYYYY format
-        if (monthStr.length === 6 && !isNaN(monthStr)) {
-            const month = monthStr.substring(0, 2);
-            const year = monthStr.substring(2);
-            if (parseInt(month) < 1 || parseInt(month) > 12) {
+        // Handle month name format (e.g., "January 2025")
+        if (monthStr.includes(' ')) {
+            const months = ['January', 'February', 'March', 'April', 'May', 'June',
+                          'July', 'August', 'September', 'October', 'November', 'December'];
+            const [monthName, year] = monthStr.split(' ');
+            const monthNum = months.indexOf(monthName) + 1;
+            if (monthNum === 0) {
+                throw new Error('Invalid month name');
+            }
+            return `${monthNum.toString().padStart(2, '0')}${year}`;
+        }
+        
+        // If it's already in MMYYYY format, validate and return
+        if (monthStr.length === 6) {
+            const month = parseInt(monthStr.substring(0, 2));
+            if (month < 1 || month > 12) {
                 throw new Error('Invalid month in MMYYYY format');
             }
             return monthStr;
         }
         
-        throw new Error('Invalid month format. Expected YYYY-MM or MMYYYY');
+        throw new Error('Invalid month format. Expected YYYY-MM, "Month YYYY", or MMYYYY');
     } catch (error) {
         logger.error('[AllocationDAL] Month format error:', error);
         throw error;
@@ -43,38 +43,60 @@ const formatMonthYearKey = (monthStr) => {
 };
 
 const generateCompositeKey = (item) => {
-    const monthYearKey = formatMonthYearKey(item.month);
-    const uniqueKey = `${item.productionSiteId}_${item.consumptionSiteId}_${item.period}`;
-    return `${monthYearKey}#${uniqueKey}`;
+    try {
+        const monthYearKey = formatMonthYearKey(item.month);
+        return `${monthYearKey}#${item.productionSiteId}_${item.consumptionSiteId}`;
+    } catch (error) {
+        logger.error('[AllocationDAL] Key generation error:', error);
+        throw error;
+    }
+};
+
+const getAvailableUnits = async (productionSiteId, period, month) => {
+    try {
+        // Get all allocations for this site and period
+        const allocations = await getAllocationsByPeriod(productionSiteId, period, month);
+        
+        // Calculate total allocated units
+        const allocated = allocations.reduce((sum, alloc) => {
+            if (alloc.fromPeriod === period) {
+                return sum + Math.abs(alloc.periodAllocations?.[0]?.amount || 0);
+            }
+            return sum;
+        }, 0);
+
+        // Get total available units for this period
+        const productionUnits = await docClient.get({
+            TableName: TableNames.PRODUCTION_UNIT,
+            Key: {
+                productionSiteId,
+                month: formatMonthYearKey(month)
+            }
+        }).promise();
+
+        const total = Number(productionUnits?.Item?.[period] || 0);
+        return total - allocated;
+    } catch (error) {
+        logger.error('[AllocationDAL] GetAvailableUnits Error:', error);
+        throw error;
+    }
 };
 
 const createAllocation = async (item) => {
     try {
-        if (!item.productionSiteName || !item.consumptionSiteName) {
-            throw new Error('Production site name and consumption site name are required');
-        }
+        const pk = item.productionSiteId;
+        const sk = generateCompositeKey(item);
 
-        const pk = `${item.productionSiteId || item.productionSiteName.replace(/\s+/g, '_')}`;
         const now = new Date();
-        // Set TTL to 1 year from creation date
         const ttl = Math.floor(now.setFullYear(now.getFullYear() + 1) / 1000);
 
         const allocationItem = {
             ...item,
             pk,
-            sk: generateCompositeKey(item),
-            createdat: item.createdat || new Date().toISOString(),
-            updatedat: new Date().toISOString(),
+            sk,
+            createdAt: item.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
             version: item.version || 1,
-            status: item.status || 'ALLOCATED',
-            isBanking: !!item.isBanking,
-            c1: Number(item.c1 || 0),
-            c2: Number(item.c2 || 0),
-            c3: Number(item.c3 || 0),
-            c4: Number(item.c4 || 0),
-            c5: Number(item.c5 || 0),
-            productionSiteName: item.productionSiteName,
-            consumptionSiteName: item.consumptionSiteName,
             ttl
         };
 
@@ -91,24 +113,34 @@ const createAllocation = async (item) => {
     }
 };
 
-const getAllocations = async (pk, month) => {
+const getAllocations = async (month, filterBy = {}) => {
     try {
         const monthKey = month ? formatMonthYearKey(month) : null;
         
-        let params = {
-            TableName: TableNames.ALLOCATION,
-            FilterExpression: 'begins_with(sk, :month)',
-            ExpressionAttributeValues: {
-                ':month': monthKey
-            }
+        let filterExp = 'begins_with(sk, :month)';
+        let expAttVals = {
+            ':month': monthKey
         };
 
-        if (pk) {
-            params.KeyConditionExpression = 'pk = :pk';
-            params.ExpressionAttributeValues[':pk'] = pk;
+        // Add optional filters
+        if (filterBy.type) {
+            filterExp += ' and #type = :type';
+            expAttVals[':type'] = filterBy.type;
         }
 
-        const { Items } = await docClient.scan(params);
+        const params = {
+            TableName: TableNames.ALLOCATION,
+            FilterExpression: filterExp,
+            ExpressionAttributeValues: expAttVals
+        };
+
+        if (filterBy.type) {
+            params.ExpressionAttributeNames = {
+                '#type': 'type'
+            };
+        }
+
+        const { Items } = await docClient.scan(params).promise();
         return Items || [];
     } catch (error) {
         logger.error('[AllocationDAL] GetAll Error:', error);
@@ -116,19 +148,20 @@ const getAllocations = async (pk, month) => {
     }
 };
 
-const getAllocationsByPeriod = async (pk, period, month) => {
+const getAllocationsByPeriod = async (productionSiteId, period, month) => {
     try {
         let params = {
             TableName: TableNames.ALLOCATION,
-            FilterExpression: 'period = :period',
+            FilterExpression: '(fromPeriod = :period OR toPeriod = :period) and availableForAllocation = :available',
             ExpressionAttributeValues: {
-                ':period': period
+                ':period': period,
+                ':available': true
             }
         };
 
-        if (pk) {
+        if (productionSiteId) {
             params.KeyConditionExpression = 'pk = :pk';
-            params.ExpressionAttributeValues[':pk'] = pk;
+            params.ExpressionAttributeValues[':pk'] = productionSiteId;
         }
 
         if (month) {
@@ -137,7 +170,7 @@ const getAllocationsByPeriod = async (pk, period, month) => {
             params.ExpressionAttributeValues[':month'] = monthKey;
         }
 
-        const { Items } = await docClient.scan(params);
+        const { Items } = await docClient.scan(params).promise();
         return Items || [];
     } catch (error) {
         logger.error('[AllocationDAL] GetByPeriod Error:', error);
@@ -147,9 +180,20 @@ const getAllocationsByPeriod = async (pk, period, month) => {
 
 const updateAllocation = async (pk, sk, updates) => {
     try {
+        // Check if the allocation exists
+        const { Item: existing } = await docClient.get({
+            TableName: TableNames.ALLOCATION,
+            Key: { pk, sk }
+        }).promise();
+
+        if (!existing) {
+            throw new Error('Allocation not found');
+        }
+
         const updateData = {
             ...updates,
-            updatedat: new Date().toISOString()
+            updatedAt: new Date().toISOString(),
+            version: (existing.version || 0) + 1
         };
 
         const updateExpressionParts = [];
@@ -173,7 +217,7 @@ const updateAllocation = async (pk, sk, updates) => {
             ReturnValues: 'ALL_NEW'
         };
 
-        const { Attributes } = await docClient.update(params);
+        const { Attributes } = await docClient.update(params).promise();
         return Attributes;
     } catch (error) {
         logger.error('[AllocationDAL] Update Error:', error);
@@ -187,7 +231,7 @@ const deleteAllocation = async (pk, sk) => {
             TableName: TableNames.ALLOCATION,
             Key: { pk, sk },
             ReturnValues: 'ALL_OLD'
-        });
+        }).promise();
         return result.Attributes;
     } catch (error) {
         logger.error('[AllocationDAL] Delete Error:', error);

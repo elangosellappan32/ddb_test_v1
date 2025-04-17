@@ -99,7 +99,8 @@ export const API_CONFIG = {
       CREATE: '/allocation',
       CREATE_BATCH: '/allocation/batch',
       UPDATE: (pk, sk) => `/allocation/${pk}/${sk}`,
-      DELETE: (pk, sk) => `/allocation/${pk}/${sk}`
+      DELETE: (pk, sk) => `/allocation/${pk}/${sk}`,
+      CREATE_LAPSE: '/allocation/lapse'
     }
   }
 };
