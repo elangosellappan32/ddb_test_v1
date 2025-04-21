@@ -10,6 +10,7 @@ import {
   Grid,
   TextField,
   MenuItem,
+  Chip,
 } from '@mui/material';
 import {
   Assignment as AssignmentIcon,
@@ -31,6 +32,7 @@ import ProductionUnitsTable from './ProductionUnitsTable';
 import BankingUnitsTable from './BankingUnitsTable';
 import ConsumptionUnitsTable from './ConsumptionUnitsTable';
 import AllocationDetailsTable from './AllocationDetailsTable';
+import { validatePeriodRules, formatAllocationMonth } from '../../utils/allocationUtils';
 
 const calculateTotal = (row) => {
   return ['c1', 'c2', 'c3', 'c4', 'c5'].reduce((sum, key) => sum + (Number(row[key]) || 0), 0);
@@ -48,8 +50,8 @@ const Allocation = () => {
   const [aggregatedBankingData, setAggregatedBankingData] = useState([]);
   const [allocationData, setAllocationData] = useState([]);
   const [yearRange] = useState({
-    start: 2020,
-    end: 2025
+    start: new Date().getFullYear() - 2,
+    end: new Date().getFullYear() + 2
   });
 
   const getFinancialYear = (month, year) => {
@@ -68,6 +70,15 @@ const Allocation = () => {
     }
     return months;
   };
+
+  const updateAllocationData = useCallback(async () => {
+    try {
+      const response = await allocationApi.fetchAll(formatAllocationMonth(selectedMonth));
+      setAllocationData(response.allocations || []);
+    } catch (error) {
+      console.error('Error updating allocation data:', error);
+    }
+  }, [selectedMonth]);
 
   const fetchAllData = useCallback(async () => {
     try {
@@ -212,6 +223,9 @@ const Allocation = () => {
       setBankingData(allBankingData);
       setAggregatedBankingData(Object.values(aggregatedBanking));
 
+      // Fetch latest allocation data
+      await updateAllocationData();
+
     } catch (err) {
       console.error('Error fetching data:', err);
       setError(err.message || 'Failed to load data');
@@ -219,11 +233,23 @@ const Allocation = () => {
     } finally {
       setLoading(false);
     }
-  }, [enqueueSnackbar, selectedMonth, selectedYear]);
+  }, [enqueueSnackbar, selectedMonth, selectedYear, updateAllocationData]);
 
   useEffect(() => {
     fetchAllData();
   }, [fetchAllData]);
+
+  useEffect(() => {
+    // Set up polling interval
+    const pollInterval = setInterval(() => {
+      updateAllocationData();
+    }, 30000); // Poll every 30 seconds
+
+    // Cleanup
+    return () => {
+      clearInterval(pollInterval);
+    };
+  }, [updateAllocationData]);
 
   const handleMonthChange = (event) => {
     setSelectedMonth(Number(event.target.value));
@@ -235,160 +261,126 @@ const Allocation = () => {
 
   const handleAutoAllocate = async () => {
     try {
-      // Deep clone the production data to avoid mutating original state
-      const productionDataClone = productionData.map(site => ({
-        ...site,
-        c1: Number(site.c1) || 0,
-        c2: Number(site.c2) || 0,
-        c3: Number(site.c3) || 0,
-        c4: Number(site.c4) || 0,
-        c5: Number(site.c5) || 0
-      }));
+      setLoading(true);
+      const productionDataClone = JSON.parse(JSON.stringify(productionData));
+      
+      // Group sites by type
+      const solarSites = productionDataClone.filter(site => 
+        site.type?.toLowerCase() === 'solar'
+      );
+      const windSites = productionDataClone.filter(site => 
+        site.type?.toLowerCase() === 'wind'
+      );
 
       const newAllocations = [];
 
-      // First allocate from solar sites since they can't bank
-      const solarSites = productionDataClone.filter(site => site.type?.toLowerCase() === 'solar');
-      const windSites = productionDataClone.filter(site => site.type?.toLowerCase() === 'wind');
-
-      // Function to check if we can allocate from source to target period
-      const canAllocate = (sourcePeriod, targetPeriod) => {
-        const isPeakSource = ['c2', 'c3'].includes(sourcePeriod);
-        const isPeakTarget = ['c2', 'c3'].includes(targetPeriod);
-        
-        // Peak can go to non-peak, but non-peak can't go to peak
-        if (!isPeakSource && isPeakTarget) return false;
-        
-        // Non-peak periods can't be shared between different periods
-        if (!isPeakSource && sourcePeriod !== targetPeriod) return false;
-        
-        return true;
+      // Helper function to calculate available units by period type
+      const getAvailableUnits = (site) => {
+        return {
+          c1: Math.round(Number(site.c1 || 0)),
+          c2: Math.round(Number(site.c2 || 0)),
+          c3: Math.round(Number(site.c3 || 0)),
+          c4: Math.round(Number(site.c4 || 0)),
+          c5: Math.round(Number(site.c5 || 0))
+        };
       };
 
-      // Handle solar sites first (they must be used or lapsed)
+      // Process solar sites first (they can't bank)
       for (const solarSite of solarSites) {
-        const allocation = {
-          month: format(new Date(selectedYear, selectedMonth - 1), 'MMMM yyyy'),
-          productionSite: solarSite.siteName,
-          productionSiteId: solarSite.productionSiteId,
-          siteType: solarSite.type,
-          allocated: { c1: 0, c2: 0, c3: 0, c4: 0, c5: 0 },
-          type: 'Allocation'
-        };
+        const availableUnits = getAvailableUnits(solarSite);
+        const total = Object.values(availableUnits).reduce((sum, val) => sum + val, 0);
 
-        // Try to allocate solar units
-        let hasAllocation = false;
-        for (const consumptionSite of consumptionData) {
-          ['c1', 'c2', 'c3', 'c4', 'c5'].forEach(period => {
-            // Skip if no production or consumption units
-            if (solarSite[period] <= 0 || consumptionSite[period] <= 0) return;
-            
-            // Check period allocation rules
-            if (!canAllocate(period, period)) return;
+        if (total > 0) {
+          // Try to allocate to consumption sites
+          for (const consumptionSite of consumptionData) {
+            const allocation = {
+              productionSiteId: solarSite.productionSiteId,
+              productionSite: solarSite.siteName,
+              siteName: solarSite.siteName,
+              consumptionSiteId: consumptionSite.consumptionSiteId,
+              consumptionSite: consumptionSite.siteName,
+              type: 'Allocation',
+              allocated: {},
+              month: formatAllocationMonth(selectedMonth)
+            };
 
-            const needed = Number(consumptionSite[period]);
-            const available = Number(solarSite[period]);
-            const allocated = Math.min(needed, available);
+            // Allocate peak periods (c2, c3)
+            ['c2', 'c3'].forEach(period => {
+              const available = Math.round(availableUnits[period]);
+              const required = Math.round(Number(consumptionSite[period] || 0));
+              if (available > 0 && required > 0) {
+                const allocated = Math.round(Math.min(available, required));
+                if (allocated > 0) {
+                  allocation.allocated[period] = allocated;
+                  availableUnits[period] -= allocated;
+                }
+              }
+            });
 
-            if (allocated > 0) {
-              allocation.consumptionSite = consumptionSite.siteName;
-              allocation.consumptionSiteId = consumptionSite.consumptionSiteId;
-              allocation.allocated[period] = allocated;
-              solarSite[period] -= allocated;
-              consumptionSite[period] -= allocated;
-              hasAllocation = true;
+            // Then allocate non-peak periods (c1, c4, c5)
+            ['c1', 'c4', 'c5'].forEach(period => {
+              const available = Math.round(availableUnits[period]);
+              const required = Math.round(Number(consumptionSite[period] || 0));
+              if (available > 0 && required > 0) {
+                const allocated = Math.round(Math.min(available, required));
+                if (allocated > 0) {
+                  allocation.allocated[period] = allocated;
+                  availableUnits[period] -= allocated;
+                }
+              }
+            });
+
+            // Only add allocation if any units were allocated
+            if (Object.values(allocation.allocated).some(v => Math.round(v) > 0)) {
+              newAllocations.push(allocation);
             }
-          });
-        }
+          }
 
-        if (hasAllocation) {
-          newAllocations.push(allocation);
-        }
-
-        // Any remaining solar units must go to lapse
-        const remainingUnits = {
-          c1: Number(solarSite.c1) || 0,
-          c2: Number(solarSite.c2) || 0,
-          c3: Number(solarSite.c3) || 0,
-          c4: Number(solarSite.c4) || 0,
-          c5: Number(solarSite.c5) || 0
-        };
-
-        if (Object.values(remainingUnits).some(v => v > 0)) {
-          newAllocations.push({
-            month: format(new Date(selectedYear, selectedMonth - 1), 'MMMM yyyy'),
-            productionSite: solarSite.siteName,
-            productionSiteId: solarSite.productionSiteId,
-            siteType: solarSite.type,
-            consumptionSite: 'Lapse',
-            consumptionSiteId: 'LAPSE',
-            allocated: remainingUnits,
-            type: 'Lapse'
-          });
+          // Create lapse record for remaining units
+          const remainingTotal = Object.values(availableUnits).reduce((sum, val) => sum + val, 0);
+          if (remainingTotal > 0) {
+            newAllocations.push({
+              productionSiteId: solarSite.productionSiteId,
+              productionSite: solarSite.siteName,
+              siteName: solarSite.siteName,
+              type: 'Lapse',
+              month: formatAllocationMonth(selectedMonth),
+              allocated: availableUnits
+            });
+          }
         }
       }
 
-      // Now handle wind sites
+      // Process wind sites
       for (const windSite of windSites) {
-        const allocation = {
-          month: format(new Date(selectedYear, selectedMonth - 1), 'MMMM yyyy'),
-          productionSite: windSite.siteName,
-          productionSiteId: windSite.productionSiteId,
-          siteType: windSite.type,
-          allocated: { c1: 0, c2: 0, c3: 0, c4: 0, c5: 0 },
-          type: 'Allocation'
-        };
+        const availableUnits = getAvailableUnits(windSite);
+        const total = Object.values(availableUnits).reduce((sum, val) => sum + val, 0);
 
-        // Try to allocate wind units
-        let hasAllocation = false;
-        for (const consumptionSite of consumptionData) {
-          ['c1', 'c2', 'c3', 'c4', 'c5'].forEach(period => {
-            if (windSite[period] <= 0 || consumptionSite[period] <= 0) return;
-            
-            // Check period allocation rules
-            if (!canAllocate(period, period)) return;
-
-            const needed = Number(consumptionSite[period]);
-            const available = Number(windSite[period]);
-            const allocated = Math.min(needed, available);
-
-            if (allocated > 0) {
-              allocation.consumptionSite = consumptionSite.siteName;
-              allocation.consumptionSiteId = consumptionSite.consumptionSiteId;
-              allocation.allocated[period] = allocated;
-              windSite[period] -= allocated;
-              consumptionSite[period] -= allocated;
-              hasAllocation = true;
-            }
-          });
-        }
-
-        if (hasAllocation) {
-          newAllocations.push(allocation);
-        }
-
-        // Remaining wind units go to banking if enabled, otherwise lapse
-        const remainingUnits = {
-          c1: Number(windSite.c1) || 0,
-          c2: Number(windSite.c2) || 0,
-          c3: Number(windSite.c3) || 0,
-          c4: Number(windSite.c4) || 0,
-          c5: Number(windSite.c5) || 0
-        };
-
-        if (Object.values(remainingUnits).some(v => v > 0)) {
+        if (total > 0) {
           const canBank = windSite.banking === 1;
-          newAllocations.push({
-            month: format(new Date(selectedYear, selectedMonth - 1), 'MMMM yyyy'),
-            productionSite: windSite.siteName,
-            productionSiteId: windSite.productionSiteId,
-            siteType: windSite.type,
-            consumptionSite: canBank ? 'Banking' : 'Lapse',
-            consumptionSiteId: canBank ? 'BANKING' : 'LAPSE',
-            allocated: remainingUnits,
-            type: canBank ? 'Banking' : 'Lapse',
-            isDirect: canBank // Mark as direct banking since it's directly from production
-          });
+
+          if (canBank) {
+            // Create banking record
+            newAllocations.push({
+              productionSiteId: windSite.productionSiteId,
+              productionSite: windSite.siteName,
+              siteName: windSite.siteName,
+              type: 'Banking',
+              month: formatAllocationMonth(selectedMonth),
+              bankingEnabled: true,
+              allocated: availableUnits
+            });
+          } else {
+            // Create lapse record
+            newAllocations.push({
+              productionSiteId: windSite.productionSiteId,
+              productionSite: windSite.siteName,
+              siteName: windSite.siteName,
+              type: 'Lapse',
+              month: formatAllocationMonth(selectedMonth),
+              allocated: availableUnits
+            });
+          }
         }
       }
 
@@ -396,19 +388,27 @@ const Allocation = () => {
       setAllocationData(newAllocations);
 
       // Create allocations in backend
-      await Promise.all(newAllocations.map(allocation => 
-        allocationApi.create({
-          ...allocation,
-          fromPeriod: 'c1',
-          toPeriod: 'c1',
-          amount: Object.values(allocation.allocated).reduce((sum, val) => sum + Math.max(0, Number(val) || 0), 0)
-        })
-      ));
+      for (const allocation of newAllocations) {
+        try {
+          await allocationApi.create(allocation, allocation.type);
+        } catch (error) {
+          console.error('Failed to create allocation:', allocation, error);
+          enqueueSnackbar(`Failed to create ${allocation.type.toLowerCase()} for ${allocation.productionSite}: ${error.message}`, { 
+            variant: 'error',
+            autoHideDuration: 5000
+          });
+        }
+      }
 
       enqueueSnackbar('Auto allocation completed successfully', { variant: 'success' });
     } catch (error) {
       console.error('Error in auto allocation:', error);
-      enqueueSnackbar('Failed to auto allocate units', { variant: 'error' });
+      enqueueSnackbar(`Failed to auto allocate units: ${error.message}`, { 
+        variant: 'error',
+        autoHideDuration: 5000
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -424,7 +424,7 @@ const Allocation = () => {
         return;
       }
 
-      // Update the allocation with new percentages from user input
+      // Create the updated allocation
       const updatedAllocation = {
         ...allocation,
         allocated: {
@@ -435,6 +435,13 @@ const Allocation = () => {
           c5: consumptionUnit.c5
         }
       };
+
+      // Validate period rules
+      const periodValidation = validatePeriodRules(updatedAllocation);
+      if (!periodValidation.isValid) {
+        enqueueSnackbar(periodValidation.errors.join(' '), { variant: 'error' });
+        return;
+      }
 
       // Update allocation data state
       setAllocationData(prevData => 
@@ -549,12 +556,8 @@ const Allocation = () => {
       </Box>
 
       <AllocationDetailsTable 
-        allocations={allocationData.map(alloc => ({
-          ...alloc,
-          isDirect: alloc.type === 'Banking' && !bankingData.some(b => 
-            b.productionSiteId === alloc.productionSiteId
-          )
-        }))}
+        allocations={allocationData}
+        loading={loading}
         onEdit={handleEditAllocation}
       />
 

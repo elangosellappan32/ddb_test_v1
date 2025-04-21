@@ -16,9 +16,10 @@ import {
   DialogActions,
   Button,
   Slider,
-  Alert
+  Alert,
+  Tooltip
 } from "@mui/material";
-import { TrendingDown, Edit as EditIcon, Autorenew as AutorenewIcon } from "@mui/icons-material";
+import { TrendingDown, Edit as EditIcon, Autorenew as AutorenewIcon, Info as InfoIcon } from "@mui/icons-material";
 import { format } from "date-fns";
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
 import { API_CONFIG } from '../../config/api.config';
@@ -30,26 +31,44 @@ const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onEdit }) => {
   const [totalUnits] = useState(100);
   const [consumptionSites, setConsumptionSites] = useState([]);
   const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
-  const calculateTotal = (row) => {
-    return ["c1", "c2", "c3", "c4", "c5"].reduce((sum, key) => sum + (Number(row[key]) || 0), 0);
+  const PEAK_PERIODS = ['c2', 'c3'];
+  const NON_PEAK_PERIODS = ['c1', 'c4', 'c5'];
+
+  const calculateTotal = (row, periods) => {
+    return periods.reduce((sum, key) => sum + (Number(row[key]) || 0), 0);
   };
 
   const handleAllocationClick = async () => {
     try {
+      setIsLoading(true);
       const response = await api.get(API_CONFIG.ENDPOINTS.CONSUMPTION.SITE.GET_ALL);
       const sites = response.data?.data || [];
       setConsumptionSites(sites);
-      const count = sites.length;
-      if (count > 0) {
-        const split = (totalUnits / count).toFixed(2);
-        setSplitPercentages(Array(count).fill(Number(split)));
+      
+      // Load saved allocations
+      const savedAllocations = localStorage.getItem('allocationPercentages');
+      if (savedAllocations) {
+        const allocations = JSON.parse(savedAllocations);
+        if (allocations.length === sites.length) {
+          setSplitPercentages(allocations.map(a => a.percentage));
+        } else {
+          const split = (totalUnits / sites.length).toFixed(2);
+          setSplitPercentages(Array(sites.length).fill(Number(split)));
+        }
+      } else {
+        const split = (totalUnits / sites.length).toFixed(2);
+        setSplitPercentages(Array(sites.length).fill(Number(split)));
       }
+
       setAllocationDialog(true);
       setError("");
     } catch (error) {
       console.error("Failed to fetch consumption sites:", error);
       setError("Failed to fetch consumption sites");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -60,7 +79,7 @@ const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onEdit }) => {
 
   const handleSliderChange = (value, index) => {
     const newSplits = [...splitPercentages];
-    newSplits[index] = value[0];
+    newSplits[index] = value;
     setSplitPercentages(newSplits);
   };
 
@@ -71,10 +90,13 @@ const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onEdit }) => {
       return;
     }
     
-    // Create allocation data structure
+    // Create allocation data structure with site details
     const allocationData = consumptionSites.map((site, index) => ({
       siteName: site.name,
-      percentage: splitPercentages[index]
+      siteId: site.id,
+      percentage: splitPercentages[index],
+      peakTotal: calculateTotal(site, PEAK_PERIODS),
+      nonPeakTotal: calculateTotal(site, NON_PEAK_PERIODS)
     }));
     
     // Save to local storage
@@ -88,43 +110,39 @@ const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onEdit }) => {
     const count = consumptionSites.length;
     if (count === 0) return;
 
-    // Group sites by peak and non-peak periods
-    const peakPeriodSites = consumptionSites.filter(site => 
-      (Number(site.c2) > 0 || Number(site.c3) > 0)  // Peak periods
-    );
+    // Group sites by period usage
+    const peakSites = consumptionSites.filter(site => calculateTotal(site, PEAK_PERIODS) > 0);
+    const nonPeakSites = consumptionSites.filter(site => calculateTotal(site, NON_PEAK_PERIODS) > 0);
     
-    const nonPeakPeriodSites = consumptionSites.filter(site => 
-      (Number(site.c1) > 0 || Number(site.c4) > 0 || Number(site.c5) > 0)  // Non-peak periods
-    );
-
-    // Calculate splits based on site type and period
+    // Calculate initial split based on period usage
     const newSplitPercentages = new Array(consumptionSites.length).fill(0);
     
-    // First allocate peak period sites (C2, C3)
-    const totalPeakUnits = peakPeriodSites.reduce((sum, site) => 
-      sum + Number(site.c2 || 0) + Number(site.c3 || 0), 0);
-      
-    peakPeriodSites.forEach(site => {
-      const index = consumptionSites.findIndex(s => s.id === site.id);
-      if (index !== -1 && totalPeakUnits > 0) {
-        const siteTotal = Number(site.c2 || 0) + Number(site.c3 || 0);
-        newSplitPercentages[index] = Math.round((siteTotal / totalPeakUnits) * 50); // 50% for peak
-      }
-    });
+    const totalPeakUnits = peakSites.reduce((sum, site) => sum + calculateTotal(site, PEAK_PERIODS), 0);
+    const totalNonPeakUnits = nonPeakSites.reduce((sum, site) => sum + calculateTotal(site, NON_PEAK_PERIODS), 0);
 
-    // Then allocate non-peak period sites (C1, C4, C5)
-    const totalNonPeakUnits = nonPeakPeriodSites.reduce((sum, site) => 
-      sum + Number(site.c1 || 0) + Number(site.c4 || 0) + Number(site.c5 || 0), 0);
-      
-    nonPeakPeriodSites.forEach(site => {
-      const index = consumptionSites.findIndex(s => s.id === site.id);
-      if (index !== -1 && totalNonPeakUnits > 0) {
-        const siteTotal = Number(site.c1 || 0) + Number(site.c4 || 0) + Number(site.c5 || 0);
-        newSplitPercentages[index] = Math.round((siteTotal / totalNonPeakUnits) * 50); // 50% for non-peak
-      }
-    });
+    // Allocate peak period sites (50%)
+    if (totalPeakUnits > 0) {
+      peakSites.forEach(site => {
+        const index = consumptionSites.findIndex(s => s.id === site.id);
+        if (index !== -1) {
+          const siteTotal = calculateTotal(site, PEAK_PERIODS);
+          newSplitPercentages[index] = Math.round((siteTotal / totalPeakUnits) * 50);
+        }
+      });
+    }
 
-    // Adjust percentages to ensure total is 100%
+    // Allocate non-peak period sites (50%)
+    if (totalNonPeakUnits > 0) {
+      nonPeakSites.forEach(site => {
+        const index = consumptionSites.findIndex(s => s.id === site.id);
+        if (index !== -1) {
+          const siteTotal = calculateTotal(site, NON_PEAK_PERIODS);
+          newSplitPercentages[index] += Math.round((siteTotal / totalNonPeakUnits) * 50);
+        }
+      });
+    }
+
+    // Adjust to ensure total is 100%
     const totalPercentage = newSplitPercentages.reduce((sum, value) => sum + value, 0);
     if (totalPercentage !== 100) {
       const scale = 100 / totalPercentage;
@@ -147,7 +165,7 @@ const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onEdit }) => {
   // Load saved allocations
   useEffect(() => {
     const savedAllocations = localStorage.getItem('allocationPercentages');
-    if (savedAllocations) {
+    if (savedAllocations && consumptionSites.length > 0) {
       const allocations = JSON.parse(savedAllocations);
       if (allocations.length === consumptionSites.length) {
         setSplitPercentages(allocations.map(a => a.percentage));
@@ -155,27 +173,6 @@ const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onEdit }) => {
     }
   }, [consumptionSites]);
 
-  const groupedData = consumptionData.reduce((acc, row) => {
-    const month = row.sk || "";
-    if (!acc[month]) {
-      acc[month] = [];
-    }
-    acc[month].push(row);
-    return acc;
-  }, {});
-
-  const sortedMonths = Object.keys(groupedData).sort((a, b) => {
-    const monthA = parseInt(a.substring(0, 2));
-    const monthB = parseInt(b.substring(0, 2));
-    const yearA = parseInt(a.substring(2));
-    const yearB = parseInt(b.substring(2));
-    if (yearA !== yearB) return yearA - yearB;
-    const adjustedMonthA = monthA < 4 ? monthA + 12 : monthA;
-    const adjustedMonthB = monthB < 4 ? monthB + 12 : monthB;
-    return adjustedMonthA - adjustedMonthB;
-  });
-
-  // Get saved allocation percentage for a site
   const getAllocationPercentage = (siteName) => {
     const savedAllocations = localStorage.getItem('allocationPercentages');
     if (savedAllocations) {
@@ -189,44 +186,113 @@ const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onEdit }) => {
   return (
     <>
       <TableContainer component={Paper} sx={{ mb: 4 }}>
-        <Box sx={{ p: 2, borderBottom: '1px solid rgba(224, 224, 224, 1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <TrendingDown color="primary" />
-            <Typography variant="h6">Consumption Units</Typography>
-          </Box>
-          <IconButton onClick={handleAllocationClick} sx={{ color: 'primary.main' }}>
-            <EditIcon />
-          </IconButton>
+        <Box sx={{ p: 2, borderBottom: '1px solid rgba(224, 224, 224, 1)', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <TrendingDown color="primary" />
+          <Typography variant="h6">Consumption Units</Typography>
         </Box>
         <Table>
           <TableHead>
             <TableRow>
               <TableCell>Month</TableCell>
               <TableCell>Site Name</TableCell>
-              <TableCell align="right">C1 (Non-Peak)</TableCell>
-              <TableCell align="right">C2 (Non-Peak)</TableCell>
-              <TableCell align="right">C3 (Peak)</TableCell>
-              <TableCell align="right">C4 (Peak)</TableCell>
-              <TableCell align="right">C5 (Non-Peak)</TableCell>
+              <TableCell align="right">
+                <Tooltip title="Non-Peak Period">
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                    C1
+                    <InfoIcon sx={{ ml: 0.5, fontSize: '1rem', color: 'primary.main' }} />
+                  </Box>
+                </Tooltip>
+              </TableCell>
+              <TableCell align="right">
+                <Tooltip title="Peak Period">
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                    C2
+                    <InfoIcon sx={{ ml: 0.5, fontSize: '1rem', color: 'primary.main' }} />
+                  </Box>
+                </Tooltip>
+              </TableCell>
+              <TableCell align="right">
+                <Tooltip title="Peak Period">
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                    C3
+                    <InfoIcon sx={{ ml: 0.5, fontSize: '1rem', color: 'primary.main' }} />
+                  </Box>
+                </Tooltip>
+              </TableCell>
+              <TableCell align="right">
+                <Tooltip title="Non-Peak Period">
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                    C4
+                    <InfoIcon sx={{ ml: 0.5, fontSize: '1rem', color: 'primary.main' }} />
+                  </Box>
+                </Tooltip>
+              </TableCell>
+              <TableCell align="right">
+                <Tooltip title="Non-Peak Period">
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                    C5
+                    <InfoIcon sx={{ ml: 0.5, fontSize: '1rem', color: 'primary.main' }} />
+                  </Box>
+                </Tooltip>
+              </TableCell>
               <TableCell align="right">Total</TableCell>
-              <TableCell align="right">Allocation %</TableCell>
+              <TableCell align="right">
+                <Tooltip title="Percentage of units to be allocated from available production units">
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                    Allocation %
+                    <InfoIcon sx={{ ml: 0.5, fontSize: '1rem', color: 'primary.main' }} />
+                  </Box>
+                </Tooltip>
+              </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {sortedMonths.map((month) => (
-              groupedData[month].map((row, index) => (
+            {Object.entries(consumptionData.reduce((acc, row) => {
+              const month = row.sk || "";
+              if (!acc[month]) acc[month] = [];
+              acc[month].push(row);
+              return acc;
+            }, {})).sort(([a], [b]) => {
+              const monthA = parseInt(a.substring(0, 2));
+              const monthB = parseInt(b.substring(0, 2));
+              const yearA = parseInt(a.substring(2));
+              const yearB = parseInt(b.substring(2));
+              if (yearA !== yearB) return yearA - yearB;
+              return monthA - monthB;
+            }).map(([month, rows]) => (
+              rows.map((row, index) => (
                 <TableRow key={`${month}-${index}`}>
                   {index === 0 && (
-                    <TableCell rowSpan={groupedData[month].length}>{formatMonth(month)}</TableCell>
+                    <TableCell rowSpan={rows.length}>{formatMonth(month)}</TableCell>
                   )}
                   <TableCell>{row.siteName}</TableCell>
-                  <TableCell align="right">{row.c1}</TableCell>
-                  <TableCell align="right">{row.c2}</TableCell>
-                  <TableCell align="right">{row.c3}</TableCell>
-                  <TableCell align="right">{row.c4}</TableCell>
-                  <TableCell align="right">{row.c5}</TableCell>
                   <TableCell align="right">
-                    <Box sx={{ fontWeight: 'bold', color: 'primary.main' }}>{calculateTotal(row)}</Box>
+                    <Typography sx={{ fontWeight: 'bold', color: 'blue' }}>
+                      {row.c1}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    <Typography sx={{ fontWeight: 'bold', color: 'orange' }}>
+                      {row.c2}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    <Typography sx={{ fontWeight: 'bold', color: 'orange' }}>
+                      {row.c3}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    <Typography sx={{ fontWeight: 'bold', color: 'blue' }}>
+                      {row.c4}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    <Typography sx={{ fontWeight: 'bold', color: 'blue' }}>
+                      {row.c5}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                    {calculateTotal(row, [...PEAK_PERIODS, ...NON_PEAK_PERIODS])}
                   </TableCell>
                   <TableCell align="right">
                     <Typography color="secondary.main">
@@ -240,17 +306,6 @@ const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onEdit }) => {
         </Table>
       </TableContainer>
 
-      <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
-        <Button
-          variant="contained"
-          color="primary"
-          startIcon={<AutorenewIcon />}
-          onClick={handleAutoAllocate}
-        >
-          Auto Allocate Units
-        </Button>
-      </Box>
-
       <Dialog open={allocationDialog} onClose={handleAllocationClose} maxWidth="md" fullWidth>
         <DialogTitle>Split Units Across Sites</DialogTitle>
         <DialogContent>
@@ -263,16 +318,23 @@ const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onEdit }) => {
                 {error}
               </Alert>
             )}
-            {consumptionSites.map((site) => (
-              <Box key={`${site.id || site.consumptionSiteId || site.siteName}`} sx={{ p: 2, my: 2, border: 1, borderRadius: 1, borderColor: 'grey.300', backgroundColor: 'grey.50' }}>
-                <Typography variant="subtitle1" gutterBottom>{site.name}</Typography>
+            {consumptionSites.map((site, index) => (
+              <Box key={site.id} sx={{ p: 2, my: 2, border: 1, borderRadius: 1, borderColor: 'grey.300', backgroundColor: 'grey.50' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="subtitle1">{site.name}</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Peak: {calculateTotal(site, PEAK_PERIODS)} | Non-Peak: {calculateTotal(site, NON_PEAK_PERIODS)}
+                  </Typography>
+                </Box>
                 <Slider
-                  value={[splitPercentages[consumptionSites.indexOf(site)] || 0]}
+                  value={splitPercentages[index] || 0}
                   max={100}
                   step={1}
-                  onChange={(_, value) => handleSliderChange(value, consumptionSites.indexOf(site))}
+                  onChange={(_, value) => handleSliderChange(value, index)}
+                  valueLabelDisplay="auto"
+                  valueLabelFormat={value => `${value}%`}
                 />
-                <Typography variant="body2" color="text.secondary">Split: {splitPercentages[consumptionSites.indexOf(site)] || 0}%</Typography>
+                <Typography variant="body2" color="text.secondary">Allocation: {splitPercentages[index] || 0}%</Typography>
               </Box>
             ))}
             {splitPercentages.length > 0 && (
@@ -281,11 +343,28 @@ const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onEdit }) => {
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={consumptionSites.map((site, index) => ({
                     name: site.name,
-                    split: splitPercentages[index]
+                    split: splitPercentages[index],
+                    peak: calculateTotal(site, PEAK_PERIODS),
+                    nonPeak: calculateTotal(site, NON_PEAK_PERIODS)
                   }))}>
                     <XAxis dataKey="name" />
                     <YAxis domain={[0, 100]} unit="%" />
-                    <RechartsTooltip />
+                    <RechartsTooltip 
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          return (
+                            <Box sx={{ bgcolor: 'background.paper', p: 1, border: 1, borderColor: 'grey.300' }}>
+                              <Typography variant="body2">{data.name}</Typography>
+                              <Typography variant="body2">Allocation: {data.split}%</Typography>
+                              <Typography variant="body2">Peak Units: {data.peak}</Typography>
+                              <Typography variant="body2">Non-Peak Units: {data.nonPeak}</Typography>
+                            </Box>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
                     <Bar dataKey="split" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>

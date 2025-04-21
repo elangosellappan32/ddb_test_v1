@@ -1,180 +1,113 @@
 import api from './apiUtils';
 import { API_CONFIG } from '../config/api.config';
 
-const formatDate = (dateString) => {
-    try {
-        if (!dateString) {
-            const date = new Date();
-            return `${String(date.getMonth() + 1).padStart(2, '0')}${date.getFullYear()}`;
-        }
-        
-        // If month name format (e.g., "January 2025")
-        if (dateString.includes(' ')) {
-            const months = ['January', 'February', 'March', 'April', 'May', 'June',
-                          'July', 'August', 'September', 'October', 'November', 'December'];
-            const [monthName, year] = dateString.split(' ');
-            const monthNum = months.indexOf(monthName) + 1;
-            if (monthNum === 0) {
-                throw new Error('Invalid month name');
-            }
-            return `${monthNum.toString().padStart(2, '0')}${year}`;
-        }
-        
-        // Handle YYYY-MM format
-        if (dateString.includes('-')) {
-            const [year, month] = dateString.split('-');
-            if (!year || !month || year.length !== 4) {
-                throw new Error('Invalid YYYY-MM format');
-            }
-            return `${month.padStart(2, '0')}${year}`;
-        }
-        
-        // If already in MMYYYY format, validate and return
-        if (dateString.length === 6) {
-            const month = parseInt(dateString.substring(0, 2));
-            if (month >= 1 && month <= 12) {
-                return dateString;
-            }
-            throw new Error('Invalid month in MMYYYY format');
-        }
-        
-        throw new Error('Invalid date format. Expected: YYYY-MM, "Month YYYY", or MMYYYY');
-    } catch (error) {
-        console.error('[AllocationAPI] Date format error:', error);
-        throw error;
-    }
-};
-
-const validateAllocation = (data) => {
-    const requiredFields = [
-        'productionSiteId',
-        'consumptionSiteId',
-        'productionSite',
-        'consumptionSite',
-        'allocated',
-        'type'
-    ];
-
-    const missingFields = requiredFields.filter(field => !data[field]);
-    if (missingFields.length > 0) {
-        throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+class AllocationApi {
+    formatAllocationData(data) {
+        return {
+            ...data,
+            allocated: Object.entries(data.allocated).reduce((acc, [key, value]) => {
+                acc[key] = Math.round(Number(value) || 0);
+                return acc;
+            }, {})
+        };
     }
 
-    if (Object.values(data.allocated || {}).some(val => val < 0)) {
-        throw new Error('Allocation amounts cannot be negative');
-    }
-
-    return true;
-};
-
-const allocationApi = {
-    fetchAll: async (month) => {
+    async fetchAll(month) {
         try {
-            const formattedMonth = formatDate(month);
-            const response = await api.get(
-                API_CONFIG.ENDPOINTS.ALLOCATION.GET_ALL(formattedMonth)
-            );
-            
-            if (!response.data?.success) {
-                throw new Error(response.data?.message || 'Failed to fetch allocations');
-            }
-            
-            return response.data;
-        } catch (error) {
-            console.error('[AllocationAPI] Fetch Error:', error);
-            throw error;
-        }
-    },
+            const [allocations, banking, lapse] = await Promise.all([
+                api.get(API_CONFIG.ENDPOINTS.ALLOCATION.GET_ALL(month)),
+                api.get(API_CONFIG.ENDPOINTS.BANKING.GET_ALL),
+                api.get(API_CONFIG.ENDPOINTS.LAPSE.GET_ALL)
+            ]);
 
-    create: async (data) => {
-        try {
-            validateAllocation(data);
-            
-            const formattedData = {
-                ...data,
-                month: formatDate(data.month)
+            return {
+                allocations: allocations.data?.data || [],
+                banking: banking.data?.data || [],
+                lapse: lapse.data?.data || []
             };
-            
-            const response = await api.post(
-                API_CONFIG.ENDPOINTS.ALLOCATION.CREATE,
-                formattedData
-            );
-            
-            if (!response.data?.success) {
-                throw new Error(response.data?.message || 'Failed to create allocation');
-            }
-            
-            return response.data;
         } catch (error) {
-            console.error('[AllocationAPI] Create Error:', error);
-            throw error;
-        }
-    },
-
-    createBatch: async (allocations) => {
-        try {
-            allocations.forEach(validateAllocation);
-            
-            const formattedAllocations = allocations.map(allocation => ({
-                ...allocation,
-                month: formatDate(allocation.month)
-            }));
-            
-            const response = await api.post(
-                API_CONFIG.ENDPOINTS.ALLOCATION.CREATE_BATCH,
-                formattedAllocations
-            );
-            
-            if (!response.data?.success) {
-                throw new Error(response.data?.message || 'Failed to create batch allocations');
-            }
-            
-            return response.data;
-        } catch (error) {
-            console.error('[AllocationAPI] Batch Create Error:', error);
-            throw error;
-        }
-    },
-
-    update: async (pk, sk, data) => {
-        try {
-            validateAllocation(data);
-            
-            const response = await api.put(
-                API_CONFIG.ENDPOINTS.ALLOCATION.UPDATE(pk, sk),
-                {
-                    ...data,
-                    month: formatDate(data.month)
-                }
-            );
-            
-            if (!response.data?.success) {
-                throw new Error(response.data?.message || 'Failed to update allocation');
-            }
-            
-            return response.data;
-        } catch (error) {
-            console.error('[AllocationAPI] Update Error:', error);
-            throw error;
-        }
-    },
-
-    delete: async (pk, sk) => {
-        try {
-            const response = await api.delete(
-                API_CONFIG.ENDPOINTS.ALLOCATION.DELETE(pk, sk)
-            );
-            
-            if (!response.data?.success) {
-                throw new Error(response.data?.message || 'Failed to delete allocation');
-            }
-            
-            return response.data;
-        } catch (error) {
-            console.error('[AllocationAPI] Delete Error:', error);
-            throw error;
+            throw this.handleError(error);
         }
     }
-};
 
+    async create(data, type = 'ALLOCATION') {
+        try {
+            const formattedData = this.formatAllocationData(data);
+            let endpoint;
+            
+            switch (type.toUpperCase()) {
+                case 'BANKING':
+                    endpoint = API_CONFIG.ENDPOINTS.BANKING.CREATE;
+                    break;
+                case 'LAPSE':
+                    endpoint = API_CONFIG.ENDPOINTS.LAPSE.CREATE;
+                    break;
+                default:
+                    endpoint = API_CONFIG.ENDPOINTS.ALLOCATION.CREATE;
+            }
+
+            const response = await api.post(endpoint, formattedData);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async update(pk, sk, data, type = 'ALLOCATION') {
+        try {
+            const formattedData = this.formatAllocationData(data);
+            let updateEndpoint;
+            
+            switch (type.toUpperCase()) {
+                case 'BANKING':
+                    updateEndpoint = API_CONFIG.ENDPOINTS.BANKING.UPDATE(pk, sk);
+                    break;
+                case 'LAPSE':
+                    updateEndpoint = API_CONFIG.ENDPOINTS.LAPSE.UPDATE(pk, sk);
+                    break;
+                default:
+                    updateEndpoint = API_CONFIG.ENDPOINTS.ALLOCATION.UPDATE(pk, sk);
+            }
+
+            const response = await api.put(updateEndpoint, formattedData);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async delete(pk, sk, type = 'ALLOCATION') {
+        try {
+            let deleteEndpoint;
+            
+            switch (type.toUpperCase()) {
+                case 'BANKING':
+                    deleteEndpoint = API_CONFIG.ENDPOINTS.BANKING.DELETE(pk, sk);
+                    break;
+                case 'LAPSE':
+                    deleteEndpoint = API_CONFIG.ENDPOINTS.LAPSE.DELETE(pk, sk);
+                    break;
+                default:
+                    deleteEndpoint = API_CONFIG.ENDPOINTS.ALLOCATION.DELETE(pk, sk);
+            }
+
+            const response = await api.delete(deleteEndpoint);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    handleError(error) {
+        console.error('[Allocation API Error]:', error);
+        const message = error.response?.data?.message || error.message;
+        throw new Error(message);
+    }
+
+    formatMonth(month, year) {
+        return `${month.toString().padStart(2, '0')}${year}`;
+    }
+}
+
+const allocationApi = new AllocationApi();
 export default allocationApi;

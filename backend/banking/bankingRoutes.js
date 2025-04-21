@@ -1,9 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const bankingController = require('./bankingController');
-
-// Create banking record
-router.post('/', bankingController.createBanking);
+const validateJson = require('../middleware/validateJson');
+const validateBanking = require('../middleware/validateBanking');
 
 // Get all banking records
 router.get('/', bankingController.getAllBanking);
@@ -11,11 +10,14 @@ router.get('/', bankingController.getAllBanking);
 // Get specific banking record
 router.get('/:pk/:sk', bankingController.getBanking);
 
-// Query banking by sk
-router.get('/:pk/:sk/query', bankingController.queryBankingByPeriod);
+// Get banking by period
+router.get('/:pk/period/:period', bankingController.queryBankingByPeriod);
+
+// Create banking record
+router.post('/', validateJson, validateBanking, bankingController.createBanking);
 
 // Update banking record
-router.put('/:pk/:sk', bankingController.updateBanking);
+router.put('/:pk/:sk', validateJson, validateBanking, bankingController.updateBanking);
 
 // Delete banking record
 router.delete('/:pk/:sk', bankingController.deleteBanking);

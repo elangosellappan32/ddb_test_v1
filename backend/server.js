@@ -17,6 +17,7 @@ const healthRoutes = require('./routes/healthRoutes');
 const roleRoutes = require('./routes/roleRoutes');
 const bankingRoutes = require('./banking/bankingRoutes');
 const allocationRoutes = require('./allocation/allocationRoutes');
+const lapseRoutes = require('./lapse/lapseRoutes'); // Add lapse routes
 
 // Initialize Express app
 const app = express();
@@ -53,6 +54,7 @@ app.use('/api/health', healthRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/banking', bankingRoutes);
 app.use('/api/allocation', allocationRoutes);
+app.use('/api/lapse', lapseRoutes); // Add lapse route
 
 // Error handler
 app.use((err, req, res, next) => {
@@ -75,7 +77,6 @@ app.use((req, res) => {
 // Server startup function
 const startServer = async () => {
     try {
-        // Verify database connection
         // Start server
         const server = app.listen(PORT, () => {
             logger.info(`Server running on port ${PORT}`);

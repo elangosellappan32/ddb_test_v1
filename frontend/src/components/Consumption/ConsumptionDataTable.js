@@ -19,7 +19,8 @@ import {
 } from '@mui/material';
 import {
   Edit as EditIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  Info as InfoIcon
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 
@@ -101,13 +102,46 @@ const ConsumptionDataTable = ({
                   Period
                 </Typography>
               </TableCell>
-              {[1, 2, 3, 4, 5].map(num => (
-                <TableCell key={num} align="right">
+              <TableCell align="right">
+                <Tooltip title="Non-Peak Period">
                   <Typography variant="subtitle2" sx={{ color: 'white', fontWeight: 'bold' }}>
-                    C{num}
+                    C1
+                    <InfoIcon sx={{ ml: 0.5, fontSize: '1rem', verticalAlign: 'middle' }} />
                   </Typography>
-                </TableCell>
-              ))}
+                </Tooltip>
+              </TableCell>
+              <TableCell align="right">
+                <Tooltip title="Peak Period">
+                  <Typography variant="subtitle2" sx={{ color: 'white', fontWeight: 'bold' }}>
+                    C2
+                    <InfoIcon sx={{ ml: 0.5, fontSize: '1rem', verticalAlign: 'middle' }} />
+                  </Typography>
+                </Tooltip>
+              </TableCell>
+              <TableCell align="right">
+                <Tooltip title="Peak Period">
+                  <Typography variant="subtitle2" sx={{ color: 'white', fontWeight: 'bold' }}>
+                    C3
+                    <InfoIcon sx={{ ml: 0.5, fontSize: '1rem', verticalAlign: 'middle' }} />
+                  </Typography>
+                </Tooltip>
+              </TableCell>
+              <TableCell align="right">
+                <Tooltip title="Non-Peak Period">
+                  <Typography variant="subtitle2" sx={{ color: 'white', fontWeight: 'bold' }}>
+                    C4
+                    <InfoIcon sx={{ ml: 0.5, fontSize: '1rem', verticalAlign: 'middle' }} />
+                  </Typography>
+                </Tooltip>
+              </TableCell>
+              <TableCell align="right">
+                <Tooltip title="Non-Peak Period">
+                  <Typography variant="subtitle2" sx={{ color: 'white', fontWeight: 'bold' }}>
+                    C5
+                    <InfoIcon sx={{ ml: 0.5, fontSize: '1rem', verticalAlign: 'middle' }} />
+                  </Typography>
+                </Tooltip>
+              </TableCell>
               <TableCell align="right">
                 <Typography variant="subtitle2" sx={{ color: 'white', fontWeight: 'bold' }}>
                   Total

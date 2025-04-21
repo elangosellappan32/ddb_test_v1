@@ -8,13 +8,27 @@ import {
   TableHead,
   TableRow,
   Typography,
-  Box
+  Box,
+  Tooltip,
+  IconButton
 } from '@mui/material';
-import { AccountBalance as BankingIcon } from '@mui/icons-material';
+import { 
+  AccountBalance as BankingIcon,
+  Info as InfoIcon 
+} from '@mui/icons-material';
 
 const BankingUnitsTable = ({ bankingData, selectedYear }) => {
-  const calculateTotal = (row) => {
-    return ['c1', 'c2', 'c3', 'c4', 'c5'].reduce((sum, key) => sum + (Number(row[key]) || 0), 0);
+  const calculateTotal = (row, key = 'allocated') => {
+    return ['c1', 'c2', 'c3', 'c4', 'c5'].reduce((sum, period) => 
+      sum + Math.round(Number(row[key]?.[period] || row[period] || 0)), 0
+    );
+  };
+
+  const calculateUsedUnits = (row) => {
+    if (!row.previousBalance) return 0;
+    const previousTotal = calculateTotal(row, 'previousBalance');
+    const currentTotal = calculateTotal(row);
+    return Math.max(0, previousTotal - currentTotal);
   };
 
   return (
@@ -29,49 +43,98 @@ const BankingUnitsTable = ({ bankingData, selectedYear }) => {
         <TableHead>
           <TableRow>
             <TableCell>Site Name</TableCell>
-            <TableCell align="right">C1</TableCell>
-            <TableCell align="right">C2</TableCell>
-            <TableCell align="right">C3</TableCell>
-            <TableCell align="right">C4</TableCell>
-            <TableCell align="right">C5</TableCell>
-            <TableCell align="right">Total</TableCell>
+            <TableCell align="right">
+              <Tooltip title="Non-Peak Period">
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                  C1
+                  <InfoIcon sx={{ ml: 0.5, fontSize: '1rem' }} />
+                </Box>
+              </Tooltip>
+            </TableCell>
+            <TableCell align="right">
+              <Tooltip title="Peak Period">
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                  C2
+                  <InfoIcon sx={{ ml: 0.5, fontSize: '1rem' }} />
+                </Box>
+              </Tooltip>
+            </TableCell>
+            <TableCell align="right">
+              <Tooltip title="Peak Period">
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                  C3
+                  <InfoIcon sx={{ ml: 0.5, fontSize: '1rem' }} />
+                </Box>
+              </Tooltip>
+            </TableCell>
+            <TableCell align="right">
+              <Tooltip title="Non-Peak Period">
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                  C4
+                  <InfoIcon sx={{ ml: 0.5, fontSize: '1rem' }} />
+                </Box>
+              </Tooltip>
+            </TableCell>
+            <TableCell align="right">
+              <Tooltip title="Non-Peak Period">
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                  C5
+                  <InfoIcon sx={{ ml: 0.5, fontSize: '1rem' }} />
+                </Box>
+              </Tooltip>
+            </TableCell>
+            <TableCell align="right">
+              Previous Balance
+            </TableCell>
+            <TableCell align="right">
+              Current Balance
+            </TableCell>
+            <TableCell align="right">
+              Used Units
+            </TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {bankingData.map((row, index) => (
             <TableRow key={index}>
               <TableCell>{row.siteName}</TableCell>
-              <TableCell align="right">{row.c1}</TableCell>
-              <TableCell align="right">{row.c2}</TableCell>
-              <TableCell align="right">{row.c3}</TableCell>
-              <TableCell align="right">{row.c4}</TableCell>
-              <TableCell align="right">{row.c5}</TableCell>
-              <TableCell align="right">
-                <Box sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-                  {calculateTotal(row)}
-                </Box>
+              {['c1', 'c2', 'c3', 'c4', 'c5'].map(period => (
+                <TableCell key={period} align="right">
+                  <Tooltip title={row.previousBalance ? `Previous: ${Math.round(row.previousBalance[period] || 0)}` : 'No previous balance'}>
+                    <Typography>
+                      {Math.round(row.allocated?.[period] || row[period] || 0)}
+                    </Typography>
+                  </Tooltip>
+                </TableCell>
+              ))}
+              <TableCell align="right" sx={{ color: 'text.secondary' }}>
+                {calculateTotal(row, 'previousBalance')}
+              </TableCell>
+              <TableCell align="right" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                {calculateTotal(row)}
+              </TableCell>
+              <TableCell align="right" sx={{ color: 'warning.main' }}>
+                {calculateUsedUnits(row)}
               </TableCell>
             </TableRow>
           ))}
           <TableRow sx={{ backgroundColor: 'rgba(0, 0, 0, 0.04)' }}>
             <TableCell sx={{ fontWeight: 'bold' }}>Total</TableCell>
-            <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-              {bankingData.reduce((sum, row) => sum + (Number(row.c1) || 0), 0)}
-            </TableCell>
-            <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-              {bankingData.reduce((sum, row) => sum + (Number(row.c2) || 0), 0)}
-            </TableCell>
-            <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-              {bankingData.reduce((sum, row) => sum + (Number(row.c3) || 0), 0)}
-            </TableCell>
-            <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-              {bankingData.reduce((sum, row) => sum + (Number(row.c4) || 0), 0)}
-            </TableCell>
-            <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-              {bankingData.reduce((sum, row) => sum + (Number(row.c5) || 0), 0)}
+            {['c1', 'c2', 'c3', 'c4', 'c5'].map(period => (
+              <TableCell key={period} align="right" sx={{ fontWeight: 'bold' }}>
+                {bankingData.reduce((sum, row) => 
+                  sum + Math.round(Number(row.allocated?.[period] || row[period] || 0)), 0
+                )}
+              </TableCell>
+            ))}
+            <TableCell align="right" sx={{ fontWeight: 'bold', color: 'text.secondary' }}>
+              {bankingData.reduce((sum, row) => sum + calculateTotal(row, 'previousBalance'), 0)}
             </TableCell>
             <TableCell align="right" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
               {bankingData.reduce((sum, row) => sum + calculateTotal(row), 0)}
+            </TableCell>
+            <TableCell align="right" sx={{ fontWeight: 'bold', color: 'warning.main' }}>
+              {bankingData.reduce((sum, row) => sum + calculateUsedUnits(row), 0)}
             </TableCell>
           </TableRow>
         </TableBody>

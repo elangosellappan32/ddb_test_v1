@@ -101,6 +101,14 @@ export const API_CONFIG = {
       UPDATE: (pk, sk) => `/allocation/${pk}/${sk}`,
       DELETE: (pk, sk) => `/allocation/${pk}/${sk}`,
       CREATE_LAPSE: '/allocation/lapse'
+    },
+    LAPSE: {
+      BASE: '/api/lapse',
+      GET_ALL: '/api/lapse',
+      GET_ONE: (pk, sk) => `/api/lapse/${pk}/${sk}`,
+      CREATE: '/api/lapse',
+      UPDATE: (pk, sk) => `/api/lapse/${pk}/${sk}`,
+      DELETE: (pk, sk) => `/api/lapse/${pk}/${sk}`
     }
   }
 };

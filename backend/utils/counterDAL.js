@@ -14,8 +14,39 @@ const client = new DynamoDBClient({
 
 const docClient = DynamoDBDocumentClient.from(client);
 
+const getCurrentValue = async (counterId) => {
+    try {
+        const command = new GetCommand({
+            TableName: TableNames.COUNTERS,
+            Key: { pk: counterId }
+        });
+
+        const response = await docClient.send(command);
+        
+        logger.info('Counter', 'Current Value Retrieved', {
+            counterId,
+            currentValue: response.Item?.currentValue || 0
+        });
+
+        return response.Item?.currentValue || 0;
+    } catch (error) {
+        logger.error('Counter', 'Get Current Value Failed', {
+            error: error.message,
+            stack: error.stack,
+            counterId
+        });
+        throw error;
+    }
+};
+
 const getNextId = async (counterId) => {
     try {
+        // Log counter request
+        logger.info('Counter', 'Next ID Requested', {
+            counterId,
+            table: TableNames.COUNTERS
+        });
+
         const params = {
             TableName: TableNames.COUNTERS,
             Key: { pk: counterId },
@@ -31,13 +62,64 @@ const getNextId = async (counterId) => {
         };
 
         const { Attributes } = await docClient.send(new UpdateCommand(params));
+        
+        // Log successful increment
+        logger.info('Counter', 'Next ID Generated', {
+            counterId,
+            newValue: Attributes.currentValue
+        });
+
         return Attributes.currentValue;
     } catch (error) {
-        logger.error('[CounterDAL] GetNextId Error:', error);
+        logger.error('Counter', 'Next ID Generation Failed', {
+            error: error.message,
+            stack: error.stack,
+            counterId,
+            table: TableNames.COUNTERS
+        });
+        throw error;
+    }
+};
+
+const resetCounter = async (counterId) => {
+    try {
+        const params = {
+            TableName: TableNames.COUNTERS,
+            Key: { pk: counterId },
+            UpdateExpression: 'SET #val = :zero',
+            ExpressionAttributeNames: {
+                '#val': 'currentValue'
+            },
+            ExpressionAttributeValues: {
+                ':zero': 0
+            },
+            ReturnValues: 'UPDATED_NEW'
+        };
+
+        logger.info('Counter', 'Counter Reset Requested', {
+            counterId
+        });
+
+        const { Attributes } = await docClient.send(new UpdateCommand(params));
+        
+        logger.info('Counter', 'Counter Reset Success', {
+            counterId,
+            resetValue: Attributes.currentValue
+        });
+
+        return Attributes.currentValue;
+    } catch (error) {
+        logger.error('Counter', 'Counter Reset Failed', {
+            error: error.message,
+            stack: error.stack,
+            counterId
+        });
         throw error;
     }
 };
 
 module.exports = {
-    getNextId
+    getCurrentValue,
+    getNextId,
+    resetCounter
 };

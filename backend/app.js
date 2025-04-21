@@ -17,6 +17,7 @@ const allocationRoutes = require('./allocation/allocationRoutes');
 const healthRoutes = require('./routes/healthRoutes');
 const roleRoutes = require('./routes/roleRoutes');
 const bankingRoutes = require('./banking/bankingRoutes');
+const lapseRoutes = require('./lapse/lapseRoutes');
 
 const app = express();
 
@@ -54,6 +55,7 @@ app.use('/api/allocation', allocationRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/banking', bankingRoutes);
+app.use('/api/lapse', lapseRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

@@ -8,9 +8,11 @@ import {
   TableHead,
   TableRow,
   Typography,
-  Chip
+  Chip,
+  Tooltip,
+  Box
 } from '@mui/material';
-import { CheckCircle, Cancel } from '@mui/icons-material';
+import { CheckCircle, Cancel, Info as InfoIcon } from '@mui/icons-material';
 
 const ProductionUnitsTable = ({ productionData }) => {
   const calculateTotal = (row) => {
@@ -27,11 +29,46 @@ const ProductionUnitsTable = ({ productionData }) => {
           <TableRow>
             <TableCell>Site Name</TableCell>
             <TableCell>Banking Status</TableCell>
-            <TableCell align="right">C1 (Non-Peak)</TableCell>
-            <TableCell align="right">C2 (Non-Peak)</TableCell>
-            <TableCell align="right">C3 (Peak)</TableCell>
-            <TableCell align="right">C4 (Peak)</TableCell>
-            <TableCell align="right">C5 (Non-Peak)</TableCell>
+            <TableCell align="right">
+              <Tooltip title="Non-Peak Period">
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                  C1
+                  <InfoIcon sx={{ ml: 0.5, fontSize: '1rem' }} />
+                </Box>
+              </Tooltip>
+            </TableCell>
+            <TableCell align="right">
+              <Tooltip title="Peak Period">
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                  C2
+                  <InfoIcon sx={{ ml: 0.5, fontSize: '1rem' }} />
+                </Box>
+              </Tooltip>
+            </TableCell>
+            <TableCell align="right">
+              <Tooltip title="Peak Period">
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                  C3
+                  <InfoIcon sx={{ ml: 0.5, fontSize: '1rem' }} />
+                </Box>
+              </Tooltip>
+            </TableCell>
+            <TableCell align="right">
+              <Tooltip title="Non-Peak Period">
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                  C4
+                  <InfoIcon sx={{ ml: 0.5, fontSize: '1rem' }} />
+                </Box>
+              </Tooltip>
+            </TableCell>
+            <TableCell align="right">
+              <Tooltip title="Non-Peak Period">
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                  C5
+                  <InfoIcon sx={{ ml: 0.5, fontSize: '1rem' }} />
+                </Box>
+              </Tooltip>
+            </TableCell>
             <TableCell align="right">Total</TableCell>
           </TableRow>
         </TableHead>

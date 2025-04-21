@@ -1,3 +1,12 @@
+const { 
+    DynamoDBDocumentClient, 
+    PutCommand,
+    GetCommand,
+    QueryCommand,
+    UpdateCommand,
+    DeleteCommand,
+    ScanCommand
+} = require('@aws-sdk/lib-dynamodb');
 const docClient = require('../utils/db');
 const TableNames = require('../constants/tableNames');
 const logger = require('../utils/logger');
@@ -66,15 +75,15 @@ const getAvailableUnits = async (productionSiteId, period, month) => {
         }, 0);
 
         // Get total available units for this period
-        const productionUnits = await docClient.get({
+        const { Item } = await docClient.send(new GetCommand({
             TableName: TableNames.PRODUCTION_UNIT,
             Key: {
                 productionSiteId,
                 month: formatMonthYearKey(month)
             }
-        }).promise();
+        }));
 
-        const total = Number(productionUnits?.Item?.[period] || 0);
+        const total = Number(Item?.[period] || 0);
         return total - allocated;
     } catch (error) {
         logger.error('[AllocationDAL] GetAvailableUnits Error:', error);
@@ -100,11 +109,11 @@ const createAllocation = async (item) => {
             ttl
         };
 
-        await docClient.put({
+        await docClient.send(new PutCommand({
             TableName: TableNames.ALLOCATION,
             Item: allocationItem,
             ConditionExpression: 'attribute_not_exists(pk) AND attribute_not_exists(sk)'
-        });
+        }));
 
         return allocationItem;
     } catch (error) {
@@ -121,7 +130,7 @@ const getAllocations = async (month, filterBy = {}) => {
         let expAttVals = {
             ':month': monthKey
         };
-
+        
         // Add optional filters
         if (filterBy.type) {
             filterExp += ' and #type = :type';
@@ -140,7 +149,7 @@ const getAllocations = async (month, filterBy = {}) => {
             };
         }
 
-        const { Items } = await docClient.scan(params).promise();
+        const { Items } = await docClient.send(new ScanCommand(params));
         return Items || [];
     } catch (error) {
         logger.error('[AllocationDAL] GetAll Error:', error);
@@ -170,7 +179,7 @@ const getAllocationsByPeriod = async (productionSiteId, period, month) => {
             params.ExpressionAttributeValues[':month'] = monthKey;
         }
 
-        const { Items } = await docClient.scan(params).promise();
+        const { Items } = await docClient.send(new ScanCommand(params));
         return Items || [];
     } catch (error) {
         logger.error('[AllocationDAL] GetByPeriod Error:', error);
@@ -181,10 +190,10 @@ const getAllocationsByPeriod = async (productionSiteId, period, month) => {
 const updateAllocation = async (pk, sk, updates) => {
     try {
         // Check if the allocation exists
-        const { Item: existing } = await docClient.get({
+        const { Item: existing } = await docClient.send(new GetCommand({
             TableName: TableNames.ALLOCATION,
             Key: { pk, sk }
-        }).promise();
+        }));
 
         if (!existing) {
             throw new Error('Allocation not found');
@@ -217,7 +226,7 @@ const updateAllocation = async (pk, sk, updates) => {
             ReturnValues: 'ALL_NEW'
         };
 
-        const { Attributes } = await docClient.update(params).promise();
+        const { Attributes } = await docClient.send(new UpdateCommand(params));
         return Attributes;
     } catch (error) {
         logger.error('[AllocationDAL] Update Error:', error);
@@ -227,11 +236,11 @@ const updateAllocation = async (pk, sk, updates) => {
 
 const deleteAllocation = async (pk, sk) => {
     try {
-        const result = await docClient.delete({
+        const result = await docClient.send(new DeleteCommand({
             TableName: TableNames.ALLOCATION,
             Key: { pk, sk },
             ReturnValues: 'ALL_OLD'
-        }).promise();
+        }));
         return result.Attributes;
     } catch (error) {
         logger.error('[AllocationDAL] Delete Error:', error);
