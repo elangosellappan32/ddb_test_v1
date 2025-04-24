@@ -26,13 +26,14 @@ import {
     AutoAwesome as AutoIcon,
     MoreVert as MoreVertIcon
 } from '@mui/icons-material';
-import { ALLOCATION_TYPES } from '../../utils/allocationUtils';
+import { ALLOCATION_TYPES, UNIT_TYPES, ENERGY_SOURCES } from '../../utils/allocationUtils';
 
 const AllocationToolbar = ({
     onCreateAllocation,
     onAutoAllocate,
     productionSites,
     consumptionSites,
+    bankingSites,
     selectedMonth
 }) => {
     const [anchorEl, setAnchorEl] = useState(null);
@@ -41,18 +42,53 @@ const AllocationToolbar = ({
         productionSites: [],
         consumptionSites: []
     });
+    const [allocationType, setAllocationType] = useState(UNIT_TYPES.NON_PEAK);
 
     const handleCreateClick = (type) => {
         setAnchorEl(null);
         onCreateAllocation(type);
     };
 
-    const handleAutoAllocateSubmit = () => {
-        onAutoAllocate(
-            autoAllocateData.productionSites,
-            autoAllocateData.consumptionSites,
-            selectedMonth
+    const calculateSourceAllocation = (consumption, production, banking) => {
+        // Implement allocation logic here
+        return [];
+    };
+
+    const calculateAllocation = (production, consumption, banking) => {
+        // Sort production sites - solar first
+        const sortedProduction = [...production].sort((a, b) => {
+            if (a.source === ENERGY_SOURCES.SOLAR) return -1;
+            if (b.source === ENERGY_SOURCES.SOLAR) return 1;
+            return 0;
+        });
+
+        // Filter eligible banking sites
+        const eligibleBanking = banking.filter(site => 
+            site.source !== ENERGY_SOURCES.SOLAR && 
+            site.source !== ENERGY_SOURCES.WIND
         );
+
+        return {
+            allocations: consumption.map(cons => ({
+                consumptionSiteId: cons.id,
+                percentage: cons.allocationPercentage,
+                sources: calculateSourceAllocation(cons, sortedProduction, eligibleBanking)
+            }))
+        };
+    };
+
+    const handleAutoAllocateSubmit = () => {
+        const allocationResult = calculateAllocation(
+            autoAllocateData.productionSites.map(id => 
+                productionSites.find(s => s.productionSiteId === id)
+            ),
+            autoAllocateData.consumptionSites.map(id =>
+                consumptionSites.find(s => s.consumptionSiteId === id)
+            ),
+            bankingSites
+        );
+        
+        onAutoAllocate(allocationResult, selectedMonth);
         setAutoAllocateOpen(false);
     };
 
@@ -176,6 +212,19 @@ const AllocationToolbar = ({
                                             {site.name}
                                         </MenuItem>
                                     ))}
+                                </Select>
+                            </FormControl>
+                        </Grid>
+
+                        <Grid item xs={12}>
+                            <FormControl fullWidth>
+                                <InputLabel>Allocation Period Type</InputLabel>
+                                <Select
+                                    value={allocationType}
+                                    onChange={(e) => setAllocationType(e.target.value)}
+                                >
+                                    <MenuItem value={UNIT_TYPES.PEAK}>Peak Period</MenuItem>
+                                    <MenuItem value={UNIT_TYPES.NON_PEAK}>Non-Peak Period</MenuItem>
                                 </Select>
                             </FormControl>
                         </Grid>

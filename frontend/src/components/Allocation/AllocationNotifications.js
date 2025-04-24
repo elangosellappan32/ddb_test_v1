@@ -1,71 +1,21 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Snackbar, Alert, IconButton } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
-import websocketService from '../../services/websocketService';
 
-const AllocationNotifications = ({ onAllocationUpdate }) => {
+const AllocationNotifications = ({ onNotification }) => {
     const [notifications, setNotifications] = useState([]);
 
-    useEffect(() => {
-        const cleanup = websocketService.subscribeToAllocationEvents({
-            onCreate: (allocation) => {
-                addNotification({
-                    severity: 'success',
-                    message: `New ${allocation.type.toLowerCase()} created for ${allocation.productionSite}`,
-                    allocation
-                });
-                onAllocationUpdate();
-            },
-            onUpdate: ({ allocation, changes }) => {
-                addNotification({
-                    severity: 'info',
-                    message: `${allocation.type} updated for ${allocation.productionSite}`,
-                    allocation
-                });
-                onAllocationUpdate();
-            },
-            onDelete: (allocation) => {
-                addNotification({
-                    severity: 'warning',
-                    message: `${allocation.type} deleted for ${allocation.productionSite}`,
-                    allocation
-                });
-                onAllocationUpdate();
-            },
-            onBankingLimit: (data) => {
-                addNotification({
-                    severity: 'warning',
-                    message: `Banking limit reached for ${data.productionSite.name}`,
-                    data
-                });
-            },
-            onLapse: (data) => {
-                addNotification({
-                    severity: 'warning',
-                    message: `Units lapsed for ${data.productionSite.name}`,
-                    data
-                });
-            },
-            onAutoComplete: ({ summary }) => {
-                const message = `Auto-allocation complete: ${summary.total} allocations created`;
-                addNotification({
-                    severity: 'success',
-                    message,
-                    summary
-                });
-                onAllocationUpdate();
-            }
-        });
+    const addNotification = useCallback((notification) => {
+        const newNotification = {
+            ...notification,
+            id: Date.now()
+        };
+        setNotifications(prev => [...prev, newNotification]);
 
-        return () => cleanup();
-    }, [onAllocationUpdate]);
-
-    const addNotification = (notification) => {
-        setNotifications(prev => [
-            ...prev,
-            { ...notification, id: Date.now() }
-        ]);
-    };
+        if (onNotification) {
+            onNotification(newNotification);
+        }
+    }, [onNotification]);
 
     const handleClose = (id) => {
         setNotifications(prev => prev.filter(notif => notif.id !== id));

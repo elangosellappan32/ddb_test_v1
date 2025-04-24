@@ -11,7 +11,10 @@ export const API_CONFIG = {
     PRODUCTION_UNIT: 'ProductionUnitTable',
     PRODUCTION_CHARGE: 'ProductionChargeTable',
     BANKING: 'BankingTable',
-    ALLOCATION: 'AllocationTable'
+    ALLOCATION: 'AllocationTable',
+    LAPSE: 'LapseTable',
+    CONSUMPTION_SITE: 'ConsumptionSiteTable',
+    CONSUMPTION_UNIT: 'ConsumptionUnitTable'
   },
   ENDPOINTS: {
     AUTH: {
@@ -90,7 +93,8 @@ export const API_CONFIG = {
       CREATE: '/banking',
       UPDATE: (pk, sk) => `/banking/${pk}/${sk}`,
       DELETE: (pk, sk) => `/banking/${pk}/${sk}`,
-      GET_BY_PERIOD: (pk, period) => `/banking/${pk}/period/${period}`
+      GET_BY_PERIOD: (pk, period) => `/banking/${pk}/period/${period}`,
+      GET_BY_MONTH: (month) => `/banking/month/${month}`
     },
     ALLOCATION: {
       BASE: '/allocation',
@@ -100,15 +104,18 @@ export const API_CONFIG = {
       CREATE_BATCH: '/allocation/batch',
       UPDATE: (pk, sk) => `/allocation/${pk}/${sk}`,
       DELETE: (pk, sk) => `/allocation/${pk}/${sk}`,
-      CREATE_LAPSE: '/allocation/lapse'
+      CREATE_LAPSE: '/allocation/lapse',
+      GET_BY_SITE: (productionSiteId, month) => 
+        `/allocation/site/${productionSiteId}/month/${month}`
     },
     LAPSE: {
-      BASE: '/api/lapse',
-      GET_ALL: '/api/lapse',
-      GET_ONE: (pk, sk) => `/api/lapse/${pk}/${sk}`,
-      CREATE: '/api/lapse',
-      UPDATE: (pk, sk) => `/api/lapse/${pk}/${sk}`,
-      DELETE: (pk, sk) => `/api/lapse/${pk}/${sk}`
+      BASE: '/lapse',
+      GET_ALL: '/lapse',
+      GET_ONE: (pk, sk) => `/lapse/${pk}/${sk}`,
+      CREATE: '/lapse',
+      UPDATE: (pk, sk) => `/lapse/${pk}/${sk}`,
+      DELETE: (pk, sk) => `/lapse/${pk}/${sk}`,
+      GET_BY_MONTH: (month) => `/lapse/month/${month}`
     }
   }
 };
