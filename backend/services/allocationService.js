@@ -498,61 +498,6 @@ class AllocationService {
 
         return summary;
     }
-
-    async getAllocationsByFinancialYear(siteId, financialYear) {
-        const allocations = await allocationDAL.getAllocationsForSite(siteId);
-        return allocations.filter(allocation => allocation.financialYear === financialYear);
-    }
-
-    async calculateAvailableUnits(productionSiteId, financialYear) {
-        const balances = await bankingDAL.getSiteBalances(productionSiteId);
-        const yearBalance = balances?.financialYearBalances?.[financialYear] || 0;
-        const currentUsed = balances?.financialYearUsed?.[financialYear] || 0;
-        
-        return Math.max(0, yearBalance - currentUsed);
-    }
-
-    async distributeUnits(allocation, availableUnits) {
-        if (!allocation.allocated || Object.keys(allocation.allocated).length === 0) {
-            return allocation;
-        }
-
-        const total = Object.values(allocation.allocated).reduce((sum, val) => sum + Number(val || 0), 0);
-        if (total === 0) return allocation;
-
-        const ratio = availableUnits / total;
-        const distributedAllocation = { ...allocation };
-        
-        distributedAllocation.allocated = Object.keys(allocation.allocated).reduce((obj, period) => {
-            const value = allocation.allocated[period] || 0;
-            return {
-                ...obj,
-                [period]: Number((value * ratio).toFixed(2))
-            };
-        }, {});
-
-        return distributedAllocation;
-    }
-
-    async validateAllocation(allocation) {
-        if (!allocation.financialYear) {
-            throw new Error('Financial year is required for allocation');
-        }
-
-        const availableUnits = await calculateAvailableUnits(
-            allocation.productionSiteId,
-            allocation.financialYear
-        );
-
-        if (allocation.type === 'BANKING' && allocation.isDirect) {
-            const total = Object.values(allocation.allocated).reduce((sum, val) => sum + Number(val || 0), 0);
-            if (total > availableUnits) {
-                throw new Error(`Allocation exceeds available units for financial year ${allocation.financialYear}`);
-            }
-        }
-
-        return true;
-    }
 }
 
 module.exports = AllocationService.getInstance();

@@ -2,54 +2,70 @@ const { PEAK_PERIODS, NON_PEAK_PERIODS, ALL_PERIODS } = require('../constants/pe
 const logger = require('../utils/logger');
 
 class ValidationService {
-    validateFinancialYear(financialYear) {
-        if (!financialYear) return false;
-        
-        // Financial year should be in format YYYY-YYYY
-        const pattern = /^\d{4}-\d{4}$/;
-        if (!pattern.test(financialYear)) return false;
-        
-        const [startYear, endYear] = financialYear.split('-').map(Number);
-        return endYear === startYear + 1;
-    }
-
     validateAllocation(data) {
         const errors = [];
-        
-        // Validate required fields
-        if (!data.productionSiteId) errors.push('Production site ID is required');
-        if (!data.allocated) errors.push('Allocated units are required');
-        if (!data.type) errors.push('Allocation type is required');
-        if (!data.financialYear) errors.push('Financial year is required');
-        
-        // Validate financial year format
-        if (data.financialYear && !this.validateFinancialYear(data.financialYear)) {
-            errors.push('Financial year must be in format YYYY-YYYY and span consecutive years');
+        const normalizedData = this.normalizeAllocationData(data);
+
+        // Common validations
+        if (!normalizedData.companyId) {
+            errors.push('Company ID is required');
         }
-        
-        // Validate allocation type
-        const validTypes = ['BANKING', 'LAPSE', 'ALLOCATION'];
-        if (data.type && !validTypes.includes(data.type.toUpperCase())) {
-            errors.push(`Type must be one of: ${validTypes.join(', ')}`);
+
+        if (!normalizedData.productionSiteId) {
+            errors.push('Production site ID is required');
         }
-        
+
+        if (!normalizedData.month) {
+            errors.push('Month is required');
+        }
+
+        // Type-specific validation
+        switch (normalizedData.type?.toUpperCase()) {
+            case 'ALLOCATION':
+                if (!normalizedData.consumptionSiteId) {
+                    errors.push('Consumption site ID is required for regular allocations');
+                }
+                break;
+
+            case 'BANKING':
+                if (!normalizedData.bankingEnabled) {
+                    errors.push('Banking is not enabled for this production site');
+                }
+                break;
+
+            case 'LAPSE':
+                if (!normalizedData.reason) {
+                    errors.push('Reason is required for lapse allocations');
+                }
+                break;
+
+            default:
+                errors.push('Invalid allocation type');
+        }
+
         // Validate allocated units
-        if (data.allocated) {
-            const normalizedAllocated = this.normalizeAllocatedValues(data.allocated);
-            const total = Object.values(normalizedAllocated).reduce((sum, val) => sum + val, 0);
-            
-            if (total <= 0) {
-                errors.push('Total allocated units must be greater than 0');
+        if (normalizedData.allocated) {
+            // Validate numeric values
+            ALL_PERIODS.forEach(period => {
+                const value = normalizedData.allocated[period];
+                if (value !== undefined && (isNaN(Number(value)) || Number(value) < 0)) {
+                    errors.push(`Invalid value for period ${period}`);
+                }
+            });
+
+            // Check for peak and non-peak mixing
+            const peakResult = this.validatePeakNonPeakMixing(normalizedData.allocated);
+            if (!peakResult.isValid) {
+                errors.push(peakResult.error);
             }
+        } else {
+            errors.push('Allocated units are required');
         }
-        
+
         return {
             isValid: errors.length === 0,
             errors,
-            normalizedData: {
-                ...data,
-                allocated: data.allocated ? this.normalizeAllocatedValues(data.allocated) : {}
-            }
+            normalizedData
         };
     }
 

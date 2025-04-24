@@ -20,17 +20,9 @@ const AllocationDetailsTable = ({ allocations = [], balances = {}, loading = fal
 
     const calculateUnusedUnits = (allocation, balances) => {
         const total = calculateTotal(allocation.allocated);
-        const siteBalance = balances[allocation.productionSiteId] || {};
-        
-        // First check financial year specific balance
-        let used = 0;
-        if (allocation.financialYear && siteBalance.financialYearUsed) {
-            used = siteBalance.financialYearUsed[allocation.financialYear] || 0;
-        } else {
-            // Fallback to period or general used balance
-            used = siteBalance.periodUsed || siteBalance.used || 0;
-        }
-                     
+        // Check if we have period-specific balance
+        const used = balances[allocation.productionSiteId]?.periodUsed || 
+                    balances[allocation.productionSiteId]?.used || 0;
         return Math.max(0, total - used);
     };
 
@@ -38,25 +30,20 @@ const AllocationDetailsTable = ({ allocations = [], balances = {}, loading = fal
         const total = calculateTotal(allocation.allocated);
         if (total === 0) return allocation.allocated;
         
-        const ratio = unusedUnits / total;
-        
-        // If specific period, only adjust that period
+        // If period specific, only distribute to that period
         if (periodKey) {
-            const periodValue = allocation.allocated[periodKey] || 0;
             return {
                 ...allocation.allocated,
-                [periodKey]: Number((periodValue * ratio).toFixed(2))
+                [periodKey]: (allocation.allocated[periodKey] || 0) * (unusedUnits / total)
             };
         }
         
-        // Distribute proportionally across all periods while maintaining ratios
-        return Object.keys(allocation.allocated).reduce((obj, key) => {
-            const periodValue = allocation.allocated[key] || 0;
-            return {
-                ...obj,
-                [key]: Number((periodValue * ratio).toFixed(2))
-            };
-        }, {});
+        // Otherwise distribute across all periods
+        const ratio = unusedUnits / total;
+        return Object.keys(allocation.allocated).reduce((obj, key) => ({
+            ...obj,
+            [key]: (allocation.allocated[key] || 0) * ratio
+        }), {});
     };
 
     const sections = useMemo(() => {
@@ -66,38 +53,33 @@ const AllocationDetailsTable = ({ allocations = [], balances = {}, loading = fal
                 const unusedUnits = calculateUnusedUnits(curr, balances);
                 const total = calculateTotal(curr.allocated);
                 
-                if (curr.isDirect) {
-                    if (!acc.directBanking) acc.directBanking = { used: [], unused: [] };
-                    
-                    // Handle direct banking with financial year consideration
+                const bankingSection = curr.isDirect ? 'directBanking' : 'indirectBanking';
+                if (!acc[bankingSection]) {
+                    acc[bankingSection] = { used: [], unused: [] };
+                }
+
+                if (unusedUnits > 0) {
+                    // Create period-specific unused allocation
                     const unusedAllocation = {
                         ...curr,
                         unusedUnits,
-                        financialYearUnused: true,
-                        allocated: distributeUnusedUnits(curr, unusedUnits),
-                        originalAllocated: { ...curr.allocated } // Store original allocation
+                        periodUnused: true,
+                        allocated: distributeUnusedUnits(curr, unusedUnits, curr.selectedPeriod)
                     };
-                    
-                    if (unusedUnits > 0) {
-                        acc.directBanking.unused.push(unusedAllocation);
-                        
-                        if (unusedUnits < total) {
-                            acc.directBanking.used.push({
-                                ...curr,
-                                allocated: distributeUnusedUnits(curr, total - unusedUnits)
-                            });
-                        }
-                    } else {
-                        acc.directBanking.used.push(curr);
+                    acc[bankingSection].unused.push(unusedAllocation);
+
+                    if (unusedUnits < total) {
+                        const usedAllocation = {
+                            ...curr,
+                            allocated: distributeUnusedUnits(curr, total - unusedUnits, curr.selectedPeriod)
+                        };
+                        acc[bankingSection].used.push(usedAllocation);
                     }
                 } else {
-                    // Handle indirect banking
-                    if (!acc.indirectBanking) acc.indirectBanking = { used: [], unused: [] };
-                    const indirectAllocation = {
+                    acc[bankingSection].used.push({
                         ...curr,
-                        allocated: distributeUnusedUnits(curr, total)
-                    };
-                    acc.indirectBanking.used.push(indirectAllocation);
+                        allocated: distributeUnusedUnits(curr, total, curr.selectedPeriod)
+                    });
                 }
             } else if (curr.type?.toLowerCase() === 'lapse') {
                 if (!acc.lapse) acc.lapse = [];
@@ -116,8 +98,8 @@ const AllocationDetailsTable = ({ allocations = [], balances = {}, loading = fal
         const renderSubSection = (items, subtitle) => {
             if (!items?.length) return null;
             const totalUnits = items.reduce((sum, alloc) => {
-                const total = alloc.financialYearUnused ? alloc.unusedUnits : calculateTotal(alloc.allocated);
-                return sum + total;
+                const total = calculateTotal(alloc.allocated);
+                return sum + (alloc.periodUnused ? alloc.unusedUnits : total);
             }, 0);
 
             return (
@@ -129,13 +111,12 @@ const AllocationDetailsTable = ({ allocations = [], balances = {}, loading = fal
                         fontWeight: subtitle.includes('Unused') ? 'bold' : 'normal'
                     }}>
                         {subtitle} - Total: {totalUnits.toFixed(2)}
-                        {subtitle.includes('Unused') && ` (Available for Banking in ${items[0]?.financialYear || 'Current'} FY)`}
+                        {subtitle.includes('Unused') && ' (Available for Banking)'}
                     </Typography>
                     <Table size="small">
                         <TableHead>
                             <TableRow>
                                 <TableCell>Production Site</TableCell>
-                                <TableCell>Consumption Site</TableCell>
                                 {getAllocationPeriods().map(period => (
                                     <TableCell 
                                         key={period.id} 
