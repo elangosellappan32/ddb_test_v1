@@ -1,11 +1,13 @@
 const logger = require('../utils/logger');
+const { ALL_PERIODS } = require('../constants/periods');
 
 const validateLapse = (req, res, next) => {
     try {
         const data = req.body;
+        const errors = [];
 
-        // Required fields for lapse records
-        const requiredFields = ['productionSiteId', 'period', 'amount'];
+        // Required fields
+        const requiredFields = ['companyId', 'productionSiteId', 'siteName', 'allocated'];
         const missingFields = requiredFields.filter(field => !data[field]);
         
         if (missingFields.length > 0) {
@@ -15,23 +17,37 @@ const validateLapse = (req, res, next) => {
             });
         }
 
-        // Validate amount is a positive number
-        if (isNaN(data.amount) || data.amount < 0) {
+        // Normalize allocated values - ensure all periods exist
+        if (data.allocated) {
+            const normalizedAllocated = {};
+            ALL_PERIODS.forEach(period => {
+                normalizedAllocated[period] = Number(data.allocated[period] || 0);
+                // Validate each period's value
+                if (isNaN(normalizedAllocated[period]) || normalizedAllocated[period] < 0) {
+                    errors.push(`Invalid value for period ${period}`);
+                }
+            });
+            data.allocated = normalizedAllocated;
+        }
+
+        // Ensure at least one period has an allocation
+        const hasAllocation = Object.values(data.allocated || {})
+            .some(value => value > 0);
+
+        if (!hasAllocation) {
+            errors.push('At least one period must have a lapse amount');
+        }
+
+        if (errors.length > 0) {
             return res.status(400).json({
                 success: false,
-                message: 'Amount must be a positive number'
+                message: 'Validation failed',
+                errors
             });
         }
 
-        // Validate period format (should be c1, c2, c3, c4, or c5)
-        const validPeriods = ['c1', 'c2', 'c3', 'c4', 'c5'];
-        if (!validPeriods.includes(data.period.toLowerCase())) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid period. Must be one of: c1, c2, c3, c4, c5'
-            });
-        }
-
+        // Add normalized data back to request
+        req.body = data;
         next();
     } catch (error) {
         logger.error('[ValidateLapse] Validation Error:', error);

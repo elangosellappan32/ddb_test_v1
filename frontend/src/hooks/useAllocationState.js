@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import websocketService from '../services/websocketService';
-import { getAllocationTypeColor } from '../utils/allocationUtils';
 import { useSnackbar } from 'notistack';
+import allocationApi from '../services/allocationApi';
+
+const POLLING_INTERVAL = 30000; // 30 seconds
 
 export const useAllocationState = (initialMonth) => {
     const [allocations, setAllocations] = useState({
@@ -14,18 +15,11 @@ export const useAllocationState = (initialMonth) => {
     const { enqueueSnackbar } = useSnackbar();
 
     const showNotification = useCallback((message, type, entity) => {
-        const color = getAllocationTypeColor(entity);
         enqueueSnackbar(message, {
             variant: type,
             anchorOrigin: {
                 vertical: 'top',
                 horizontal: 'right'
-            },
-            sx: {
-                '& .MuiSnackbarContent-root': {
-                    backgroundColor: color,
-                    color: '#fff'
-                }
             }
         });
     }, [enqueueSnackbar]);
@@ -33,10 +27,8 @@ export const useAllocationState = (initialMonth) => {
     const fetchAllocations = useCallback(async () => {
         setIsLoading(true);
         try {
-            const response = await fetch(`/api/allocations/month/${selectedMonth}`);
-            if (!response.ok) throw new Error('Failed to fetch allocations');
-            const data = await response.json();
-            setAllocations(data);
+            const response = await allocationApi.fetchAll(selectedMonth);
+            setAllocations(response);
         } catch (error) {
             console.error('Error fetching allocations:', error);
             showNotification('Failed to load allocations', 'error', 'allocation');
@@ -68,87 +60,16 @@ export const useAllocationState = (initialMonth) => {
         }));
     }, []);
 
-    // WebSocket event handlers
+    // Initial fetch
     useEffect(() => {
-        const subscriptions = [
-            // Regular allocations
-            websocketService.onAllocationCreated(allocation => {
-                showNotification('New allocation created', 'success', 'allocation');
-                addAllocation('allocations', allocation);
-            }),
-            websocketService.onAllocationUpdated(allocation => {
-                showNotification('Allocation updated', 'info', 'allocation');
-                updateAllocation('allocations', allocation);
-            }),
-            websocketService.onAllocationDeleted(id => {
-                showNotification('Allocation deleted', 'warning', 'allocation');
-                removeAllocation('allocations', id);
-            }),
-
-            // Banking
-            websocketService.onBankingCreated(banking => {
-                showNotification('New banking record created', 'success', 'banking');
-                addAllocation('banking', banking);
-            }),
-            websocketService.onBankingUpdated(banking => {
-                showNotification('Banking record updated', 'info', 'banking');
-                updateAllocation('banking', banking);
-            }),
-            websocketService.onBankingDeleted(id => {
-                showNotification('Banking record deleted', 'warning', 'banking');
-                removeAllocation('banking', id);
-            }),
-
-            // Lapse
-            websocketService.onLapseCreated(lapse => {
-                showNotification('New lapse record created', 'success', 'lapse');
-                addAllocation('lapse', lapse);
-            }),
-            websocketService.onLapseUpdated(lapse => {
-                showNotification('Lapse record updated', 'info', 'lapse');
-                updateAllocation('lapse', lapse);
-            }),
-            websocketService.onLapseDeleted(id => {
-                showNotification('Lapse record deleted', 'warning', 'lapse');
-                removeAllocation('lapse', id);
-            }),
-
-            // System events
-            websocketService.onError(error => {
-                showNotification(
-                    'Connection error: ' + error.message,
-                    'error',
-                    'allocation'
-                );
-            }),
-            websocketService.onReconnect(() => {
-                showNotification(
-                    'Reconnected to server',
-                    'success',
-                    'allocation'
-                );
-                fetchAllocations();
-            })
-        ];
-
-        // Connect to WebSocket
-        websocketService.connect().catch(error => {
-            console.error('Failed to connect to WebSocket:', error);
-            showNotification(
-                'Failed to establish real-time connection',
-                'error',
-                'allocation'
-            );
-        });
-
-        // Initial fetch
         fetchAllocations();
+    }, [fetchAllocations]);
 
-        // Cleanup subscriptions
-        return () => {
-            subscriptions.forEach(unsubscribe => unsubscribe());
-        };
-    }, [fetchAllocations, addAllocation, updateAllocation, removeAllocation, showNotification]);
+    // Polling for updates
+    useEffect(() => {
+        const pollTimer = setInterval(fetchAllocations, POLLING_INTERVAL);
+        return () => clearInterval(pollTimer);
+    }, [fetchAllocations]);
 
     return {
         allocations,

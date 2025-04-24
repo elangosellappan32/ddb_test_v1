@@ -209,10 +209,22 @@ const getAllocations = async (req, res) => {
         const { month } = req.params;
         const { type, isBanking } = req.query;
         
-        if (!month) {
+        // Validate month parameter format (MMYYYY)
+        if (!month || !/^\d{6}$/.test(month)) {
             return res.status(400).json({
                 success: false,
-                message: 'Month parameter is required'
+                message: 'Invalid month format. Expected format: MMYYYY (e.g., 042025)'
+            });
+        }
+
+        // Extract and validate month/year values
+        const monthValue = parseInt(month.substring(0, 2));
+        const yearValue = parseInt(month.substring(2));
+
+        if (monthValue < 1 || monthValue > 12) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid month value. Month must be between 01 and 12'
             });
         }
 

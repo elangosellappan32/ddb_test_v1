@@ -159,29 +159,28 @@ const getAllBanking = async () => {
 const getYearlyBanking = async (year) => {
     try {
         const params = {
-            TableName: process.env.DYNAMODB_TABLE_NAME,
+            TableName,
             FilterExpression: 'begins_with(sk, :yearPrefix)',
             ExpressionAttributeValues: {
                 ':yearPrefix': year
             }
         };
 
-        const result = await dynamoDB.scan(params).promise();
-        return result.Items;
+        const result = await docClient.send(new ScanCommand(params));
+        return result.Items || [];
     } catch (error) {
-        console.error('Error in getYearlyBanking:', error);
+        logger.error('[BankingDAL] GetYearlyBanking Error:', error);
         throw error;
     }
 };
 
 const getAprilMayData = async (year) => {
     try {
-        // Get data specifically for April-May period
         const aprilSK = `04${year}`;
         const maySK = `05${year}`;
         
         const params = {
-            TableName: process.env.DYNAMODB_TABLE_NAME,
+            TableName,
             FilterExpression: 'sk = :april OR sk = :may',
             ExpressionAttributeValues: {
                 ':april': aprilSK,
@@ -189,13 +188,84 @@ const getAprilMayData = async (year) => {
             }
         };
 
-        const result = await dynamoDB.scan(params).promise();
-        return result.Items;
+        const result = await docClient.send(new ScanCommand(params));
+        return result.Items || [];
     } catch (error) {
-        console.error('Error in getAprilMayData:', error);
+        logger.error('[BankingDAL] GetAprilMayData Error:', error);
         throw error;
     }
 };
+
+async function getSiteBalances(siteId) {
+    const query = `
+        SELECT *
+        FROM banking_balances
+        WHERE site_id = ?
+    `;
+    
+    const [balances] = await db.query(query, [siteId]);
+    return {
+        ...balances,
+        financialYearBalances: JSON.parse(balances?.financial_year_balances || '{}'),
+        financialYearUsed: JSON.parse(balances?.financial_year_used || '{}')
+    };
+}
+
+async function updateBankingUnits(siteId, { units, financialYear, type, timestamp }) {
+    const updateQuery = `
+        UPDATE banking_balances
+        SET 
+            financial_year_balances = JSON_SET(
+                COALESCE(financial_year_balances, '{}'),
+                CONCAT('$.', ?),
+                COALESCE(
+                    JSON_EXTRACT(financial_year_balances, CONCAT('$.', ?)) + ?,
+                    ?
+                )
+            ),
+            updated_at = ?
+        WHERE site_id = ?
+    `;
+    
+    await db.query(updateQuery, [
+        financialYear,
+        financialYear,
+        type === 'credit' ? units : -units,
+        type === 'credit' ? units : -units,
+        timestamp,
+        siteId
+    ]);
+
+    return getSiteBalances(siteId);
+}
+
+async function recordUnitUsage(siteId, { units, financialYear, timestamp }) {
+    const updateQuery = `
+        UPDATE banking_balances
+        SET 
+            financial_year_used = JSON_SET(
+                COALESCE(financial_year_used, '{}'),
+                CONCAT('$.', ?),
+                COALESCE(
+                    JSON_EXTRACT(financial_year_used, CONCAT('$.', ?)) + ?,
+                    ?
+                )
+            ),
+            updated_at = ?
+        WHERE site_id = ?
+    `;
+    
+    await db.query(updateQuery, [
+        financialYear,
+        financialYear,
+        units,
+        units,
+        timestamp,
+        siteId
+    ]);
+
+    return getSiteBalances(siteId);
+}
 
 module.exports = {
     createBanking,

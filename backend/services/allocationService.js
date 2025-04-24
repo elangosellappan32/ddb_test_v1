@@ -1,9 +1,11 @@
+const { PEAK_PERIODS, NON_PEAK_PERIODS, ALL_PERIODS } = require('../constants/periods');
+const validationService = require('./validationService');
+const allocationDAL = require('../allocation/allocationDAL');
 const logger = require('../utils/logger');
 const allocationCalculator = require('./allocationCalculatorService');
 const notificationService = require('./notificationService');
 const ValidationUtil = require('../utils/validation');
 const { ValidationError, DatabaseError } = require('../utils/errors');
-const AllocationDAL = require('../allocation/allocationDAL');
 const BankingDAL = require('../banking/bankingDAL');
 const LapseDAL = require('../lapse/lapseDAL');
 
@@ -331,6 +333,225 @@ class AllocationService {
             });
             throw new DatabaseError('Failed to rollback transaction');
         }
+    }
+
+    async createAllocation(data) {
+        const validation = validationService.validateAllocation(data);
+        if (!validation.isValid) {
+            throw {
+                statusCode: 400,
+                message: 'Validation failed',
+                errors: validation.errors
+            };
+        }
+
+        try {
+            return await allocationDAL.createAllocation(validation.normalizedData);
+        } catch (error) {
+            logger.error('[AllocationService] Create Error:', error);
+            throw error;
+        }
+    }
+
+    async updateAllocation(pk, sk, data) {
+        const validation = validationService.validateAllocation(data);
+        if (!validation.isValid) {
+            throw {
+                statusCode: 400,
+                message: 'Validation failed',
+                errors: validation.errors
+            };
+        }
+
+        try {
+            return await allocationDAL.updateAllocation(pk, sk, validation.normalizedData);
+        } catch (error) {
+            logger.error('[AllocationService] Update Error:', error);
+            throw error;
+        }
+    }
+
+    async deleteAllocation(pk, sk) {
+        try {
+            await allocationDAL.deleteAllocation(pk, sk);
+        } catch (error) {
+            logger.error('[AllocationService] Delete Error:', error);
+            throw error;
+        }
+    }
+
+    async getAllocations(month, type) {
+        try {
+            const result = await allocationDAL.getAllocations(month, { type });
+            return result.map(allocation => ({
+                ...allocation,
+                allocated: validationService.normalizeAllocatedValues(allocation.allocated)
+            }));
+        } catch (error) {
+            logger.error('[AllocationService] GetAll Error:', error);
+            throw error;
+        }
+    }
+
+    async createBatchAllocation(allocations) {
+        const validations = allocations.map(allocation => 
+            validationService.validateAllocation(allocation)
+        );
+
+        const invalidValidations = validations.filter(v => !v.isValid);
+        if (invalidValidations.length > 0) {
+            throw {
+                statusCode: 400,
+                message: 'Validation failed for some allocations',
+                errors: invalidValidations.map(v => v.errors)
+            };
+        }
+
+        try {
+            return await Promise.all(
+                validations.map(v => allocationDAL.createAllocation(v.normalizedData))
+            );
+        } catch (error) {
+            logger.error('[AllocationService] Batch Create Error:', error);
+            throw error;
+        }
+    }
+
+    async updateBatchAllocation(allocations) {
+        const validations = allocations.map(allocation => 
+            validationService.validateAllocation(allocation)
+        );
+
+        const invalidValidations = validations.filter(v => !v.isValid);
+        if (invalidValidations.length > 0) {
+            throw {
+                statusCode: 400,
+                message: 'Validation failed for some allocations',
+                errors: invalidValidations.map(v => v.errors)
+            };
+        }
+
+        try {
+            return await Promise.all(
+                validations.map(v => allocationDAL.updateAllocation(
+                    v.normalizedData.pk,
+                    v.normalizedData.sk,
+                    v.normalizedData
+                ))
+            );
+        } catch (error) {
+            logger.error('[AllocationService] Batch Update Error:', error);
+            throw error;
+        }
+    }
+
+    calculateAllocationTotal(allocation) {
+        if (!allocation?.allocated) return 0;
+        const normalized = validationService.normalizeAllocatedValues(allocation.allocated);
+        return ALL_PERIODS.reduce((sum, period) => sum + normalized[period], 0);
+    }
+
+    calculatePeakTotal(allocation) {
+        if (!allocation?.allocated) return 0;
+        const normalized = validationService.normalizeAllocatedValues(allocation.allocated);
+        return PEAK_PERIODS.reduce((sum, period) => sum + normalized[period], 0);
+    }
+
+    calculateNonPeakTotal(allocation) {
+        if (!allocation?.allocated) return 0;
+        const normalized = validationService.normalizeAllocatedValues(allocation.allocated);
+        return NON_PEAK_PERIODS.reduce((sum, period) => sum + normalized[period], 0);
+    }
+
+    calculateAllocationSummary(allocations) {
+        const summary = {
+            total: 0,
+            peak: 0,
+            nonPeak: 0,
+            regular: { count: 0, total: 0 },
+            banking: { count: 0, total: 0 },
+            lapse: { count: 0, total: 0 }
+        };
+
+        if (!Array.isArray(allocations)) return summary;
+
+        allocations.forEach(allocation => {
+            const total = this.calculateAllocationTotal(allocation);
+            summary.total += total;
+            summary.peak += this.calculatePeakTotal(allocation);
+            summary.nonPeak += this.calculateNonPeakTotal(allocation);
+
+            switch (allocation.type?.toUpperCase()) {
+                case 'BANKING':
+                    summary.banking.total += total;
+                    summary.banking.count++;
+                    break;
+                case 'LAPSE':
+                    summary.lapse.total += total;
+                    summary.lapse.count++;
+                    break;
+                default:
+                    summary.regular.total += total;
+                    summary.regular.count++;
+            }
+        });
+
+        return summary;
+    }
+
+    async getAllocationsByFinancialYear(siteId, financialYear) {
+        const allocations = await allocationDAL.getAllocationsForSite(siteId);
+        return allocations.filter(allocation => allocation.financialYear === financialYear);
+    }
+
+    async calculateAvailableUnits(productionSiteId, financialYear) {
+        const balances = await bankingDAL.getSiteBalances(productionSiteId);
+        const yearBalance = balances?.financialYearBalances?.[financialYear] || 0;
+        const currentUsed = balances?.financialYearUsed?.[financialYear] || 0;
+        
+        return Math.max(0, yearBalance - currentUsed);
+    }
+
+    async distributeUnits(allocation, availableUnits) {
+        if (!allocation.allocated || Object.keys(allocation.allocated).length === 0) {
+            return allocation;
+        }
+
+        const total = Object.values(allocation.allocated).reduce((sum, val) => sum + Number(val || 0), 0);
+        if (total === 0) return allocation;
+
+        const ratio = availableUnits / total;
+        const distributedAllocation = { ...allocation };
+        
+        distributedAllocation.allocated = Object.keys(allocation.allocated).reduce((obj, period) => {
+            const value = allocation.allocated[period] || 0;
+            return {
+                ...obj,
+                [period]: Number((value * ratio).toFixed(2))
+            };
+        }, {});
+
+        return distributedAllocation;
+    }
+
+    async validateAllocation(allocation) {
+        if (!allocation.financialYear) {
+            throw new Error('Financial year is required for allocation');
+        }
+
+        const availableUnits = await calculateAvailableUnits(
+            allocation.productionSiteId,
+            allocation.financialYear
+        );
+
+        if (allocation.type === 'BANKING' && allocation.isDirect) {
+            const total = Object.values(allocation.allocated).reduce((sum, val) => sum + Number(val || 0), 0);
+            if (total > availableUnits) {
+                throw new Error(`Allocation exceeds available units for financial year ${allocation.financialYear}`);
+            }
+        }
+
+        return true;
     }
 }
 

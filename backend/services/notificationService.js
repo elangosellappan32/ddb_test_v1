@@ -2,76 +2,69 @@ const EventEmitter = require('events');
 const logger = require('../utils/logger');
 
 class NotificationService extends EventEmitter {
-    static instance = null;
-
     constructor() {
         super();
-        this.wsServer = null;
         this.subscribers = new Map();
         this.eventBuffer = new Map();
         this.bufferSize = 100;
-        this.retryDelay = 1000;
-        this.maxRetries = 3;
-    }
-
-    static getInstance() {
-        if (!NotificationService.instance) {
-            NotificationService.instance = new NotificationService();
-        }
-        return NotificationService.instance;
-    }
-
-    initialize(wsServer) {
-        this.wsServer = wsServer;
         this.setupEventHandlers();
-        logger.info('Notification Service Initialized');
     }
 
     setupEventHandlers() {
         // Core business events
-        this.on('allocation.created', this.handleAllocationCreated.bind(this));
-        this.on('allocation.updated', this.handleAllocationUpdated.bind(this));
-        this.on('allocation.deleted', this.handleAllocationDeleted.bind(this));
+        this.on('allocation.created', this.handleAllocationEvent.bind(this));
+        this.on('allocation.updated', this.handleAllocationEvent.bind(this));
+        this.on('allocation.deleted', this.handleAllocationEvent.bind(this));
         
-        this.on('banking.created', this.handleBankingCreated.bind(this));
-        this.on('banking.updated', this.handleBankingUpdated.bind(this));
-        this.on('banking.deleted', this.handleBankingDeleted.bind(this));
+        this.on('banking.created', this.handleBankingEvent.bind(this));
+        this.on('banking.updated', this.handleBankingEvent.bind(this));
+        this.on('banking.deleted', this.handleBankingEvent.bind(this));
         
-        this.on('lapse.created', this.handleLapseCreated.bind(this));
-        this.on('lapse.updated', this.handleLapseUpdated.bind(this));
-        this.on('lapse.deleted', this.handleLapseDeleted.bind(this));
+        this.on('lapse.created', this.handleLapseEvent.bind(this));
+        this.on('lapse.updated', this.handleLapseEvent.bind(this));
+        this.on('lapse.deleted', this.handleLapseEvent.bind(this));
 
-        // System events
+        // Error handling
         this.on('error', this.handleError.bind(this));
     }
 
-    async notifyClients(eventType, payload, filter = null) {
+    async emit(event, data) {
         try {
-            if (!this.wsServer) {
-                throw new Error('WebSocket server not initialized');
-            }
+            logger.info(`[NotificationService] Emitting event: ${event}`, { data });
+            super.emit(event, data);
 
-            // Store event in buffer
-            this.bufferEvent(eventType, payload);
-
-            // Notify connected clients
-            await this.wsServer.notifyClients(eventType, payload, filter);
-            
-            logger.debug('Notification Sent', {
-                eventType,
-                recipients: filter ? 'filtered' : 'all'
-            });
+            const subscribers = this.subscribers.get(event) || [];
+            await Promise.all(subscribers.map(callback => this.notifySubscriber(callback, data)));
         } catch (error) {
-            logger.error('Notification Failed', {
-                eventType,
-                error: error.message,
-                stack: error.stack
-            });
-            
-            // Attempt retry for critical events
-            if (this.isCriticalEvent(eventType)) {
-                this.retryNotification(eventType, payload, filter);
-            }
+            logger.error('[NotificationService] Error emitting event:', error);
+        }
+    }
+
+    subscribe(event, callback) {
+        if (!this.subscribers.has(event)) {
+            this.subscribers.set(event, []);
+        }
+        this.subscribers.get(event).push(callback);
+
+        logger.info(`[NotificationService] New subscriber for event: ${event}`);
+    }
+
+    unsubscribe(event, callback) {
+        if (!this.subscribers.has(event)) return;
+
+        const subscribers = this.subscribers.get(event);
+        const index = subscribers.indexOf(callback);
+        if (index > -1) {
+            subscribers.splice(index, 1);
+            logger.info(`[NotificationService] Subscriber removed for event: ${event}`);
+        }
+    }
+
+    async notifySubscriber(callback, data) {
+        try {
+            await callback(data);
+        } catch (error) {
+            logger.error('[NotificationService] Error notifying subscriber:', error);
         }
     }
 
@@ -92,90 +85,36 @@ class NotificationService extends EventEmitter {
         }
     }
 
-    async retryNotification(eventType, payload, filter, attempt = 1) {
-        if (attempt > this.maxRetries) {
-            logger.error('Max retry attempts reached for notification', {
-                eventType,
-                attempts: attempt
-            });
-            return;
+    async handleAllocationEvent(allocation) {
+        try {
+            this.bufferEvent('allocation', allocation);
+            logger.info('Allocation event handled:', allocation);
+        } catch (error) {
+            this.handleError(error);
         }
-
-        const delay = this.retryDelay * Math.pow(2, attempt - 1);
-        
-        logger.info('Scheduling notification retry', {
-            eventType,
-            attempt,
-            delay
-        });
-
-        setTimeout(async () => {
-            try {
-                await this.wsServer.notifyClients(eventType, payload, filter);
-                logger.info('Retry notification succeeded', { eventType, attempt });
-            } catch (error) {
-                logger.error('Retry notification failed', {
-                    eventType,
-                    attempt,
-                    error: error.message
-                });
-                this.retryNotification(eventType, payload, filter, attempt + 1);
-            }
-        }, delay);
     }
 
-    isCriticalEvent(eventType) {
-        const criticalEvents = [
-            'allocation.created',
-            'allocation.updated',
-            'allocation.deleted',
-            'banking.created',
-            'banking.updated',
-            'lapse.created'
-        ];
-        return criticalEvents.includes(eventType);
+    async handleBankingEvent(banking) {
+        try {
+            this.bufferEvent('banking', banking);
+            logger.info('Banking event handled:', banking);
+        } catch (error) {
+            this.handleError(error);
+        }
     }
 
-    // Event handlers
-    async handleAllocationCreated(allocation) {
-        await this.notifyClients('allocation.created', allocation);
-    }
-
-    async handleAllocationUpdated(allocation) {
-        await this.notifyClients('allocation.updated', allocation);
-    }
-
-    async handleAllocationDeleted(allocation) {
-        await this.notifyClients('allocation.deleted', allocation);
-    }
-
-    async handleBankingCreated(banking) {
-        await this.notifyClients('banking.created', banking);
-    }
-
-    async handleBankingUpdated(banking) {
-        await this.notifyClients('banking.updated', banking);
-    }
-
-    async handleBankingDeleted(banking) {
-        await this.notifyClients('banking.deleted', banking);
-    }
-
-    async handleLapseCreated(lapse) {
-        await this.notifyClients('lapse.created', lapse);
-    }
-
-    async handleLapseUpdated(lapse) {
-        await this.notifyClients('lapse.updated', lapse);
-    }
-
-    async handleLapseDeleted(lapse) {
-        await this.notifyClients('lapse.deleted', lapse);
+    async handleLapseEvent(lapse) {
+        try {
+            this.bufferEvent('lapse', lapse);
+            logger.info('Lapse event handled:', lapse);
+        } catch (error) {
+            this.handleError(error);
+        }
     }
 
     handleError(error) {
-        logger.error('Notification Service Error', {
-            error: error.message,
+        logger.error('Notification Service Error:', {
+            message: error.message,
             stack: error.stack
         });
     }
@@ -192,6 +131,37 @@ class NotificationService extends EventEmitter {
             this.eventBuffer.clear();
         }
     }
+
+    // Event handlers for specific allocation events
+    onAllocationCreated(callback) {
+        this.subscribe('allocation.created', callback);
+    }
+
+    onAllocationUpdated(callback) {
+        this.subscribe('allocation.updated', callback);
+    }
+
+    onAllocationDeleted(callback) {
+        this.subscribe('allocation.deleted', callback);
+    }
+
+    onBankingCreated(callback) {
+        this.subscribe('banking.created', callback);
+    }
+
+    onBankingUpdated(callback) {
+        this.subscribe('banking.updated', callback);
+    }
+
+    onLapseCreated(callback) {
+        this.subscribe('lapse.created', callback);
+    }
+
+    onLapseUpdated(callback) {
+        this.subscribe('lapse.updated', callback);
+    }
 }
 
-module.exports = NotificationService.getInstance();
+// Create and export a singleton instance
+const notificationService = new NotificationService();
+module.exports = notificationService;

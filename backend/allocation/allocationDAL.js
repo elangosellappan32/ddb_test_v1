@@ -126,31 +126,51 @@ const getAllocations = async (month, filterBy = {}) => {
     try {
         const monthKey = month ? formatMonthYearKey(month) : null;
         
-        let filterExp = 'begins_with(sk, :month)';
-        let expAttVals = {
-            ':month': monthKey
-        };
-        
-        // Add optional filters
-        if (filterBy.type) {
-            filterExp += ' and #type = :type';
-            expAttVals[':type'] = filterBy.type;
-        }
-
+        // Start with a Query operation using a partition key if possible
         const params = {
             TableName: TableNames.ALLOCATION,
-            FilterExpression: filterExp,
-            ExpressionAttributeValues: expAttVals
+            ConsistentRead: true // Ensure we get latest data
         };
 
-        if (filterBy.type) {
-            params.ExpressionAttributeNames = {
-                '#type': 'type'
-            };
+        // Build filter expressions for additional conditions
+        const filterConditions = [];
+        const expressionAttributeValues = {};
+        const expressionAttributeNames = {};
+
+        // Add month filter
+        if (monthKey) {
+            filterConditions.push('begins_with(sk, :monthKey)');
+            expressionAttributeValues[':monthKey'] = monthKey;
         }
 
-        const { Items } = await docClient.send(new ScanCommand(params));
-        return Items || [];
+        // Add type filter if specified
+        if (filterBy.type) {
+            filterConditions.push('#type = :type');
+            expressionAttributeValues[':type'] = filterBy.type;
+            expressionAttributeNames['#type'] = 'type';
+        }
+
+        // Add banking filter if specified
+        if (filterBy.isBanking !== undefined) {
+            filterConditions.push('isBanking = :isBanking');
+            expressionAttributeValues[':isBanking'] = filterBy.isBanking;
+        }
+
+        // Add filter expression if we have conditions
+        if (filterConditions.length > 0) {
+            params.FilterExpression = filterConditions.join(' AND ');
+            params.ExpressionAttributeValues = expressionAttributeValues;
+
+            if (Object.keys(expressionAttributeNames).length > 0) {
+                params.ExpressionAttributeNames = expressionAttributeNames;
+            }
+        }
+
+        // Use scan since we're filtering across all partition keys
+        const { Items = [] } = await docClient.send(new ScanCommand(params));
+        
+        // Sort results by sk (which contains the month) for consistency
+        return Items.sort((a, b) => a.sk.localeCompare(b.sk));
     } catch (error) {
         logger.error('[AllocationDAL] GetAll Error:', error);
         throw error;

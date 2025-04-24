@@ -1,134 +1,101 @@
-const { 
-    DynamoDBDocumentClient,
-    PutCommand,
-    GetCommand,
-    QueryCommand,
-    UpdateCommand,
-    DeleteCommand,
-    ScanCommand
-} = require('@aws-sdk/lib-dynamodb');
-const docClient = require('../utils/db');
+const BaseDAL = require('../common/baseDAL');
 const TableNames = require('../constants/tableNames');
 const logger = require('../utils/logger');
+const { formatMonthYearKey } = require('../utils/dateUtils');
+const { ALL_PERIODS } = require('../constants/periods');
 
-const getAllLapse = async () => {
-    try {
-        const command = new ScanCommand({
-            TableName: TableNames.LAPSE
-        });
-        const { Items } = await docClient.send(command);
-        return Items || [];
-    } catch (error) {
-        logger.error('[LapseDAL] GetAll Error:', error);
-        throw error;
+class LapseDAL extends BaseDAL {
+    constructor() {
+        super(TableNames.LAPSE);
     }
-};
 
-const getLapse = async (pk, sk) => {
-    try {
-        const command = new GetCommand({
-            TableName: TableNames.LAPSE,
-            Key: { pk, sk }
-        });
-        const { Item } = await docClient.send(command);
-        return Item;
-    } catch (error) {
-        logger.error('[LapseDAL] Get Error:', error);
-        throw error;
-    }
-};
+    async createLapse(lapseData) {
+        try {
+            this.validateSortKey(lapseData.sk);
+            
+            // Ensure all periods have values
+            const normalizedAllocated = ALL_PERIODS.reduce((acc, period) => {
+                acc[period] = Math.round(Number(lapseData.allocated?.[period] || 0));
+                return acc;
+            }, {});
 
-const createLapse = async (item) => {
-    try {
-        const now = new Date().toISOString();
-        const lapseItem = {
-            ...item,
-            createdAt: now,
-            updatedAt: now,
-            version: 1
-        };
+            const item = {
+                ...lapseData,
+                allocated: normalizedAllocated,
+                type: 'LAPSE',
+                createdat: new Date().toISOString(),
+                updatedat: new Date().toISOString()
+            };
 
-        await docClient.send(new PutCommand({
-            TableName: TableNames.LAPSE,
-            Item: lapseItem,
-            ConditionExpression: 'attribute_not_exists(pk) AND attribute_not_exists(sk)'
-        }));
-
-        return lapseItem;
-    } catch (error) {
-        logger.error('[LapseDAL] Create Error:', error);
-        throw error;
-    }
-};
-
-const updateLapse = async (pk, sk, updates) => {
-    try {
-        const now = new Date().toISOString();
-        
-        // Get current version
-        const { Item: existing } = await docClient.send(new GetCommand({
-            TableName: TableNames.LAPSE,
-            Key: { pk, sk }
-        }));
-
-        if (!existing) {
-            const error = new Error('Lapse record not found');
-            error.statusCode = 404;
+            return await this.create(item);
+        } catch (error) {
+            logger.error('LapseDAL - createLapse error:', error);
             throw error;
         }
+    }
 
-        const updateExpression = [];
-        const expressionAttributeNames = {};
-        const expressionAttributeValues = {
-            ':updatedAt': now,
-            ':inc': 1,
-            ':version': existing.version
-        };
-
-        // Build update expression
-        Object.entries(updates).forEach(([key, value]) => {
-            if (key !== 'pk' && key !== 'sk') {
-                updateExpression.push(`#${key} = :${key}`);
-                expressionAttributeNames[`#${key}`] = key;
-                expressionAttributeValues[`:${key}`] = value;
+    async updateLapse(pk, sk, updates) {
+        try {
+            this.validateSortKey(sk);
+            
+            if (updates.allocated) {
+                updates.allocated = ALL_PERIODS.reduce((acc, period) => {
+                    acc[period] = Math.round(Number(updates.allocated[period] || 0));
+                    return acc;
+                }, {});
             }
-        });
 
-        const params = {
-            TableName: TableNames.LAPSE,
-            Key: { pk, sk },
-            UpdateExpression: `SET ${updateExpression.join(', ')}, version = version + :inc, updatedAt = :updatedAt`,
-            ExpressionAttributeNames: expressionAttributeNames,
-            ExpressionAttributeValues: expressionAttributeValues,
-            ConditionExpression: 'version = :version',
-            ReturnValues: 'ALL_NEW'
-        };
+            const updateData = {
+                ...updates,
+                updatedat: new Date().toISOString()
+            };
 
-        const { Attributes } = await docClient.send(new UpdateCommand(params));
-        return Attributes;
-    } catch (error) {
-        logger.error('[LapseDAL] Update Error:', error);
-        throw error;
+            return await this.update(pk, sk, updateData);
+        } catch (error) {
+            logger.error('LapseDAL - updateLapse error:', error);
+            throw error;
+        }
     }
-};
 
-const deleteLapse = async (pk, sk) => {
-    try {
-        await docClient.send(new DeleteCommand({
-            TableName: TableNames.LAPSE,
-            Key: { pk, sk }
-        }));
-        return true;
-    } catch (error) {
-        logger.error('[LapseDAL] Delete Error:', error);
-        throw error;
+    async getLapsesByMonth(companyId, month) {
+        try {
+            const sk = formatMonthYearKey(month);
+            this.validateSortKey(sk);
+
+            return await this.query({
+                pk: `${companyId}`,
+                sk: sk
+            });
+        } catch (error) {
+            logger.error('LapseDAL - getLapsesByMonth error:', error);
+            throw error;
+        }
     }
-};
 
-module.exports = {
-    getAllLapse,
-    getLapse,
-    createLapse,
-    updateLapse,
-    deleteLapse
-};
+    async getLapsesByProductionSite(companyId, productionSiteId, fromMonth, toMonth) {
+        try {
+            return await this.query({
+                pk: `${companyId}_${productionSiteId}`,
+                skBetween: [
+                    formatMonthYearKey(fromMonth),
+                    formatMonthYearKey(toMonth)
+                ]
+            });
+        } catch (error) {
+            logger.error('LapseDAL - getLapsesByProductionSite error:', error);
+            throw error;
+        }
+    }
+
+    async deleteLapse(pk, sk) {
+        try {
+            this.validateSortKey(sk);
+            return await this.delete(pk, sk);
+        } catch (error) {
+            logger.error('LapseDAL - deleteLapse error:', error);
+            throw error;
+        }
+    }
+}
+
+module.exports = new LapseDAL();

@@ -210,6 +210,54 @@ const getBankingData = async (req, res) => {
     }
 };
 
+async function getSiteBalances(req, res) {
+    try {
+        const { siteId, financialYear } = req.params;
+        const balances = await bankingDAL.getSiteBalances(siteId);
+        
+        // If financial year is specified, filter balances
+        if (financialYear) {
+            const yearSpecificBalance = {
+                total: balances?.financialYearBalances?.[financialYear] || 0,
+                used: balances?.financialYearUsed?.[financialYear] || 0,
+                available: Math.max(0, 
+                    (balances?.financialYearBalances?.[financialYear] || 0) - 
+                    (balances?.financialYearUsed?.[financialYear] || 0)
+                )
+            };
+            return res.json(yearSpecificBalance);
+        }
+        
+        return res.json(balances);
+    } catch (error) {
+        logger.error('[BankingController] Get Site Balances Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+}
+
+async function updateBankingUnits(req, res) {
+    try {
+        const { siteId } = req.params;
+        const { units, financialYear, type } = req.body;
+        
+        if (!financialYear) {
+            throw new Error('Financial year is required for banking updates');
+        }
+        
+        const result = await bankingDAL.updateBankingUnits(siteId, {
+            units,
+            financialYear,
+            type,
+            timestamp: new Date().toISOString()
+        });
+        
+        res.json(result);
+    } catch (error) {
+        logger.error('[BankingController] Update Banking Units Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+}
+
 module.exports = {
     createBanking,
     getBanking,
@@ -217,5 +265,7 @@ module.exports = {
     updateBanking,
     deleteBanking,
     getAllBanking,
-    getBankingData
+    getBankingData,
+    getSiteBalances,
+    updateBankingUnits
 };

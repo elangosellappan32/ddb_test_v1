@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import allocationApi from '../services/allocationApi';
-import websocketService from '../services/websocketService';
+import { useSnackbar } from 'notistack';
+
+const POLLING_INTERVAL = 30000; // 30 seconds
 
 const useAllocation = (initialMonth) => {
     const [allocations, setAllocations] = useState({
@@ -12,54 +14,51 @@ const useAllocation = (initialMonth) => {
     const [error, setError] = useState(null);
     const [selectedType, setSelectedType] = useState('all');
     const [selectedMonth, setSelectedMonth] = useState(initialMonth);
+    const { enqueueSnackbar } = useSnackbar();
+
+    const showNotification = useCallback((message, type = 'info') => {
+        enqueueSnackbar(message, {
+            variant: type,
+            anchorOrigin: {
+                vertical: 'top',
+                horizontal: 'right'
+            }
+        });
+    }, [enqueueSnackbar]);
 
     const fetchAllocations = useCallback(async () => {
         try {
             setLoading(true);
             setError(null);
-
-            const results = await allocationApi.fetchAll(selectedMonth);
             
-            // Group allocations by type
-            const grouped = results.data.reduce((acc, alloc) => {
-                switch (alloc.type?.toLowerCase()) {
-                    case 'banking':
-                        acc.banking.push(alloc);
-                        break;
-                    case 'lapse':
-                        acc.lapse.push(alloc);
-                        break;
-                    default:
-                        acc.allocations.push(alloc);
-                }
-                return acc;
-            }, {
-                allocations: [],
-                banking: [],
-                lapse: []
-            });
-
-            setAllocations(grouped);
+            if (selectedType === 'all') {
+                const results = await allocationApi.fetchAll(selectedMonth);
+                setAllocations(results);
+            } else {
+                const data = await allocationApi.fetchByType(selectedType, selectedMonth);
+                setAllocations(prev => ({
+                    ...prev,
+                    [selectedType]: data
+                }));
+            }
         } catch (error) {
-            setError(error.message || 'Failed to fetch allocations');
+            const message = error.message || 'Failed to fetch allocations';
+            setError(message);
+            showNotification(message, 'error');
         } finally {
             setLoading(false);
         }
-    }, [selectedMonth]);
+    }, [selectedMonth, selectedType, showNotification]);
 
+    // Initial fetch
     useEffect(() => {
         fetchAllocations();
     }, [fetchAllocations]);
 
+    // Polling for updates
     useEffect(() => {
-        const cleanup = websocketService.subscribeToAllocationEvents({
-            onCreate: () => fetchAllocations(),
-            onUpdate: () => fetchAllocations(),
-            onDelete: () => fetchAllocations(),
-            onAutoComplete: () => fetchAllocations()
-        });
-
-        return () => cleanup();
+        const pollTimer = setInterval(fetchAllocations, POLLING_INTERVAL);
+        return () => clearInterval(pollTimer);
     }, [fetchAllocations]);
 
     const handleTypeChange = (type) => {
@@ -70,72 +69,67 @@ const useAllocation = (initialMonth) => {
         setSelectedMonth(month);
     };
 
-    const getFilteredAllocations = () => {
-        switch (selectedType) {
-            case 'banking':
-                return { ...allocations, allocations: [], lapse: [] };
-            case 'lapse':
-                return { ...allocations, allocations: [], banking: [] };
-            case 'allocation':
-                return { ...allocations, banking: [], lapse: [] };
-            default:
-                return allocations;
-        }
-    };
-
-    const createAllocation = async (data) => {
+    const createAllocation = async (data, type = 'ALLOCATION') => {
         try {
             setError(null);
-            const result = await allocationApi.create(data);
+            const result = await allocationApi.create(data, type);
+            showNotification(`${type} created successfully`, 'success');
             await fetchAllocations();
             return result;
         } catch (error) {
-            setError(error.message || 'Failed to create allocation');
+            const message = error.message || `Failed to create ${type}`;
+            setError(message);
+            showNotification(message, 'error');
             throw error;
         }
     };
 
-    const updateAllocation = async (type, pk, sk, data) => {
+    const updateAllocation = async (pk, sk, data, type = 'ALLOCATION') => {
         try {
             setError(null);
-            const result = await allocationApi.update(type, pk, sk, data);
+            const result = await allocationApi.update(pk, sk, data, type);
+            showNotification(`${type} updated successfully`, 'success');
             await fetchAllocations();
             return result;
         } catch (error) {
-            setError(error.message || 'Failed to update allocation');
+            const message = error.message || `Failed to update ${type}`;
+            setError(message);
+            showNotification(message, 'error');
             throw error;
         }
     };
 
-    const deleteAllocation = async (type, pk, sk) => {
+    const deleteAllocation = async (pk, sk, type = 'ALLOCATION') => {
         try {
             setError(null);
-            await allocationApi.delete(type, pk, sk);
+            await allocationApi.delete(pk, sk, type);
+            showNotification(`${type} deleted successfully`, 'success');
             await fetchAllocations();
         } catch (error) {
-            setError(error.message || 'Failed to delete allocation');
+            const message = error.message || `Failed to delete ${type}`;
+            setError(message);
+            showNotification(message, 'error');
             throw error;
         }
     };
 
-    const autoAllocate = async (productionSites, consumptionSites, month) => {
+    const batchCreate = async (allocations, type = 'ALLOCATION') => {
         try {
             setError(null);
-            const result = await allocationApi.autoAllocate(
-                productionSites,
-                consumptionSites,
-                month
-            );
+            const result = await allocationApi.batchCreate(allocations, type);
+            showNotification(`Batch ${type} creation successful`, 'success');
             await fetchAllocations();
             return result;
         } catch (error) {
-            setError(error.message || 'Failed to auto allocate');
+            const message = error.message || `Failed to create ${type} batch`;
+            setError(message);
+            showNotification(message, 'error');
             throw error;
         }
     };
 
     return {
-        allocations: getFilteredAllocations(),
+        allocations,
         loading,
         error,
         selectedType,
@@ -145,7 +139,7 @@ const useAllocation = (initialMonth) => {
         createAllocation,
         updateAllocation,
         deleteAllocation,
-        autoAllocate,
+        batchCreate,
         refreshAllocations: fetchAllocations
     };
 };

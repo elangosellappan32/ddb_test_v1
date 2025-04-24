@@ -255,21 +255,18 @@ const deleteProductionSite = async (req, res) => {
 const getAllProductionSites = async (req, res) => {
     try {
         logger.info('[ProductionSiteController] Fetching all production sites');
-
-        // Simple scan without projection to avoid reserved keyword issues
-        const params = {
-            TableName: TableNames.PRODUCTION_SITES
-        };
-
-        const result = await dynamoDB.scan(params);
-        logger.info(`[ProductionSiteController] Successfully fetched ${result.Items.length} sites`);
-
-        res.json(result.Items);
-
+        const result = await productionSiteDAL.getAllItems();
+        logger.info(`[ProductionSiteController] Successfully fetched ${result.length} sites`);
+        res.json({
+            success: true,
+            data: result
+        });
     } catch (error) {
         logger.error('[ProductionSiteController] Error fetching production sites:', error);
         res.status(500).json({
-            error: 'Failed to fetch production sites'
+            success: false,
+            message: 'Failed to fetch production sites',
+            error: error.message
         });
     }
 };

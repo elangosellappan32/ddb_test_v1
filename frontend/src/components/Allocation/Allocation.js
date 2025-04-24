@@ -10,7 +10,6 @@ import {
   Grid,
   TextField,
   MenuItem,
-  Chip,
 } from '@mui/material';
 import {
   Assignment as AssignmentIcon,
@@ -53,6 +52,21 @@ const Allocation = () => {
     start: new Date().getFullYear() - 2,
     end: new Date().getFullYear() + 2
   });
+  const [isSaving, setIsSaving] = useState(false);
+
+  const updateAllocationData = useCallback(async () => {
+    try {
+      const formattedMonth = `${selectedMonth.toString().padStart(2, '0')}${selectedYear}`;
+      const response = await allocationApi.fetchAll(formattedMonth);
+      setAllocationData(response.allocations || []);
+    } catch (error) {
+      console.error('Error updating allocation data:', error);
+      enqueueSnackbar(error.message || 'Failed to update allocation data', { 
+        variant: 'error',
+        autoHideDuration: 5000 
+      });
+    }
+  }, [selectedMonth, selectedYear, enqueueSnackbar]);
 
   const getFinancialYear = (month, year) => {
     return month >= 4 ? year : year - 1;
@@ -70,15 +84,6 @@ const Allocation = () => {
     }
     return months;
   };
-
-  const updateAllocationData = useCallback(async () => {
-    try {
-      const response = await allocationApi.fetchAll(formatAllocationMonth(selectedMonth));
-      setAllocationData(response.allocations || []);
-    } catch (error) {
-      console.error('Error updating allocation data:', error);
-    }
-  }, [selectedMonth]);
 
   const fetchAllData = useCallback(async () => {
     try {
@@ -239,17 +244,29 @@ const Allocation = () => {
     fetchAllData();
   }, [fetchAllData]);
 
+  // Fetch fresh allocation data when month/year changes
   useEffect(() => {
-    // Set up polling interval
-    const pollInterval = setInterval(() => {
-      updateAllocationData();
-    }, 30000); // Poll every 30 seconds
-
-    // Cleanup
-    return () => {
-      clearInterval(pollInterval);
+    const loadAllocationData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const formattedMonth = `${selectedMonth.toString().padStart(2, '0')}${selectedYear}`;
+        const response = await allocationApi.fetchAll(formattedMonth);
+        setAllocationData(response.allocations || []);
+      } catch (error) {
+        console.error('Error loading allocation data:', error);
+        setError(error.message || 'Failed to load allocation data');
+        enqueueSnackbar(error.message || 'Failed to load allocation data', { 
+          variant: 'error',
+          autoHideDuration: 5000 
+        });
+      } finally {
+        setLoading(false);
+      }
     };
-  }, [updateAllocationData]);
+
+    loadAllocationData();
+  }, [selectedMonth, selectedYear, enqueueSnackbar]);
 
   const handleMonthChange = (event) => {
     setSelectedMonth(Number(event.target.value));
@@ -457,6 +474,46 @@ const Allocation = () => {
     }
   };
 
+  const handleSaveAllocation = async () => {
+    try {
+      setIsSaving(true);
+      
+      // Calculate unused units
+      const unusedUnitsByPeriod = {};
+      ['c1', 'c2', 'c3', 'c4', 'c5'].forEach(period => {
+        const totalAvailable = productionData.reduce((sum, site) => sum + (Number(site[period]) || 0), 0);
+        const totalAllocated = allocationData
+          .filter(a => a.type === 'Allocation')
+          .reduce((sum, alloc) => sum + (Number(alloc.allocated[period]) || 0), 0);
+        unusedUnitsByPeriod[period] = Math.max(0, totalAvailable - totalAllocated);
+      });
+
+      // Save allocations to database
+      await Promise.all(allocationData.map(allocation => 
+        allocationApi.create(allocation, allocation.type)
+      ));
+
+      // Update banking data with unused units
+      setBankingData(prev => ([
+        ...prev,
+        {
+          type: 'Banking',
+          allocated: unusedUnitsByPeriod,
+          isDirect: true,
+          productionSite: 'Unused Units',
+          siteName: 'Unused Units'
+        }
+      ]));
+
+      enqueueSnackbar('Allocations saved successfully', { variant: 'success' });
+    } catch (error) {
+      console.error('Error saving allocations:', error);
+      enqueueSnackbar('Failed to save allocations: ' + error.message, { variant: 'error' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
@@ -557,8 +614,9 @@ const Allocation = () => {
 
       <AllocationDetailsTable 
         allocations={allocationData}
-        loading={loading}
+        loading={loading || isSaving}
         onEdit={handleEditAllocation}
+        onSave={handleSaveAllocation}
       />
 
       <Grid container spacing={3} sx={{ mt: 4 }}>

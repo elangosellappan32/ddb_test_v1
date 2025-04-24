@@ -13,33 +13,121 @@ const formatDateToMMYYYY = (date) => {
   return `${String(d.getMonth() + 1).padStart(2, '0')}${d.getFullYear()}`;
 };
 
-const formatSiteData = (data) => ({
-  companyId: Number(data.companyId) || 1,
-  productionSiteId: Number(data.productionSiteId),
-  name: data.name,
-  type: data.type,
-  location: data.location,
-  capacity_MW: Number(data.capacity_MW),
-  injectionVoltage_KV: Number(data.injectionVoltage_KV),
-  annualProduction_L: Number(data.annualProduction_L), // Only use annualProduction_L
-  htscNo: data.htscNo,
-  banking: Number(data.banking || 0),
-  status: data.status || 'Active',
-  version: Number(data.version) || 1
-});
+const formatSiteData = (data) => {
+  try {
+    // Ensure we have the required fields
+    if (!data || typeof data !== 'object') {
+      console.warn('[ProductionSiteAPI] Invalid data object:', data);
+      return null;
+    }
+
+    // Format and validate each field with strict type checking
+    const formatted = {
+      companyId: Number(data.companyId),
+      productionSiteId: Number(data.productionSiteId),
+      name: data.name?.toString().trim() || 'Unnamed Site',
+      type: data.type?.toString().trim() || 'Unknown',
+      location: data.location?.toString().trim() || 'Unknown Location',
+      capacity_MW: Number(parseFloat(data.capacity_MW || 0)).toFixed(2),
+      injectionVoltage_KV: Number(data.injectionVoltage_KV || 0),
+      annualProduction_L: Number(data.annualProduction_L || 0),
+      htscNo: data.htscNo ? Number(data.htscNo) : 0,
+      banking: Number(data.banking || 0),
+      status: ['Active', 'Inactive', 'Maintenance'].includes(data.status) ? data.status : 'Active',
+      version: Number(data.version || 1),
+      createdat: data.createdat || new Date().toISOString(),
+      updatedat: data.updatedat || new Date().toISOString()
+    };
+
+    // Validate required fields after formatting
+    if (isNaN(formatted.companyId) || isNaN(formatted.productionSiteId)) {
+      console.warn('[ProductionSiteAPI] Invalid IDs:', {
+        companyId: data.companyId,
+        productionSiteId: data.productionSiteId
+      });
+      return null;
+    }
+
+    return formatted;
+  } catch (error) {
+    console.error('[ProductionSiteAPI] Error formatting site data:', error);
+    return null;
+  }
+};
+
+const validateResponse = (response) => {
+  if (!response || typeof response !== 'object') {
+    console.warn('[ProductionSiteAPI] Invalid response:', response);
+    return [];
+  }
+
+  // Extract data array from response
+  const data = response.success && Array.isArray(response.data) 
+    ? response.data 
+    : Array.isArray(response) ? response : [];
+
+  console.log('[ProductionSiteAPI] Processing data array:', data);
+
+  const validSites = data
+    .map(site => formatSiteData(site))
+    .filter(site => site !== null);
+
+  console.log('[ProductionSiteAPI] Validated sites:', validSites);
+  return validSites;
+};
 
 const productionSiteApi = {
-  fetchAll: async () => {
-    try {
-      console.log('[ProductionSiteAPI] Fetching all sites');
-      const response = await api.get(API_CONFIG.ENDPOINTS.PRODUCTION.SITE.GET_ALL);
-      return {
-        data: Array.isArray(response.data) ? response.data.map(formatSiteData) : []
-      };
-    } catch (error) {
-      console.error('[ProductionSiteAPI] Error:', error);
-      throw error;
+  fetchAll: async (retries = 3, delay = 1000) => {
+    let lastError;
+    
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        console.log(`[ProductionSiteAPI] Fetching all sites (attempt ${attempt}/${retries})`);
+        const response = await api.get(API_CONFIG.ENDPOINTS.PRODUCTION.SITE.GET_ALL);
+
+        if (!response?.data) {
+          throw new Error('Empty response received from server');
+        }
+
+        const validatedData = validateResponse(response.data);
+        
+        if (validatedData.length > 0) {
+          console.log('[ProductionSiteAPI] Successfully retrieved sites:', validatedData);
+          return {
+            data: validatedData,
+            total: validatedData.length
+          };
+        }
+
+        if (attempt < retries) {
+          console.log('[ProductionSiteAPI] No valid data found, retrying...');
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
+        // If we've exhausted all retries, return empty array instead of throwing
+        return {
+          data: [],
+          total: 0
+        };
+
+      } catch (error) {
+        lastError = error;
+        console.error(`[ProductionSiteAPI] Fetch error (attempt ${attempt}/${retries}):`, error);
+        
+        if (attempt < retries) {
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+      }
     }
+    
+    console.error('[ProductionSiteAPI] All fetch attempts failed:', lastError);
+    return {
+      data: [],
+      total: 0,
+      error: lastError?.message || 'Failed to fetch production sites'
+    };
   },
 
   fetchOne: async (companyId, productionSiteId) => {

@@ -92,6 +92,50 @@ const createBankingTable = async () => {
     }
 };
 
+const createAllocationTable = async () => {
+    const params = {
+        TableName: TableNames.ALLOCATION,
+        KeySchema: [
+            { AttributeName: 'pk', KeyType: 'HASH' },
+            { AttributeName: 'sk', KeyType: 'RANGE' }
+        ],
+        AttributeDefinitions: [
+            { AttributeName: 'pk', AttributeType: 'S' },
+            { AttributeName: 'sk', AttributeType: 'S' }
+        ],
+        GlobalSecondaryIndexes: [
+            {
+                IndexName: 'sk-index',
+                KeySchema: [
+                    { AttributeName: 'sk', KeyType: 'HASH' }
+                ],
+                Projection: {
+                    ProjectionType: 'ALL'
+                },
+                ProvisionedThroughput: {
+                    ReadCapacityUnits: 5,
+                    WriteCapacityUnits: 5
+                }
+            }
+        ],
+        ProvisionedThroughput: {
+            ReadCapacityUnits: 5,
+            WriteCapacityUnits: 5
+        }
+    };
+
+    try {
+        await client.send(new CreateTableCommand(params));
+        console.log('Allocation table created successfully');
+    } catch (error) {
+        if (error.name === 'ResourceInUseException') {
+            console.log('Allocation table already exists');
+        } else {
+            throw error;
+        }
+    }
+};
+
 const createDefaultUsers = async () => {
     const users = [
         {
@@ -163,6 +207,7 @@ const createDefaultUsers = async () => {
 const init = async () => {
     await createRoleTable();
     await createBankingTable();
+    await createAllocationTable();
     await createDefaultUsers();
 };
 

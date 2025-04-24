@@ -1,4 +1,4 @@
-// Constants for peak and non-peak periods
+// Period constants
 export const PEAK_PERIODS = ['c2', 'c3'];
 export const NON_PEAK_PERIODS = ['c1', 'c4', 'c5'];
 export const ALL_PERIODS = [...PEAK_PERIODS, ...NON_PEAK_PERIODS];
@@ -43,6 +43,16 @@ export const getAllocationTypeColor = (type) => {
 };
 
 /**
+ * Normalize allocated values to ensure all periods exist with default value 0
+ */
+export const normalizeAllocatedValues = (allocated = {}) => {
+    return ALL_PERIODS.reduce((acc, period) => {
+        acc[period] = Math.round(Number(allocated[period] || 0));
+        return acc;
+    }, {});
+};
+
+/**
  * Rounds all numeric values in an allocation object to integers
  */
 export const roundAllocationValues = (allocation) => {
@@ -50,10 +60,7 @@ export const roundAllocationValues = (allocation) => {
 
     return {
         ...allocation,
-        allocated: Object.entries(allocation.allocated).reduce((acc, [key, value]) => {
-            acc[key] = Math.round(Number(value) || 0);
-            return acc;
-        }, {})
+        allocated: normalizeAllocatedValues(allocation.allocated)
     };
 };
 
@@ -62,25 +69,28 @@ export const roundAllocationValues = (allocation) => {
  */
 export const validateAllocation = (allocation) => {
     const errors = [];
+    
+    // Validate required fields
+    const requiredFields = ['productionSiteId', 'siteName'];
+    requiredFields.forEach(field => {
+        if (!allocation[field]) {
+            errors.push(`${field} is required`);
+        }
+    });
 
-    if (!allocation.type) {
-        errors.push('Allocation type is required');
+    // Validate production site ID
+    if (allocation.productionSiteId && !allocation.productionSiteId.toString()) {
+        errors.push('Invalid production site ID');
     }
 
-    if (!allocation.productionSiteId || !allocation.siteName) {
-        errors.push('Production site information is required');
-    }
-
-    if (allocation.type === ALLOCATION_TYPES.ALLOCATION && !allocation.consumptionSiteId) {
-        errors.push('Consumption site is required for regular allocations');
-    }
-
-    if (!allocation.month) {
-        errors.push('Month is required');
-    }
-
-    if (!allocation.allocated || !Object.values(allocation.allocated).some(v => v > 0)) {
-        errors.push('At least one period must have an allocation');
+    // Validate allocation values
+    if (allocation.allocated) {
+        Object.entries(allocation.allocated).forEach(([period, value]) => {
+            const numValue = Number(value);
+            if (isNaN(numValue) || numValue < 0) {
+                errors.push(`Invalid value for period ${period}`);
+            }
+        });
     }
 
     return {
@@ -98,34 +108,15 @@ export const validatePeriodRules = (allocation) => {
         return { isValid: false, errors: ['No allocation data provided'] };
     }
 
-    // Round all values
     const roundedAllocation = roundAllocationValues(allocation);
     const { allocated } = roundedAllocation;
 
-    // Check peak periods
-    for (const period of PEAK_PERIODS) {
-        const allocatedAmount = Math.round(Number(allocated[period] || 0));
-        if (allocatedAmount > 0) {
-            const consumptionAmount = Math.round(
-                Number(allocation.consumptionSite?.[period] || 0)
-            );
-            if (consumptionAmount === 0) {
-                errors.push(`Cannot allocate peak period ${period} to non-peak consumption`);
-            }
-        }
-    }
-
-    // Check non-peak periods
-    for (const period of NON_PEAK_PERIODS) {
-        const allocatedAmount = Math.round(Number(allocated[period] || 0));
-        if (allocatedAmount > 0) {
-            const consumptionAmount = Math.round(
-                Number(allocation.consumptionSite?.[period] || 0)
-            );
-            if (consumptionAmount === 0) {
-                errors.push(`Cannot allocate non-peak period ${period} to peak consumption`);
-            }
-        }
+    // Check mixing of peak and non-peak periods
+    const hasPeak = PEAK_PERIODS.some(p => Math.round(Number(allocated[p] || 0)) > 0);
+    const hasNonPeak = NON_PEAK_PERIODS.some(p => Math.round(Number(allocated[p] || 0)) > 0);
+    
+    if (hasPeak && hasNonPeak) {
+        errors.push('Cannot mix peak and non-peak period allocations');
     }
 
     // Check for negative values
@@ -134,13 +125,6 @@ export const validatePeriodRules = (allocation) => {
         if (value < 0) {
             errors.push(`Period ${period} cannot have negative value`);
         }
-    }
-
-    // Check mixing of peak and non-peak periods
-    const hasPeak = PEAK_PERIODS.some(p => Math.round(Number(allocated[p] || 0)) > 0);
-    const hasNonPeak = NON_PEAK_PERIODS.some(p => Math.round(Number(allocated[p] || 0)) > 0);
-    if (hasPeak && hasNonPeak) {
-        errors.push('Cannot mix peak and non-peak allocations');
     }
 
     return {
@@ -153,25 +137,67 @@ export const validatePeriodRules = (allocation) => {
 /**
  * Calculates total units for a given allocation or unit data
  */
-export const calculateTotal = (data, type = 'allocated') => {
+export const calculateTotal = (data, periods = ALL_PERIODS) => {
     if (!data) return 0;
-    const values = type === 'allocated' ? data[type] || data : data;
-    return ALL_PERIODS.reduce((sum, period) => 
-        sum + Math.round(Number(values[period] || 0)), 0
+    return periods.reduce((sum, period) => 
+        sum + Math.round(Number(data[period] || 0)), 0
     );
 };
 
 /**
  * Calculate available units by period type
  */
-export const calculateAvailableUnits = (site) => {
-    const peak = PEAK_PERIODS.reduce((sum, period) => 
-        sum + Math.round(Number(site[period] || 0)), 0
-    );
-    const nonPeak = NON_PEAK_PERIODS.reduce((sum, period) => 
-        sum + Math.round(Number(site[period] || 0)), 0
-    );
-    return { peak, nonPeak };
+export const getAvailableUnits = (site) => {
+    return ALL_PERIODS.reduce((acc, period) => {
+        acc[period] = Math.round(Number(site[period] || 0));
+        return acc;
+    }, {});
+};
+
+/**
+ * Update available units after allocation
+ */
+export const updateAvailableUnits = (availableUnits, allocated) => {
+    if (!allocated) return;
+    ALL_PERIODS.forEach(period => {
+        availableUnits[period] = Math.round(availableUnits[period] || 0) - 
+                                Math.round(allocated[period] || 0);
+    });
+};
+
+/**
+ * Create allocation based on production and consumption sites
+ */
+export const createAllocation = (productionSite, consumptionSite, availableUnits) => {
+    if (!productionSite?.productionSiteId || !consumptionSite?.consumptionSiteId) {
+        return null;
+    }
+
+    const allocation = {
+        productionSiteId: productionSite.productionSiteId.toString(),
+        consumptionSiteId: consumptionSite.consumptionSiteId.toString(),
+        productionSite: productionSite.siteName,
+        consumptionSite: consumptionSite.siteName,
+        siteName: productionSite.siteName,
+        type: 'Allocation',
+        allocated: {}
+    };
+
+    let totalAllocated = 0;
+    ['c1', 'c2', 'c3', 'c4', 'c5'].forEach(period => {
+        const available = Math.round(Number(availableUnits[period] || 0));
+        const required = Math.round(Number(consumptionSite[period] || 0));
+        
+        if (available > 0 && required > 0) {
+            const allocated = Math.min(available, required);
+            if (allocated > 0) {
+                allocation.allocated[period] = allocated;
+                totalAllocated += allocated;
+            }
+        }
+    });
+
+    return totalAllocated > 0 ? { ...allocation, totalUnits: totalAllocated } : null;
 };
 
 /**
@@ -179,8 +205,11 @@ export const calculateAvailableUnits = (site) => {
  */
 export const formatAllocationForDisplay = (allocation) => {
     if (!allocation) return null;
-    
-    return roundAllocationValues(allocation);
+
+    return {
+        ...allocation,
+        allocated: normalizeAllocatedValues(allocation.allocated)
+    };
 };
 
 /**
@@ -202,8 +231,34 @@ export const formatDate = (date, options = {}) => {
 /**
  * Formats a month number (1-12) and year into the API format (MMYYYY)
  */
-export const formatAllocationMonth = (month, year = new Date().getFullYear()) => {
-    return `${month.toString().padStart(2, '0')}${year}`;
+export const formatAllocationMonth = (month) => {
+    const date = new Date();
+    return `${String(month).padStart(2, '0')}${date.getFullYear()}`;
+};
+
+/**
+ * Format month key for DynamoDB SK (MMYYYY format)
+ */
+export const formatSortKey = (month, year) => {
+    return `${String(month).padStart(2, '0')}${year}`;
+};
+
+/**
+ * Parse SK to get month and year
+ */
+export const parseSortKey = (sk) => {
+    if (!sk || sk.length !== 6) {
+        throw new Error('Invalid sort key format');
+    }
+    
+    const month = parseInt(sk.substring(0, 2));
+    const year = parseInt(sk.substring(2));
+    
+    if (isNaN(month) || isNaN(year) || month < 1 || month > 12) {
+        throw new Error('Invalid sort key values');
+    }
+    
+    return { month, year };
 };
 
 /**
@@ -256,11 +311,12 @@ export const validateBankingBalance = (currentBalance, previousBalance) => {
         return { isValid: true, errors: [] };
     }
 
-    ALL_PERIODS.forEach(period => {
-        const current = Math.round(Number(currentBalance?.[period] || 0));
-        const previous = Math.round(Number(previousBalance?.[period] || 0));
+    // Normalize both balances
+    const current = normalizeAllocatedValues(currentBalance);
+    const previous = normalizeAllocatedValues(previousBalance);
 
-        if (current > previous) {
+    ALL_PERIODS.forEach(period => {
+        if (current[period] > previous[period]) {
             errors.push(`Invalid banking balance for period ${period}`);
         }
     });
@@ -269,4 +325,152 @@ export const validateBankingBalance = (currentBalance, previousBalance) => {
         isValid: errors.length === 0,
         errors
     };
+};
+
+/**
+ * Gets all months in a financial year
+ */
+export const getFinancialYearMonths = (year) => {
+    const months = [];
+    // April to December of selected year
+    for (let month = 4; month <= 12; month++) {
+        months.push(`${month.toString().padStart(2, '0')}${year}`);
+    }
+    // January to March of next year
+    for (let month = 1; month <= 3; month++) {
+        months.push(`${month.toString().padStart(2, '0')}${year + 1}`);
+    }
+    return months;
+};
+
+/**
+ * Gets financial year for a given month and year
+ */
+export const getFinancialYear = (month, year) => {
+    return month >= 4 ? year : year - 1;
+};
+
+/**
+ * Get available total units for a site
+ */
+export const getAvailableTotal = (site) => {
+    if (!site) return 0;
+    
+    return ['c1', 'c2', 'c3', 'c4', 'c5'].reduce((sum, period) => {
+        const value = Number(site[period] || 0);
+        return sum + (isNaN(value) ? 0 : Math.round(value));
+    }, 0);
+};
+
+/**
+ * Update site units after allocation
+ */
+export const updateSiteUnits = (site, allocation) => {
+    const updatedSite = { ...site };
+    updatedSite.totalUnits = (Number(site.totalUnits) || 0) - (Number(allocation.totalUnits) || 0);
+    return updatedSite;
+};
+
+/**
+ * Calculate total allocation for the given periods
+ */
+export const calculateAllocationTotal = (allocation, periods = ALL_PERIODS) => {
+    if (!allocation?.allocated) return 0;
+    
+    const normalized = normalizeAllocatedValues(allocation.allocated);
+    return periods.reduce((sum, period) => sum + normalized[period], 0);
+};
+
+/**
+ * Calculate allocation summary
+ */
+export const calculateAllocationSummary = (allocations) => {
+    const summary = {
+        total: 0,
+        allocated: 0,
+        banking: 0,
+        lapse: 0
+    };
+
+    if (!Array.isArray(allocations)) return summary;
+
+    allocations.forEach(allocation => {
+        const total = calculateAllocationTotal(allocation);
+        summary.total += total;
+
+        switch (allocation.type?.toLowerCase()) {
+            case 'banking':
+                summary.banking += total;
+                break;
+            case 'lapse':
+                summary.lapse += total;
+                break;
+            default:
+                summary.allocated += total;
+                break;
+        }
+    });
+
+    return summary;
+};
+
+/**
+ * Validates banking data
+ */
+export const validateBankingData = (bankingData) => {
+    const errors = [];
+
+    if (!bankingData?.productionSiteId?.toString()) {
+        errors.push('Invalid production site ID');
+    }
+
+    if (!bankingData?.siteName?.trim()) {
+        errors.push('Site name is required');
+    }
+
+    if (bankingData?.allocated) {
+        const normalized = normalizeAllocatedValues(bankingData.allocated);
+        Object.entries(normalized).forEach(([period, value]) => {
+            if (isNaN(value) || value < 0) {
+                errors.push(`Invalid value for period ${period}`);
+            }
+        });
+
+        // Update allocated values to normalized form
+        bankingData.allocated = normalized;
+    }
+
+    const hasAllocation = bankingData?.allocated && 
+        Object.values(bankingData.allocated).some(val => val > 0);
+
+    if (!hasAllocation) {
+        errors.push('At least one period must have a banking amount');
+    }
+
+    return {
+        isValid: errors.length === 0,
+        errors
+    };
+};
+
+/**
+ * Validate peak and non-peak mixing
+ */
+export const validatePeakNonPeakMixing = (allocated) => {
+    const normalized = normalizeAllocatedValues(allocated);
+    const hasPeak = PEAK_PERIODS.some(period => normalized[period] > 0);
+    const hasNonPeak = NON_PEAK_PERIODS.some(period => normalized[period] > 0);
+
+    return {
+        isValid: !(hasPeak && hasNonPeak),
+        error: hasPeak && hasNonPeak ? 'Cannot mix peak and non-peak period allocations' : null
+    };
+};
+
+/**
+ * Check if any period has allocation
+ */
+export const hasAnyAllocation = (allocated) => {
+    const normalized = normalizeAllocatedValues(allocated);
+    return Object.values(normalized).some(value => value > 0);
 };

@@ -2,14 +2,19 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSnackbar } from 'notistack';
 import {
-  Box, Grid, Typography, Alert, Button, CircularProgress, Paper, IconButton
+  Box, Grid, Typography, Alert, Button, CircularProgress, Paper, IconButton,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Switch, FormControlLabel
 } from '@mui/material';
-import { Add as AddIcon, Refresh as RefreshIcon, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
+import { Add as AddIcon, Refresh as RefreshIcon, Edit as EditIcon, Delete as DeleteIcon, ViewModule as ViewModuleIcon, ViewList as ViewListIcon } from '@mui/icons-material';
 import productionSiteApi from '../../services/productionSiteapi';
 import ProductionSiteCard from './ProductionSiteCard';
 import ProductionSiteDialog from './ProductionSiteDialog';
 import { useAuth } from '../../context/AuthContext';
 import { hasPermission } from '../../utils/permissions';
+
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000;
 
 const Production = () => {
   const navigate = useNavigate();
@@ -20,6 +25,8 @@ const Production = () => {
   const [error, setError] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSite, setSelectedSite] = useState(null);
+  const [viewMode, setViewMode] = useState('card'); // 'card' or 'table'
+  const [retryCount, setRetryCount] = useState(0);
 
   // Check permissions
   const permissions = useMemo(() => ({
@@ -29,43 +36,89 @@ const Production = () => {
     delete: hasPermission(user, 'production', 'DELETE')
   }), [user]);
 
+  const validateSiteData = (site) => {
+    return {
+      companyId: Number(site.companyId) || 1,
+      productionSiteId: Number(site.productionSiteId),
+      name: site.name?.trim() || 'Unnamed Site',
+      type: site.type?.trim() || 'Unknown',
+      location: site.location?.trim() || 'Unknown Location',
+      capacity_MW: Number(parseFloat(site.capacity_MW || 0).toFixed(2)),
+      injectionVoltage_KV: Number(site.injectionVoltage_KV || 0),
+      annualProduction_L: Number(site.annualProduction_L || 0),
+      htscNo: site.htscNo || '',
+      banking: Number(site.banking || 0),
+      status: ['Active', 'Inactive', 'Maintenance'].includes(site.status) ? site.status : 'Unknown',
+      version: Number(site.version) || 1,
+      createdat: site.createdat || new Date().toISOString(),
+      updatedat: site.updatedat || new Date().toISOString()
+    };
+  };
+
   // Fetch sites data
-  const fetchSites = useCallback(async () => {
+  const fetchSites = useCallback(async (retry = false) => {
     try {
-      setError(null);
-      setLoading(true);
+      if (!retry) {
+        setError(null);
+        setLoading(true);
+        setRetryCount(0);
+      }
+
+      console.log('[Production] Fetching sites, attempt:', retryCount + 1);
       const response = await productionSiteApi.fetchAll();
       
-      // Transform data based on schema
-      const formattedData = response?.data?.map(site => ({
-        companyId: Number(site.companyId) || 1,
-        productionSiteId: Number(site.productionSiteId),
-        name: site.name,
-        type: site.type,
-        location: site.location,
-        capacity_MW: Number(site.capacity_MW),
-        injectionVoltage_KV: Number(site.injectionVoltage_KV),
-        annualProduction_L: Number(site.annualProduction_L),
-        htscNo: site.htscNo,
-        banking: Number(site.banking),
-        status: site.status,
-        version: Number(site.version) || 1
-      })) || [];
+      if (!response?.data) {
+        throw new Error('Invalid response format');
+      }
 
-      console.log('Formatted Sites Data:', formattedData);
+      // Transform and validate each site
+      const formattedData = response.data
+        .map(validateSiteData)
+        .filter(site => site.productionSiteId && site.name); // Filter out invalid entries
+
+      console.log('[Production] Formatted Sites Data:', formattedData);
       setSites(formattedData);
+      setLoading(false);
+      
+      if (formattedData.length === 0) {
+        enqueueSnackbar('No production sites found', { variant: 'info' });
+      } else {
+        enqueueSnackbar(`Successfully loaded ${formattedData.length} sites`, { variant: 'success' });
+      }
+
     } catch (err) {
       console.error('[Production] Fetch error:', err);
-      setError(err.message || 'Failed to load sites');
-      enqueueSnackbar('Failed to load sites', { variant: 'error' });
-    } finally {
+      
+      if (retryCount < MAX_RETRIES) {
+        console.log(`[Production] Retrying... Attempt ${retryCount + 1} of ${MAX_RETRIES}`);
+        setRetryCount(prev => prev + 1);
+        setTimeout(() => fetchSites(true), RETRY_DELAY);
+        return;
+      }
+
+      setError('Failed to load production sites. Please try again.');
       setLoading(false);
+      enqueueSnackbar('Failed to load sites', { 
+        variant: 'error',
+        action: (key) => (
+          <Button color="inherit" size="small" onClick={() => {
+            fetchSites();
+            enqueueSnackbar.close(key);
+          }}>
+            Retry
+          </Button>
+        )
+      });
     }
-  }, [enqueueSnackbar]);
+  }, [enqueueSnackbar, retryCount]);
 
   useEffect(() => {
-    fetchSites();
-  }, [fetchSites]);
+    if (permissions.read) {
+      fetchSites();
+    } else {
+      setError('You do not have permission to view production sites');
+    }
+  }, [fetchSites, permissions.read]);
 
   const handleSiteClick = useCallback((site) => {
     if (!site?.companyId || !site?.productionSiteId) {
@@ -146,6 +199,59 @@ const Production = () => {
     }
   };
 
+  const renderTableView = () => (
+    <TableContainer component={Paper} sx={{ mt: 3 }}>
+      <Table>
+        <TableHead>
+          <TableRow>
+            <TableCell>Name</TableCell>
+            <TableCell>Location</TableCell>
+            <TableCell>Type</TableCell>
+            <TableCell align="right">Capacity (MW)</TableCell>
+            <TableCell align="right">Production (L)</TableCell>
+            <TableCell>Status</TableCell>
+            <TableCell>Actions</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {sites.map((site) => (
+            <TableRow key={`${site.companyId}_${site.productionSiteId}`}>
+              <TableCell>{site.name}</TableCell>
+              <TableCell>{site.location}</TableCell>
+              <TableCell>{site.type}</TableCell>
+              <TableCell align="right">{site.capacity_MW}</TableCell>
+              <TableCell align="right">{site.annualProduction_L}</TableCell>
+              <TableCell>
+                <Box
+                  component="span"
+                  sx={{
+                    px: 2,
+                    py: 0.5,
+                    borderRadius: 1,
+                    backgroundColor: site.status === 'Active' ? 'success.light' : 'warning.light',
+                    color: site.status === 'Active' ? 'success.dark' : 'warning.dark',
+                  }}
+                >
+                  {site.status}
+                </Box>
+              </TableCell>
+              <TableCell>
+                <IconButton onClick={() => handleSiteClick(site)} size="small">
+                  <EditIcon />
+                </IconButton>
+                {permissions.delete && (
+                  <IconButton onClick={() => handleDeleteClick(site)} size="small" color="error">
+                    <DeleteIcon />
+                  </IconButton>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
+
   return (
     <Paper elevation={0} sx={{ p: 3, backgroundColor: 'transparent' }}>
       <Box sx={{ 
@@ -155,18 +261,17 @@ const Production = () => {
         borderBottom: '2px solid #1976d2',
         pb: 2
       }}>
-        <Typography variant="h5" sx={{ 
-          fontWeight: 'bold',
-          color: '#1976d2'
-        }}>
+        <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#1976d2' }}>
           Production Sites
         </Typography>
-        <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <IconButton onClick={() => setViewMode(prev => prev === 'card' ? 'table' : 'card')}>
+            {viewMode === 'card' ? <ViewListIcon /> : <ViewModuleIcon />}
+          </IconButton>
           <Button
             variant="outlined"
             startIcon={<RefreshIcon />}
             onClick={fetchSites}
-            sx={{ mr: 2 }}
             disabled={loading}
           >
             Refresh
@@ -184,43 +289,22 @@ const Production = () => {
         </Box>
       </Box>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {error}
-        </Alert>
-      )}
+      {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
 
-      <Grid container spacing={3}>
-        {loading ? (
-          <Grid item xs={12}>
-            <Box sx={{ 
-              display: 'flex', 
-              justifyContent: 'center', 
-              alignItems: 'center', 
-              minHeight: '200px' 
-            }}>
-              <CircularProgress />
-            </Box>
-          </Grid>
-        ) : sites.length === 0 ? (
-          <Grid item xs={12}>
-            <Alert severity="info" sx={{ 
-              display: 'flex', 
-              justifyContent: 'center',
-              py: 3
-            }}>
-              No production sites found.
-            </Alert>
-          </Grid>
-        ) : (
-          sites.map((site) => (
-            <Grid 
-              item 
-              xs={12} 
-              sm={6} 
-              md={4} 
-              key={`site_${site.companyId}_${site.productionSiteId}`}
-            >
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+          <CircularProgress />
+        </Box>
+      ) : sites.length === 0 ? (
+        <Alert severity="info" sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+          No production sites found.
+        </Alert>
+      ) : viewMode === 'table' ? (
+        renderTableView()
+      ) : (
+        <Grid container spacing={3}>
+          {sites.map((site) => (
+            <Grid item xs={12} sm={6} md={4} key={`site_${site.companyId}_${site.productionSiteId}`}>
               <ProductionSiteCard 
                 site={site}
                 onView={() => handleSiteClick(site)}
@@ -230,9 +314,9 @@ const Production = () => {
                 permissions={permissions}
               />
             </Grid>
-          ))
-        )}
-      </Grid>
+          ))}
+        </Grid>
+      )}
 
       <ProductionSiteDialog
         open={dialogOpen}

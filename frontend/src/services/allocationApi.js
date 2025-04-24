@@ -14,16 +14,13 @@ class AllocationApi {
 
     async fetchAll(month) {
         try {
-            const [allocations, banking, lapse] = await Promise.all([
-                api.get(API_CONFIG.ENDPOINTS.ALLOCATION.GET_ALL(month)),
-                api.get(API_CONFIG.ENDPOINTS.BANKING.GET_ALL),
-                api.get(API_CONFIG.ENDPOINTS.LAPSE.GET_ALL)
-            ]);
-
+            // Construct the URL with proper path joining
+            const endpoint = `${API_CONFIG.ENDPOINTS.ALLOCATION.BASE}/month/${month}`;
+            const response = await api.get(endpoint);
             return {
-                allocations: allocations.data?.data || [],
-                banking: banking.data?.data || [],
-                lapse: lapse.data?.data || []
+                allocations: response.data?.data || [],
+                banking: response.data?.banking || [],
+                lapse: response.data?.lapse || []
             };
         } catch (error) {
             throw this.handleError(error);

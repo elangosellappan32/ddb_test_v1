@@ -58,13 +58,19 @@ const processAllocation = (site, availableUnits, consumptionData, canBank, alloc
 };
 
 const createAllocation = (productionSite, consumptionSite, availableUnits) => {
+    if (!productionSite?.productionSiteId || !consumptionSite?.consumptionSiteId) {
+        return null;
+    }
+
     const allocation = {
         productionSiteId: productionSite.productionSiteId,
         productionSite: productionSite.siteName,
         siteName: productionSite.siteName,
         consumptionSiteId: consumptionSite.consumptionSiteId,
         consumptionSite: consumptionSite.siteName,
-        type: 'Allocation',
+        type: productionSite.banking === 1 ? 'Banking' : 'Allocation',
+        siteType: productionSite.type || 'Unknown',
+        isDirect: productionSite.type?.toLowerCase() === 'solar',
         allocated: {}
     };
 
@@ -107,22 +113,40 @@ const updateAvailableUnits = (availableUnits, allocated) => {
 };
 
 const createBankingAllocation = (site, availableUnits) => {
+    if (!site?.productionSiteId || !site?.siteName) {
+        throw new Error('Invalid production site data for banking allocation');
+    }
+
+    const sanitizedUnits = {};
+    ALL_PERIODS.forEach(period => {
+        sanitizedUnits[period] = Math.max(0, Math.round(Number(availableUnits[period] || 0)));
+    });
+
     return {
-        productionSiteId: site.productionSiteId,
+        productionSiteId: site.productionSiteId.toString(),
         productionSite: site.siteName,
         siteName: site.siteName,
         type: 'Banking',
         bankingEnabled: true,
-        allocated: { ...availableUnits }
+        allocated: sanitizedUnits
     };
 };
 
 const createLapseAllocation = (site, availableUnits) => {
+    if (!site?.productionSiteId || !site?.siteName) {
+        throw new Error('Invalid production site data for lapse allocation');
+    }
+
+    const sanitizedUnits = {};
+    ALL_PERIODS.forEach(period => {
+        sanitizedUnits[period] = Math.max(0, Math.round(Number(availableUnits[period] || 0)));
+    });
+
     return {
-        productionSiteId: site.productionSiteId,
+        productionSiteId: site.productionSiteId.toString(),
         productionSite: site.siteName,
         siteName: site.siteName,
         type: 'Lapse',
-        allocated: { ...availableUnits }
+        allocated: sanitizedUnits
     };
 };
