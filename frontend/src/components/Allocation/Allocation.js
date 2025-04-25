@@ -65,11 +65,10 @@ const Allocation = () => {
     try {
       const formattedMonth = `${selectedMonth.toString().padStart(2, '0')}${selectedYear}`;
       const response = await allocationApi.fetchAll(formattedMonth);
-      setAllocations([
-        ...(response.allocations || []),
-        ...(response.banking || []),
-        ...(response.lapse || [])
-      ]);
+      // Separate allocation, banking, and lapse into their own states
+      setAllocations(response.allocations || []);
+      setBankingAllocations(response.banking || []);
+      setLapseAllocations(response.lapse || []);
     } catch (error) {
       console.error('Error updating allocation data:', error);
       enqueueSnackbar(error.message || 'Failed to update allocation data', { 
@@ -325,17 +324,11 @@ const Allocation = () => {
       payload.bankingEnabled = true;
       payload.siteName = payload.siteName || payload.productionSite || '';
       payload.productionSite = payload.productionSite || payload.siteName || '';
-      // Flatten allocated c1-c5 into root for banking
-      Object.assign(payload, payload.allocated);
-      delete payload.allocated;
     } else if (payload.type === 'LAPSE') {
       payload.pk = `${companyId}_${payload.productionSiteId}`;
       payload.sk = monthYear;
       payload.siteName = payload.siteName || payload.productionSite || '';
       payload.productionSite = payload.productionSite || payload.siteName || '';
-      // Flatten allocated c1-c5 into root for lapse
-      Object.assign(payload, payload.allocated);
-      delete payload.allocated;
     }
     Object.keys(payload).forEach(
       key => (payload[key] === undefined || payload[key] === null) && delete payload[key]

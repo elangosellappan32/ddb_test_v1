@@ -56,14 +56,6 @@ class ValidationService {
             if (totalUnits === 0) {
                 errors.push('At least one period must have units allocated');
             }
-
-            // Validate peak/non-peak mixing only for regular allocations
-            if (type === 'ALLOCATION') {
-                const mixingResult = this.validatePeakNonPeakMixing(normalizedData.allocated);
-                if (!mixingResult.isValid) {
-                    errors.push(mixingResult.error);
-                }
-            }
         }
 
         // Generate keys if not provided
@@ -110,6 +102,16 @@ class ValidationService {
     }
 
     normalizeAllocationData(data) {
+        // Support nested allocated or flat c1-c5 fields
+        const rawAllocated = data.allocated && typeof data.allocated === 'object'
+            ? data.allocated
+            : {
+                c1: data.c1,
+                c2: data.c2,
+                c3: data.c3,
+                c4: data.c4,
+                c5: data.c5
+            };
         const normalized = {
             ...data,
             companyId: String(data.companyId || '1'),
@@ -118,7 +120,7 @@ class ValidationService {
             month: data.month || '',
             siteName: data.siteName || data.productionSite || '',
             productionSite: data.productionSite || data.siteName || '',
-            allocated: this.normalizeAllocatedValues(data.allocated)
+            allocated: this.normalizeAllocatedValues(rawAllocated)
         };
 
         if (data.consumptionSiteId) {

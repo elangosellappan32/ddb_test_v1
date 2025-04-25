@@ -3,22 +3,19 @@ import { API_CONFIG } from '../config/api.config';
 
 class AllocationApi {
     formatAllocationData(data, type = 'ALLOCATION') {
-        // Always ensure allocated is present and has c1-c5 as numbers
+        // Extract flat period values into root
         const ensureAllocated = (input) => {
-            const allocated = input.allocated || {};
+            const a = input.allocated || {};
             return {
-                c1: Number(allocated.c1) || 0,
-                c2: Number(allocated.c2) || 0,
-                c3: Number(allocated.c3) || 0,
-                c4: Number(allocated.c4) || 0,
-                c5: Number(allocated.c5) || 0,
+                c1: Number(a.c1) || 0,
+                c2: Number(a.c2) || 0,
+                c3: Number(a.c3) || 0,
+                c4: Number(a.c4) || 0,
+                c5: Number(a.c5) || 0,
             };
         };
-
-        const base = {
-            ...data,
-            allocated: ensureAllocated(data)
-        };
+        const flat = ensureAllocated(data);
+        const base = { ...data, ...flat };
 
         // For ALLOCATION, ensure consumptionSiteId and consumptionSite are present
         if ((type || data.type || '').toUpperCase() === 'ALLOCATION') {
@@ -30,9 +27,7 @@ class AllocationApi {
         }
         // For BANKING/LAPSE, only required fields plus allocated
         if (["BANKING", "LAPSE"].includes((type || data.type || '').toUpperCase())) {
-            return {
-                ...base
-            };
+            return { ...base };
         }
         return base;
     }

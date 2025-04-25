@@ -93,28 +93,20 @@ const getAvailableUnits = async (productionSiteId, period, month) => {
 
 const createAllocation = async (item) => {
     try {
-        const pk = item.productionSiteId;
-        const sk = generateCompositeKey(item);
+        // Composite PK and MMYYYY SK
+        const pk = `${item.productionSiteId}_${item.consumptionSiteId}`;
+        const sk = formatMonthYearKey(item.month);
 
         const now = new Date();
         const ttl = Math.floor(now.setFullYear(now.getFullYear() + 1) / 1000);
 
-        const allocationItem = {
-            ...item,
-            pk,
-            sk,
-            createdAt: item.createdAt || new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            version: item.version || 1,
-            ttl
-        };
+        const allocationItem = { ...item, pk, sk, createdAt: item.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString(), version: item.version || 1, ttl };
 
         await docClient.send(new PutCommand({
             TableName: TableNames.ALLOCATION,
-            Item: allocationItem,
-            ConditionExpression: 'attribute_not_exists(pk) AND attribute_not_exists(sk)'
+            Item: allocationItem
+            // removed ConditionExpression to allow upsert
         }));
-
         return allocationItem;
     } catch (error) {
         logger.error('[AllocationDAL] Create Error:', error);

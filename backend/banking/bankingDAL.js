@@ -33,8 +33,8 @@ const createBanking = async (item) => {
 
         await docClient.send(new PutCommand({
             TableName,
-            Item: bankingItem,
-            ConditionExpression: 'attribute_not_exists(pk) AND attribute_not_exists(sk)'
+            Item: bankingItem
+            // Removed ConditionExpression to allow upsert
         }));
 
         return bankingItem;
