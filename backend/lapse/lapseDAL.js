@@ -34,7 +34,8 @@ class LapseDAL extends BaseDAL {
                 updatedat: new Date().toISOString()
             };
 
-            return await this.create(item);
+            // Use BaseDAL.putItem for insert
+            return await this.putItem(item);
         } catch (error) {
             logger.error('LapseDAL - createLapse error:', error);
             throw error;
@@ -57,7 +58,8 @@ class LapseDAL extends BaseDAL {
                 updatedat: new Date().toISOString()
             };
 
-            return await this.update(pk, sk, updateData);
+            // Use BaseDAL.updateItem for updates
+            return await this.updateItem({ pk, sk }, updateData);
         } catch (error) {
             logger.error('LapseDAL - updateLapse error:', error);
             throw error;
@@ -69,10 +71,10 @@ class LapseDAL extends BaseDAL {
             const sk = formatMonthYearKey(month);
             this.validateSortKey(sk);
 
-            return await this.query({
-                pk: `${companyId}`,
-                sk: sk
-            });
+            // Query by pk and exact sk
+            return await this.queryItems(
+                { expression: 'pk = :pk AND sk = :sk', values: { ':pk': String(companyId), ':sk': sk } }
+            );
         } catch (error) {
             logger.error('LapseDAL - getLapsesByMonth error:', error);
             throw error;
@@ -81,13 +83,14 @@ class LapseDAL extends BaseDAL {
 
     async getLapsesByProductionSite(companyId, productionSiteId, fromMonth, toMonth) {
         try {
-            return await this.query({
-                pk: `${companyId}_${productionSiteId}`,
-                skBetween: [
-                    formatMonthYearKey(fromMonth),
-                    formatMonthYearKey(toMonth)
-                ]
-            });
+            // Query with sk range
+            return await this.queryItems(
+                { expression: 'pk = :pk AND sk BETWEEN :from AND :to', values: {
+                    ':pk': `${companyId}_${productionSiteId}`,
+                    ':from': formatMonthYearKey(fromMonth),
+                    ':to': formatMonthYearKey(toMonth)
+                } }
+            );
         } catch (error) {
             logger.error('LapseDAL - getLapsesByProductionSite error:', error);
             throw error;
@@ -97,7 +100,8 @@ class LapseDAL extends BaseDAL {
     async deleteLapse(pk, sk) {
         try {
             this.validateSortKey(sk);
-            return await this.delete(pk, sk);
+            // Use BaseDAL.deleteItem to remove item
+            return await this.deleteItem({ pk, sk });
         } catch (error) {
             logger.error('LapseDAL - deleteLapse error:', error);
             throw error;

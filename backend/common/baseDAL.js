@@ -9,6 +9,7 @@ const {
     QueryCommand
 } = require("@aws-sdk/lib-dynamodb");
 const logger = require('../utils/logger');
+const docClient = require('../utils/db');
 
 // DynamoDB Local Configuration
 const client = new DynamoDBClient({
@@ -34,7 +35,7 @@ const ddbDocClient = DynamoDBDocumentClient.from(client, {
 class BaseDAL {
     constructor(tableName) {
         this.tableName = tableName;
-        this.docClient = global.dynamoDb;
+        this.docClient = docClient;
     }
 
     async scanTable() {
