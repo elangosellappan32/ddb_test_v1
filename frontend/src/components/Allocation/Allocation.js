@@ -31,6 +31,7 @@ import ProductionUnitsTable from './ProductionUnitsTable';
 import BankingUnitsTable from './BankingUnitsTable';
 import ConsumptionUnitsTable from './ConsumptionUnitsTable';
 import AllocationDetailsTable from './AllocationDetailsTable';
+import AllocationSummary from './AllocationSummary';
 import { validatePeriodRules, formatAllocationMonth } from '../../utils/allocationUtils';
 import { calculateAllocations } from '../../utils/allocationCalculator';
 
@@ -77,6 +78,10 @@ const Allocation = () => {
       });
     }
   }, [selectedMonth, selectedYear, enqueueSnackbar]);
+
+  useEffect(() => {
+    updateAllocationData();
+  }, [updateAllocationData]);
 
   const getFinancialYear = (month, year) => {
     return month >= 4 ? year : year - 1;
@@ -567,122 +572,28 @@ const Allocation = () => {
       </Box>
 
       {showAllocations && (
-        <AllocationDetailsTable 
-          allocations={allocations}
-          bankingAllocations={bankingAllocations}
-          lapseAllocations={lapseAllocations}
-          loading={loading || isSaving}
-          onEdit={handleEditAllocation}
-          onSave={handleSaveAllocation}
-        />
+        <>
+          <AllocationDetailsTable 
+            allocations={allocations}
+            bankingAllocations={bankingAllocations}
+            oldBankingAllocations={aggregatedBankingData}
+            lapseAllocations={lapseAllocations}
+            loading={loading || isSaving}
+            onEdit={handleEditAllocation}
+            onSave={handleSaveAllocation}
+          />
+          <Box sx={{ mt: 3 }}>
+            <AllocationSummary
+              productionData={productionData}
+              consumptionData={consumptionData}
+              allocations={allocations}
+              bankingAllocations={bankingAllocations}
+              oldBankingAllocations={aggregatedBankingData}
+              lapseAllocations={lapseAllocations}
+            />
+          </Box>
+        </>
       )}
-
-      <Grid container spacing={3} sx={{ mt: 4 }}>
-        <Grid item xs={12} md={2.4}>
-          <Paper sx={{ 
-            p: 2, 
-            display: 'flex', 
-            alignItems: 'center',
-            background: 'linear-gradient(45deg, #2196F3 30%, #21CBF3 90%)',
-            color: 'white',
-            boxShadow: 3,
-            borderRadius: 2
-          }}>
-            <CheckCircleIcon sx={{ fontSize: 40, mr: 2 }} />
-            <Box>
-              <Typography variant="subtitle2">Total Production</Typography>
-              <Typography variant="h6">
-                {productionData.reduce((sum, prod) => sum + calculateTotal(prod), 0)} units
-              </Typography>
-            </Box>
-          </Paper>
-        </Grid>
-
-        <Grid item xs={12} md={2.4}>
-          <Paper sx={{ 
-            p: 2, 
-            display: 'flex', 
-            alignItems: 'center',
-            background: 'linear-gradient(45deg, #81C784 30%, #A5D6A7 90%)',
-            color: 'white',
-            boxShadow: 3,
-            borderRadius: 2
-          }}>
-            <BankingIcon sx={{ fontSize: 40, mr: 2 }} />
-            <Box>
-              <Typography variant="subtitle2">Direct Banking</Typography>
-              <Typography variant="h6">
-                {allocations
-                  .filter(a => a.type === 'Banking' && a.isDirect)
-                  .reduce((sum, bank) => sum + calculateTotal(bank.allocated), 0)} units
-              </Typography>
-            </Box>
-          </Paper>
-        </Grid>
-
-        <Grid item xs={12} md={2.4}>
-          <Paper sx={{ 
-            p: 2, 
-            display: 'flex', 
-            alignItems: 'center',
-            background: 'linear-gradient(45deg, #4CAF50 30%, #66BB6A 90%)',
-            color: 'white',
-            boxShadow: 3,
-            borderRadius: 2
-          }}>
-            <BankingIcon sx={{ fontSize: 40, mr: 2 }} />
-            <Box>
-              <Typography variant="subtitle2">Total Banking</Typography>
-              <Typography variant="h6">
-                {bankingData.reduce((sum, bank) => sum + calculateTotal(bank), 0)} units
-              </Typography>
-            </Box>
-          </Paper>
-        </Grid>
-
-        <Grid item xs={12} md={2.4}>
-          <Paper sx={{ 
-            p: 2, 
-            display: 'flex', 
-            alignItems: 'center',
-            background: 'linear-gradient(45deg, #FF9800 30%, #FFB74D 90%)',
-            color: 'white',
-            boxShadow: 3,
-            borderRadius: 2
-          }}>
-            <LapseIcon sx={{ fontSize: 40, mr: 2 }} />
-            <Box>
-              <Typography variant="subtitle2">Total Lapse</Typography>
-              <Typography variant="h6">
-                {lapseAllocations
-                  .reduce((sum, lapse) => sum + calculateTotal(lapse.allocated), 0)} units
-              </Typography>
-            </Box>
-          </Paper>
-        </Grid>
-
-        <Grid item xs={12} md={2.4}>
-          <Paper sx={{ 
-            p: 2, 
-            display: 'flex', 
-            alignItems: 'center',
-            background: 'linear-gradient(45deg, #9C27B0 30%, #BA68C8 90%)',
-            color: 'white',
-            boxShadow: 3,
-            borderRadius: 2
-          }}>
-            <SwapHorizIcon sx={{ fontSize: 40, mr: 2 }} />
-            <Box>
-              <Typography variant="subtitle2">Total Allocated</Typography>
-              <Typography variant="h6">
-                {allocations
-                  .filter(a => a.type === 'Allocation')
-                  .reduce((sum, alloc) => sum + calculateTotal(alloc.allocated), 0)} units
-              </Typography>
-            </Box>
-          </Paper>
-        </Grid>
-      </Grid>
     </Box>
   );
 };

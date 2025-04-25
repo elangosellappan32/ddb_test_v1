@@ -1,84 +1,48 @@
 import React from 'react';
-import { Box, Paper, Typography, Grid } from '@mui/material';
-import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
-import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
-import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import { Box, Grid, Card, CardContent, Typography, Avatar } from '@mui/material';
+import { SwapHoriz as AllocationIcon, AccountBalance as BankingIcon, ErrorOutline as LapseIcon, CheckCircle as ProductionIcon, Assignment as ConsumptionIcon } from '@mui/icons-material';
+import { calculateTotal } from '../../utils/allocationUtils';
 
-const AllocationSummary = ({ allocations = [], bankingAllocations = [], lapseAllocations = [] }) => {
-  // Calculate totals based on the new data structure
-  const totalAllocated = allocations.reduce((sum, item) => 
-    sum + Number(item.unitsAllocated || 0), 0);
-    
-  const totalBanking = bankingAllocations.reduce((sum, item) => 
-    sum + Number(item.unitsBanked || 0), 0);
-    
-  const totalLapse = lapseAllocations.reduce((sum, item) => 
-    sum + Number(item.unitsLapsed || 0), 0);
+const AllocationSummary = ({ productionData = [], consumptionData = [], allocations = [], bankingAllocations = [], oldBankingAllocations = [], lapseAllocations = [] }) => {
+  const totalProduction = productionData.reduce((sum, item) => sum + calculateTotal(item), 0);
+  const totalConsumption = consumptionData.reduce((sum, item) => sum + calculateTotal(item), 0);
+  const totalDirectBanking = oldBankingAllocations.reduce((sum, item) => sum + calculateTotal(item), 0);
+  const totalIndirectBanking = bankingAllocations.reduce((sum, item) => sum + calculateTotal(item.allocated), 0);
+  const totalAllocated = allocations.reduce((sum, item) => sum + calculateTotal(item.allocated), 0);
+  const totalLapse = lapseAllocations.reduce((sum, item) => sum + calculateTotal(item.allocated), 0);
 
   const summaryItems = [
-    {
-      title: 'Total Allocated',
-      value: totalAllocated.toFixed(2),
-      icon: <SwapHorizIcon />,
-      color: 'primary.main',
-      bgcolor: 'primary.lighter'
-    },
-    {
-      title: 'Total Banking',
-      value: totalBanking.toFixed(2),
-      icon: <AccountBalanceIcon />,
-      color: 'info.main',
-      bgcolor: 'info.lighter'
-    },
-    {
-      title: 'Total Lapse',
-      value: totalLapse.toFixed(2),
-      icon: <ErrorOutlineIcon />,
-      color: 'warning.main',
-      bgcolor: 'warning.lighter'
-    }
+    { title: 'Production', value: totalProduction, icon: ProductionIcon, color: 'primary.main' },
+    { title: 'Consumption', value: totalConsumption, icon: ConsumptionIcon, color: 'text.secondary' },
+    { title: 'Direct Banking', value: totalDirectBanking, icon: BankingIcon, color: 'success.main' },
+    { title: 'Indirect Banking', value: totalIndirectBanking, icon: BankingIcon, color: 'success.dark' },
+    { title: 'Allocated', value: totalAllocated, icon: AllocationIcon, color: 'secondary.main' },
+    { title: 'Lapse', value: totalLapse, icon: LapseIcon, color: 'warning.main' }
   ];
 
   return (
-    <Box sx={{ mb: 4 }}>
-      <Typography variant="h6" gutterBottom sx={{ pb: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-        Allocation Summary
-      </Typography>
+    <Box mt={4} mb={4}>
       <Grid container spacing={3}>
-        {summaryItems.map((item, index) => (
-          <Grid item xs={12} sm={4} key={index}>
-            <Paper 
-              sx={{ 
-                p: 2, 
-                display: 'flex', 
-                alignItems: 'center',
-                bgcolor: item.bgcolor,
-                border: 1,
-                borderColor: item.color
-              }}
-              elevation={1}
-            >
-              <Box 
-                sx={{ 
-                  mr: 2,
-                  display: 'flex',
-                  p: 1,
-                  borderRadius: 1,
-                  bgcolor: item.color,
-                  color: 'white'
-                }}
-              >
-                {item.icon}
+        {summaryItems.map(({ title, value, icon: Icon, color }, idx) => (
+          <Grid item xs={12} sm={6} md={4} lg={2} key={idx}>
+            <Card sx={{ height: '100%', boxShadow: 1, borderRadius: 2 }}>
+              <Box sx={{ p: 2, borderBottom: `3px solid ${color}`, display: 'flex', justifyContent: 'center' }}>
+                <Avatar sx={{ bgcolor: color, width: 40, height: 40 }}>
+                  <Icon sx={{ color: '#fff', fontSize: 24 }} />
+                </Avatar>
               </Box>
-              <Box>
-                <Typography variant="body2" color="text.secondary">
-                  {item.title}
+              <CardContent sx={{ py: 2, textAlign: 'center' }}>
+                <Typography variant="subtitle2" color="textSecondary">
+                  {title}
                 </Typography>
-                <Typography variant="h6" sx={{ color: item.color, fontWeight: 'medium' }}>
-                  {item.value}
+                <Typography variant="h5" sx={{ fontWeight: 600, mt: 1 }}>
+                  {value.toLocaleString()}
                 </Typography>
-              </Box>
-            </Paper>
+                <Typography variant="caption" color="textSecondary">
+                  Units
+                </Typography>
+              </CardContent>
+            </Card>
           </Grid>
         ))}
       </Grid>
