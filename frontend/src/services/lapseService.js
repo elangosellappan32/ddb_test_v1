@@ -35,6 +35,27 @@ const lapseApi = {
       console.error('[LapseAPI] Fetch One Error:', error);
       throw error;
     }
+  },
+
+  create: async (data) => {
+    try {
+      // Flatten allocated fields if present (for compatibility with backend)
+      let lapseData = {
+        ...data,
+        createdat: new Date().toISOString(),
+        updatedat: new Date().toISOString()
+      };
+      if (data.allocated) {
+        lapseData = { ...lapseData, ...data.allocated };
+        delete lapseData.allocated;
+      }
+      console.log('[LapseAPI] Creating lapse record:', lapseData);
+      const response = await api.post(API_CONFIG.LAPSE.CREATE, lapseData);
+      return response.data;
+    } catch (error) {
+      console.error('[LapseAPI] Create Error:', error);
+      throw error;
+    }
   }
 };
 

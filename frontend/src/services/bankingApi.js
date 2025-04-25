@@ -96,13 +96,17 @@ const bankingApi = {
 
   create: async (data) => {
     try {
-      const bankingData = {
+      // Flatten allocated fields if present (for compatibility with backend)
+      let bankingData = {
         ...data,
         sk: formatDateToMMYYYY(data.date),
         createdat: new Date().toISOString(),
         updatedat: new Date().toISOString()
       };
-
+      if (data.allocated) {
+        bankingData = { ...bankingData, ...data.allocated };
+        delete bankingData.allocated;
+      }
       console.log('[BankingAPI] Creating banking record:', bankingData);
       const response = await api.post(API_CONFIG.ENDPOINTS.BANKING.CREATE, bankingData);
       return response.data;

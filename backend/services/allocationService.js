@@ -6,16 +6,16 @@ const allocationCalculator = require('./allocationCalculatorService');
 const notificationService = require('./notificationService');
 const ValidationUtil = require('../utils/validation');
 const { ValidationError, DatabaseError } = require('../utils/errors');
-const BankingDAL = require('../banking/bankingDAL');
-const LapseDAL = require('../lapse/lapseDAL');
+const bankingDAL = require('../banking/bankingDAL');
+const lapseDAL = require('../lapse/lapseDAL');
 
 class AllocationService {
     static instance = null;
 
     constructor() {
-        this.allocationDAL = new AllocationDAL();
-        this.bankingDAL = new BankingDAL();
-        this.lapseDAL = new LapseDAL();
+        this.allocationDAL = allocationDAL;
+        this.bankingDAL = bankingDAL;
+        this.lapseDAL = lapseDAL;
         this.pendingTransactions = new Map();
         this.lockTimeout = 30000; // 30 seconds
     }
@@ -27,114 +27,136 @@ class AllocationService {
         return AllocationService.instance;
     }
 
-    async createAllocation(allocationData) {
+    async createAllocation(data) {
         const timer = logger.startTimer();
         let transactionId = null;
 
         try {
-            // Validate input data
-            ValidationUtil.validateAllocationData(allocationData);
-            
-            // Generate transaction ID and acquire lock
+            // Normalize and validate data
+            const validation = validationService.validateAllocation(data);
+            if (!validation.isValid) {
+                throw {
+                    statusCode: 400,
+                    message: 'Validation failed',
+                    errors: validation.errors
+                };
+            }
+
+            const normalizedData = validation.normalizedData;
             transactionId = this.generateTransactionId();
-            await this.acquireLock(allocationData.productionSiteId, transactionId);
 
-            // Calculate allocation
-            const calculationResult = allocationCalculator.calculateAllocation(
-                allocationData.productionAmount,
-                allocationData.consumptionAmount,
-                { minThreshold: allocationData.minThreshold }
-            );
+            // Try to acquire lock
+            await this.acquireLock(normalizedData.productionSiteId, transactionId);
 
-            // Check banking limits if there's excess production
-            if (calculationResult.productionRemainder > 0) {
-                const bankingResult = await this.handleExcessProduction(
-                    allocationData.productionSiteId,
-                    calculationResult.productionRemainder
-                );
-                calculationResult.bankingDetails = bankingResult;
+            // Create the allocation record
+            const allocation = await this.allocationDAL.createAllocation(normalizedData);
+
+            // If this is a banking allocation, update banking records
+            if (normalizedData.type === 'BANKING') {
+                await this.handleBankingCreation(normalizedData, transactionId);
             }
 
-            // Create allocation record
-            const allocation = await this.allocationDAL.create({
-                ...allocationData,
-                ...calculationResult,
-                transactionId,
-                status: 'COMPLETED'
-            });
-
-            // Update banking if necessary
-            if (calculationResult.bankingDetails) {
-                await this.bankingDAL.create({
-                    siteId: allocationData.productionSiteId,
-                    amount: calculationResult.bankingDetails.bankableAmount,
-                    type: 'credit',
-                    date: allocationData.date,
-                    transactionId,
-                    allocationId: allocation.id
-                });
-            }
-
-            // Create lapse record if necessary
-            if (calculationResult.bankingDetails?.lapseAmount > 0) {
-                await this.lapseDAL.create({
-                    siteId: allocationData.productionSiteId,
-                    amount: calculationResult.bankingDetails.lapseAmount,
-                    date: allocationData.date,
-                    reason: 'Banking limit exceeded',
-                    transactionId,
-                    allocationId: allocation.id
-                });
+            // If this is a lapse allocation, create lapse record
+            if (normalizedData.type === 'LAPSE') {
+                await this.handleLapseCreation(normalizedData, transactionId);
             }
 
             // Notify clients
             await notificationService.emit('allocation.created', allocation);
 
             timer.end('Allocation Created', {
-                allocationId: allocation.id,
+                allocationId: allocation.pk,
                 transactionId
             });
 
             return allocation;
 
         } catch (error) {
-            logger.error('Allocation Creation Failed', {
-                error: error.message,
-                stack: error.stack,
-                transactionId,
-                data: allocationData
-            });
-
+            logger.error('[AllocationService] Create Error:', error);
             if (transactionId) {
                 await this.rollbackTransaction(transactionId);
             }
-
             throw error;
         } finally {
-            if (transactionId) {
-                await this.releaseLock(allocationData.productionSiteId, transactionId);
+            if (transactionId && data.productionSiteId) {
+                await this.releaseLock(data.productionSiteId, transactionId);
             }
         }
     }
 
-    async handleExcessProduction(siteId, excessAmount) {
-        try {
-            // Get current banking status
-            const currentBanking = await this.bankingDAL.getCurrentBanking(siteId);
-            const bankingLimit = await this.bankingDAL.getBankingLimit(siteId);
+    async createBatchAllocation(allocations) {
+        // Validate all allocations first
+        const validations = allocations.map(allocation => 
+            validationService.validateAllocation(allocation)
+        );
 
-            // Calculate banking and lapse
-            return allocationCalculator.calculateLapse(
-                excessAmount,
-                bankingLimit,
-                currentBanking
+        const invalidValidations = validations.filter(v => !v.isValid);
+        if (invalidValidations.length > 0) {
+            throw {
+                statusCode: 400,
+                message: 'Validation failed for some allocations',
+                errors: invalidValidations.map(v => v.errors)
+            };
+        }
+
+        const transactionId = this.generateTransactionId();
+
+        try {
+            // Create all allocations
+            const results = await Promise.all(
+                validations.map(async v => {
+                    const allocation = await this.allocationDAL.createAllocation(v.normalizedData);
+                    
+                    // Handle banking/lapse records
+                    if (v.normalizedData.type === 'BANKING') {
+                        await this.handleBankingCreation(v.normalizedData, transactionId);
+                    } else if (v.normalizedData.type === 'LAPSE') {
+                        await this.handleLapseCreation(v.normalizedData, transactionId);
+                    }
+
+                    return allocation;
+                })
             );
+
+            // Notify for batch creation
+            await notificationService.emit('allocation.batchCreated', results);
+
+            return results;
+
         } catch (error) {
-            logger.error('Excess Production Handling Failed', {
-                siteId,
-                excessAmount,
-                error: error.message
+            logger.error('[AllocationService] Batch Create Error:', error);
+            await this.rollbackTransaction(transactionId);
+            throw error;
+        }
+    }
+
+    async handleBankingCreation(bankingData, transactionId) {
+        try {
+            const total = this.calculateAllocationTotal(bankingData);
+            await this.bankingDAL.create({
+                siteId: bankingData.productionSiteId,
+                amount: total,
+                type: 'credit',
+                date: new Date().toISOString(),
+                transactionId,
+                month: bankingData.month
             });
+        } catch (error) {
+            logger.error('[AllocationService] Banking Creation Error:', error);
+            throw error;
+        }
+    }
+
+    async handleLapseCreation(lapseData, transactionId) {
+        try {
+            const total = this.calculateAllocationTotal(lapseData);
+            await this.lapseDAL.createLapse({
+                ...lapseData,
+                amount: total,
+                transactionId
+            });
+        } catch (error) {
+            logger.error('[AllocationService] Lapse Creation Error:', error);
             throw error;
         }
     }
@@ -335,120 +357,10 @@ class AllocationService {
         }
     }
 
-    async createAllocation(data) {
-        const validation = validationService.validateAllocation(data);
-        if (!validation.isValid) {
-            throw {
-                statusCode: 400,
-                message: 'Validation failed',
-                errors: validation.errors
-            };
-        }
-
-        try {
-            return await allocationDAL.createAllocation(validation.normalizedData);
-        } catch (error) {
-            logger.error('[AllocationService] Create Error:', error);
-            throw error;
-        }
-    }
-
-    async updateAllocation(pk, sk, data) {
-        const validation = validationService.validateAllocation(data);
-        if (!validation.isValid) {
-            throw {
-                statusCode: 400,
-                message: 'Validation failed',
-                errors: validation.errors
-            };
-        }
-
-        try {
-            return await allocationDAL.updateAllocation(pk, sk, validation.normalizedData);
-        } catch (error) {
-            logger.error('[AllocationService] Update Error:', error);
-            throw error;
-        }
-    }
-
-    async deleteAllocation(pk, sk) {
-        try {
-            await allocationDAL.deleteAllocation(pk, sk);
-        } catch (error) {
-            logger.error('[AllocationService] Delete Error:', error);
-            throw error;
-        }
-    }
-
-    async getAllocations(month, type) {
-        try {
-            const result = await allocationDAL.getAllocations(month, { type });
-            return result.map(allocation => ({
-                ...allocation,
-                allocated: validationService.normalizeAllocatedValues(allocation.allocated)
-            }));
-        } catch (error) {
-            logger.error('[AllocationService] GetAll Error:', error);
-            throw error;
-        }
-    }
-
-    async createBatchAllocation(allocations) {
-        const validations = allocations.map(allocation => 
-            validationService.validateAllocation(allocation)
-        );
-
-        const invalidValidations = validations.filter(v => !v.isValid);
-        if (invalidValidations.length > 0) {
-            throw {
-                statusCode: 400,
-                message: 'Validation failed for some allocations',
-                errors: invalidValidations.map(v => v.errors)
-            };
-        }
-
-        try {
-            return await Promise.all(
-                validations.map(v => allocationDAL.createAllocation(v.normalizedData))
-            );
-        } catch (error) {
-            logger.error('[AllocationService] Batch Create Error:', error);
-            throw error;
-        }
-    }
-
-    async updateBatchAllocation(allocations) {
-        const validations = allocations.map(allocation => 
-            validationService.validateAllocation(allocation)
-        );
-
-        const invalidValidations = validations.filter(v => !v.isValid);
-        if (invalidValidations.length > 0) {
-            throw {
-                statusCode: 400,
-                message: 'Validation failed for some allocations',
-                errors: invalidValidations.map(v => v.errors)
-            };
-        }
-
-        try {
-            return await Promise.all(
-                validations.map(v => allocationDAL.updateAllocation(
-                    v.normalizedData.pk,
-                    v.normalizedData.sk,
-                    v.normalizedData
-                ))
-            );
-        } catch (error) {
-            logger.error('[AllocationService] Batch Update Error:', error);
-            throw error;
-        }
-    }
-
     calculateAllocationTotal(allocation) {
         if (!allocation?.allocated) return 0;
         const normalized = validationService.normalizeAllocatedValues(allocation.allocated);
-        return ALL_PERIODS.reduce((sum, period) => sum + normalized[period], 0);
+        return ALL_PERIODS.reduce((sum, period) => sum + (normalized[period] || 0), 0);
     }
 
     calculatePeakTotal(allocation) {
@@ -497,6 +409,21 @@ class AllocationService {
         });
 
         return summary;
+    }
+
+    /**
+     * Fetch allocations by month and optional type filter.
+     */
+    async getAllocations(month, type) {
+        try {
+            const filterBy = {};
+            if (type) filterBy.type = type;
+            const allocations = await this.allocationDAL.getAllocations(month, filterBy);
+            return allocations;
+        } catch (error) {
+            logger.error('[AllocationService] GetAllocations Error:', error);
+            throw error;
+        }
     }
 }
 

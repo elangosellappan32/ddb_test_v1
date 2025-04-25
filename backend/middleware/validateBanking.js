@@ -10,8 +10,7 @@ const validateBanking = (req, res, next) => {
             'productionSite',
             'siteName',
             'allocated',
-            'month',
-            'bankingEnabled'
+            'month'
         ];
 
         const missingFields = requiredFields.filter(field => !banking[field]);
@@ -23,18 +22,14 @@ const validateBanking = (req, res, next) => {
             });
         }
 
-        // Validate banking is enabled
-        if (!banking.bankingEnabled) {
-            return res.status(400).json({
-                success: false,
-                message: 'Banking is not enabled for this site',
-                invalidBanking: banking
-            });
+        // Set banking enabled if not provided
+        if (banking.bankingEnabled === undefined) {
+            banking.bankingEnabled = true;
         }
 
         // Validate allocation amounts
         const allocated = banking.allocated || {};
-        const hasAllocation = Object.values(allocated).some(val => val > 0);
+        const hasAllocation = Object.values(allocated).some(val => Number(val) > 0);
         if (!hasAllocation) {
             return res.status(400).json({
                 success: false,
@@ -44,13 +39,22 @@ const validateBanking = (req, res, next) => {
         }
 
         // Check for negative values
-        if (Object.values(allocated).some(val => val < 0)) {
+        if (Object.values(allocated).some(val => Number(val) < 0)) {
             return res.status(400).json({
                 success: false,
                 message: 'Banking amounts cannot be negative',
                 invalidBanking: banking
             });
         }
+
+        // Convert allocated values to numbers
+        Object.keys(allocated).forEach(key => {
+            allocated[key] = Number(allocated[key]) || 0;
+        });
+
+        // Add type and timestamp
+        banking.type = 'BANKING';
+        banking.timestamp = new Date().toISOString();
 
         // Version check for updates
         if (req.method === 'PUT' && banking.version === undefined) {

@@ -38,27 +38,37 @@ const validateBankingData = (data) => {
     return { isValid: true, data: transformedData };
 };
 
+// Accept batch creation for banking
 const createBanking = async (req, res) => {
     try {
-        const validation = validateBankingData(req.body);
-        if (!validation.isValid) {
-            return res.status(400).json({
-                success: false,
-                message: validation.error
-            });
+        const isBatchRequest = Array.isArray(req.body);
+        const data = isBatchRequest ? req.body : [req.body];
+        const results = [];
+        const errors = [];
+        for (const banking of data) {
+            const validation = validateBankingData(banking);
+            if (!validation.isValid) {
+                errors.push({ data: banking, error: validation.error });
+                continue;
+            }
+            try {
+                const result = await bankingDAL.createBanking(validation.data);
+                results.push(result);
+            } catch (error) {
+                logger.error('[BankingController] Create Error:', { error: error.message, data: banking });
+                errors.push({ data: banking, error: error.message || 'Failed to create banking' });
+            }
         }
-
-        const result = await bankingDAL.createBanking(validation.data);
-        res.status(201).json({
-            success: true,
-            data: result
-        });
+        if (errors.length > 0 && results.length === 0) {
+            return res.status(400).json({ success: false, message: 'All banking creation failed', errors });
+        }
+        if (errors.length > 0) {
+            return res.status(207).json({ success: true, message: 'Some banking records created successfully', data: results, errors });
+        }
+        res.status(201).json({ success: true, message: isBatchRequest ? 'All banking records created successfully' : 'Banking record created successfully', data: isBatchRequest ? results : results[0] });
     } catch (error) {
         logger.error('[BankingController] Create Error:', error);
-        res.status(error.statusCode || 500).json({
-            success: false,
-            message: error.message || 'Internal server error'
-        });
+        res.status(500).json({ success: false, message: error.message || 'Internal server error' });
     }
 };
 

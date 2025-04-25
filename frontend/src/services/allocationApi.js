@@ -2,14 +2,39 @@ import api from './apiUtils';
 import { API_CONFIG } from '../config/api.config';
 
 class AllocationApi {
-    formatAllocationData(data) {
-        return {
-            ...data,
-            allocated: Object.entries(data.allocated).reduce((acc, [key, value]) => {
-                acc[key] = Math.round(Number(value) || 0);
-                return acc;
-            }, {})
+    formatAllocationData(data, type = 'ALLOCATION') {
+        // Always ensure allocated is present and has c1-c5 as numbers
+        const ensureAllocated = (input) => {
+            const allocated = input.allocated || {};
+            return {
+                c1: Number(allocated.c1) || 0,
+                c2: Number(allocated.c2) || 0,
+                c3: Number(allocated.c3) || 0,
+                c4: Number(allocated.c4) || 0,
+                c5: Number(allocated.c5) || 0,
+            };
         };
+
+        const base = {
+            ...data,
+            allocated: ensureAllocated(data)
+        };
+
+        // For ALLOCATION, ensure consumptionSiteId and consumptionSite are present
+        if ((type || data.type || '').toUpperCase() === 'ALLOCATION') {
+            return {
+                ...base,
+                consumptionSiteId: data.consumptionSiteId,
+                consumptionSite: data.consumptionSite
+            };
+        }
+        // For BANKING/LAPSE, only required fields plus allocated
+        if (["BANKING", "LAPSE"].includes((type || data.type || '').toUpperCase())) {
+            return {
+                ...base
+            };
+        }
+        return base;
     }
 
     async fetchAll(month) {
@@ -27,9 +52,45 @@ class AllocationApi {
         }
     }
 
+    async createAllocation(data) {
+        try {
+            const formattedData = this.formatAllocationData(data, 'ALLOCATION');
+            console.log('[AllocationApi] Outgoing ALLOCATION payload:', formattedData);
+            const response = await api.post(API_CONFIG.ENDPOINTS.ALLOCATION.CREATE, formattedData);
+            return response.data;
+        } catch (error) {
+            console.error('[AllocationApi] Backend ALLOCATION error:', error?.response?.data || error);
+            throw this.handleError(error);
+        }
+    }
+
+    async createBanking(data) {
+        try {
+            const formattedData = this.formatAllocationData(data, 'BANKING');
+            console.log('[AllocationApi] Outgoing BANKING payload:', formattedData);
+            const response = await api.post(API_CONFIG.ENDPOINTS.BANKING.CREATE, formattedData);
+            return response.data;
+        } catch (error) {
+            console.error('[AllocationApi] Backend BANKING error:', error?.response?.data || error);
+            throw this.handleError(error);
+        }
+    }
+
+    async createLapse(data) {
+        try {
+            const formattedData = this.formatAllocationData(data, 'LAPSE');
+            console.log('[AllocationApi] Outgoing LAPSE payload:', formattedData);
+            const response = await api.post(API_CONFIG.ENDPOINTS.LAPSE.CREATE, formattedData);
+            return response.data;
+        } catch (error) {
+            console.error('[AllocationApi] Backend LAPSE error:', error?.response?.data || error);
+            throw this.handleError(error);
+        }
+    }
+
     async create(data, type = 'ALLOCATION') {
         try {
-            const formattedData = this.formatAllocationData(data);
+            const formattedData = this.formatAllocationData(data, type);
             let endpoint;
             
             switch (type.toUpperCase()) {
@@ -43,16 +104,18 @@ class AllocationApi {
                     endpoint = API_CONFIG.ENDPOINTS.ALLOCATION.CREATE;
             }
 
+            console.log('[AllocationApi] Outgoing payload:', formattedData);
             const response = await api.post(endpoint, formattedData);
             return response.data;
         } catch (error) {
+            console.error('[AllocationApi] Backend error:', error?.response?.data || error);
             throw this.handleError(error);
         }
     }
 
     async update(pk, sk, data, type = 'ALLOCATION') {
         try {
-            const formattedData = this.formatAllocationData(data);
+            const formattedData = this.formatAllocationData(data, type);
             let updateEndpoint;
             
             switch (type.toUpperCase()) {
@@ -96,7 +159,16 @@ class AllocationApi {
     }
 
     handleError(error) {
-        console.error('[Allocation API Error]:', error);
+        // Enhanced error logging
+        if (error.response) {
+            console.error('[Allocation API Error]:', {
+                status: error.response.status,
+                data: error.response.data,
+                headers: error.response.headers
+            });
+        } else {
+            console.error('[Allocation API Error]:', error);
+        }
         const message = error.response?.data?.message || error.message;
         throw new Error(message);
     }

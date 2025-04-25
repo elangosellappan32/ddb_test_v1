@@ -1,10 +1,11 @@
-const lapseDAL = require('./lapseDAL');
+const lapseService = require('../services/lapseService');
 const logger = require('../utils/logger');
 
 // Get all lapse records
 exports.getAllLapse = async (req, res) => {
     try {
-        const result = await lapseDAL.getAllLapse();
+        const { month } = req.query;
+        const result = await lapseService.getLapsesByMonth(month);
         res.json({
             success: true,
             data: result
@@ -22,7 +23,7 @@ exports.getAllLapse = async (req, res) => {
 exports.getLapse = async (req, res) => {
     try {
         const { pk, sk } = req.params;
-        const result = await lapseDAL.getLapse(pk, sk);
+        const result = await lapseService.getLapsesByProductionSite(pk, sk);
         
         if (!result) {
             return res.status(404).json({
@@ -44,20 +45,32 @@ exports.getLapse = async (req, res) => {
     }
 };
 
-// Create lapse record
+// Accept batch creation for lapse
 exports.createLapse = async (req, res) => {
     try {
-        const result = await lapseDAL.createLapse(req.body);
-        res.status(201).json({
-            success: true,
-            data: result
-        });
+        const isBatchRequest = Array.isArray(req.body);
+        const data = isBatchRequest ? req.body : [req.body];
+        const results = [];
+        const errors = [];
+        for (const lapse of data) {
+            try {
+                const result = await lapseService.create(lapse);
+                results.push(result);
+            } catch (error) {
+                logger.error('[LapseController] Create Error:', { error: error.message, data: lapse });
+                errors.push({ data: lapse, error: error.message || 'Failed to create lapse' });
+            }
+        }
+        if (errors.length > 0 && results.length === 0) {
+            return res.status(400).json({ success: false, message: 'All lapse creation failed', errors });
+        }
+        if (errors.length > 0) {
+            return res.status(207).json({ success: true, message: 'Some lapse records created successfully', data: results, errors });
+        }
+        res.status(201).json({ success: true, message: isBatchRequest ? 'All lapse records created successfully' : 'Lapse record created successfully', data: isBatchRequest ? results : results[0] });
     } catch (error) {
         logger.error('[LapseController] Create Error:', error);
-        res.status(500).json({
-            success: false,
-            message: error.message || 'Internal server error'
-        });
+        res.status(500).json({ success: false, message: error.message || 'Internal server error' });
     }
 };
 
@@ -65,7 +78,7 @@ exports.createLapse = async (req, res) => {
 exports.updateLapse = async (req, res) => {
     try {
         const { pk, sk } = req.params;
-        const result = await lapseDAL.updateLapse(pk, sk, req.body);
+        const result = await lapseService.update(pk, sk, req.body);
         res.json({
             success: true,
             data: result
@@ -83,7 +96,7 @@ exports.updateLapse = async (req, res) => {
 exports.deleteLapse = async (req, res) => {
     try {
         const { pk, sk } = req.params;
-        await lapseDAL.deleteLapse(pk, sk);
+        await lapseService.delete(pk, sk);
         res.json({
             success: true,
             message: 'Lapse record deleted successfully'

@@ -32,6 +32,7 @@ import BankingUnitsTable from './BankingUnitsTable';
 import ConsumptionUnitsTable from './ConsumptionUnitsTable';
 import AllocationDetailsTable from './AllocationDetailsTable';
 import { validatePeriodRules, formatAllocationMonth } from '../../utils/allocationUtils';
+import { calculateAllocations } from '../../utils/allocationCalculator';
 
 const calculateTotal = (row) => {
   return ['c1', 'c2', 'c3', 'c4', 'c5'].reduce((sum, key) => sum + (Number(row[key]) || 0), 0);
@@ -47,18 +48,28 @@ const Allocation = () => {
   const [consumptionData, setConsumptionData] = useState([]);
   const [bankingData, setBankingData] = useState([]);
   const [aggregatedBankingData, setAggregatedBankingData] = useState([]);
-  const [allocationData, setAllocationData] = useState([]);
+  const [allocations, setAllocations] = useState([]);
+  const [bankingAllocations, setBankingAllocations] = useState([]);
+  const [lapseAllocations, setLapseAllocations] = useState([]);
   const [yearRange] = useState({
     start: new Date().getFullYear() - 2,
     end: new Date().getFullYear() + 2
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [showAllocations, setShowAllocations] = useState(false);
+
+  // Alias productionUnits for backwards compatibility
+  const productionUnits = productionData;
 
   const updateAllocationData = useCallback(async () => {
     try {
       const formattedMonth = `${selectedMonth.toString().padStart(2, '0')}${selectedYear}`;
       const response = await allocationApi.fetchAll(formattedMonth);
-      setAllocationData(response.allocations || []);
+      setAllocations([
+        ...(response.allocations || []),
+        ...(response.banking || []),
+        ...(response.lapse || [])
+      ]);
     } catch (error) {
       console.error('Error updating allocation data:', error);
       enqueueSnackbar(error.message || 'Failed to update allocation data', { 
@@ -202,20 +213,27 @@ const Allocation = () => {
               Number(site.consumptionSiteId)
             );
             
-            const sk = `${selectedMonth.toString().padStart(2, '0')}${selectedYear}`;
+            const formattedMonth = `${selectedMonth.toString().padStart(2, '0')}${selectedYear}`; // mmyyyy format
             return (unitsResp.data || [])
-              .filter(unit => unit.sk === sk)
-              .map(unit => ({
-                ...unit,
-                siteName: site.name,
-                consumptionSiteId: site.consumptionSiteId,
-                type: site.type,
-                c1: Number(unit.c1) || 0,
-                c2: Number(unit.c2) || 0,
-                c3: Number(unit.c3) || 0,
-                c4: Number(unit.c4) || 0,
-                c5: Number(unit.c5) || 0
-              }));
+              .filter(unit => unit.sk === formattedMonth)
+              .map(unit => {
+                const companyId = Number(site.companyId) || 1;
+                return {
+                  ...unit,
+                  siteName: site.name,
+                  consumptionSiteId: site.consumptionSiteId,
+                  type: site.type,
+                  // Generate pk for allocation (productionSiteId_consumptionSiteId)
+                  pk: `${unit.productionSiteId}_${site.consumptionSiteId}`,
+                  // Generate sk in mmyyyy format
+                  sk: formattedMonth,
+                  c1: Number(unit.c1) || 0,
+                  c2: Number(unit.c2) || 0,
+                  c3: Number(unit.c3) || 0,
+                  c4: Number(unit.c4) || 0,
+                  c5: Number(unit.c5) || 0
+                };
+              });
           } catch (err) {
             console.error('Error fetching consumption units:', err);
             return [];
@@ -223,13 +241,23 @@ const Allocation = () => {
         })
       )).flat();
 
-      setProductionData(productionUnits);
+      // Update production units with proper pk and sk for banking/lapse
+      const updatedProductionUnits = productionUnits.map(unit => {
+        const companyId = localStorage.getItem('companyId') || '1';
+        const formattedMonth = `${selectedMonth.toString().padStart(2, '0')}${selectedYear}`; // mmyyyy format
+        return {
+          ...unit,
+          // Generate pk for banking/lapse (companyId_productionSiteId)
+          pk: `${companyId}_${unit.productionSiteId}`,
+          // Generate sk in mmyyyy format
+          sk: formattedMonth
+        };
+      });
+
+      setProductionData(updatedProductionUnits);
       setConsumptionData(consumptionUnits);
       setBankingData(allBankingData);
       setAggregatedBankingData(Object.values(aggregatedBanking));
-
-      // Fetch latest allocation data
-      await updateAllocationData();
 
     } catch (err) {
       console.error('Error fetching data:', err);
@@ -238,35 +266,32 @@ const Allocation = () => {
     } finally {
       setLoading(false);
     }
-  }, [enqueueSnackbar, selectedMonth, selectedYear, updateAllocationData]);
+  }, [enqueueSnackbar, selectedMonth, selectedYear]);
 
   useEffect(() => {
     fetchAllData();
   }, [fetchAllData]);
 
-  // Fetch fresh allocation data when month/year changes
-  useEffect(() => {
-    const loadAllocationData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const formattedMonth = `${selectedMonth.toString().padStart(2, '0')}${selectedYear}`;
-        const response = await allocationApi.fetchAll(formattedMonth);
-        setAllocationData(response.allocations || []);
-      } catch (error) {
-        console.error('Error loading allocation data:', error);
-        setError(error.message || 'Failed to load allocation data');
-        enqueueSnackbar(error.message || 'Failed to load allocation data', { 
-          variant: 'error',
-          autoHideDuration: 5000 
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
+  // Update allocation calculation and table state
+  const runAllocationCalculation = () => {
+    const { allocations, bankingAllocations, lapseAllocations } = calculateAllocations({
+      productionUnits: productionData,
+      consumptionUnits: consumptionData,
+      bankingUnits: bankingData,
+    });
+    setAllocations(allocations);
+    setBankingAllocations(bankingAllocations);
+    setLapseAllocations(lapseAllocations);
+  };
 
-    loadAllocationData();
-  }, [selectedMonth, selectedYear, enqueueSnackbar]);
+  useEffect(() => {
+    runAllocationCalculation();
+    // eslint-disable-next-line
+  }, [productionData, consumptionData, bankingData]);
+
+  useEffect(() => {
+    runAllocationCalculation();
+  }, [selectedMonth, selectedYear]);
 
   const handleMonthChange = (event) => {
     setSelectedMonth(Number(event.target.value));
@@ -276,156 +301,83 @@ const Allocation = () => {
     setSelectedYear(Number(year));
   };
 
+  const prepareAllocationPayload = (allocation, type, selectedMonth, selectedYear) => {
+    const companyId = localStorage.getItem('companyId') || '1';
+    const monthYear = allocation.month && allocation.month.length === 6 ? allocation.month : formatAllocationMonth(selectedMonth, selectedYear);
+    let payload = { ...allocation };
+    payload.companyId = companyId;
+    payload.type = (type || allocation.type || 'ALLOCATION').toUpperCase();
+    payload.month = monthYear;
+    if (!payload.allocated || typeof payload.allocated !== 'object') payload.allocated = {};
+    Object.keys(payload.allocated).forEach(k => {
+      payload.allocated[k] = Math.max(0, Math.round(Number(payload.allocated[k]) || 0));
+    });
+
+    // Set keys and required fields based on type
+    if (payload.type === 'ALLOCATION') {
+      payload.pk = `${payload.productionSiteId}_${payload.consumptionSiteId}`;
+      payload.sk = monthYear;
+      payload.productionSite = payload.productionSite || payload.siteName || '';
+      payload.consumptionSite = payload.consumptionSite || payload.siteName || '';
+    } else if (payload.type === 'BANKING') {
+      payload.pk = `${companyId}_${payload.productionSiteId}`;
+      payload.sk = monthYear;
+      payload.bankingEnabled = true;
+      payload.siteName = payload.siteName || payload.productionSite || '';
+      payload.productionSite = payload.productionSite || payload.siteName || '';
+      // Flatten allocated c1-c5 into root for banking
+      Object.assign(payload, payload.allocated);
+      delete payload.allocated;
+    } else if (payload.type === 'LAPSE') {
+      payload.pk = `${companyId}_${payload.productionSiteId}`;
+      payload.sk = monthYear;
+      payload.siteName = payload.siteName || payload.productionSite || '';
+      payload.productionSite = payload.productionSite || payload.siteName || '';
+      // Flatten allocated c1-c5 into root for lapse
+      Object.assign(payload, payload.allocated);
+      delete payload.allocated;
+    }
+    Object.keys(payload).forEach(
+      key => (payload[key] === undefined || payload[key] === null) && delete payload[key]
+    );
+    return payload;
+  };
+
+  const validateAllocationPayload = (payload, type) => {
+    // Required fields for each type
+    const requiredFields = {
+      ALLOCATION: ['companyId', 'productionSiteId', 'consumptionSiteId', 'pk', 'sk', 'month', 'allocated'],
+      BANKING: ['companyId', 'productionSiteId', 'pk', 'sk', 'month', 'productionSite'],
+      LAPSE: ['companyId', 'productionSiteId', 'pk', 'sk', 'month', 'productionSite']
+    };
+    const missing = (requiredFields[type] || []).filter(f => payload[f] === undefined || payload[f] === null || payload[f] === '');
+    if (missing.length) {
+      return `Missing required fields: ${missing.join(', ')}`;
+    }
+    return null;
+  };
+
   const handleAutoAllocate = async () => {
     try {
-      setLoading(true);
-      const productionDataClone = JSON.parse(JSON.stringify(productionData));
-      
-      // Group sites by type
-      const solarSites = productionDataClone.filter(site => 
-        site.type?.toLowerCase() === 'solar'
-      );
-      const windSites = productionDataClone.filter(site => 
-        site.type?.toLowerCase() === 'wind'
-      );
+      setIsSaving(true);
+      setError(null);
 
-      const newAllocations = [];
-
-      // Helper function to calculate available units by period type
-      const getAvailableUnits = (site) => {
-        return {
-          c1: Math.round(Number(site.c1 || 0)),
-          c2: Math.round(Number(site.c2 || 0)),
-          c3: Math.round(Number(site.c3 || 0)),
-          c4: Math.round(Number(site.c4 || 0)),
-          c5: Math.round(Number(site.c5 || 0))
-        };
-      };
-
-      // Process solar sites first (they can't bank)
-      for (const solarSite of solarSites) {
-        const availableUnits = getAvailableUnits(solarSite);
-        const total = Object.values(availableUnits).reduce((sum, val) => sum + val, 0);
-
-        if (total > 0) {
-          // Try to allocate to consumption sites
-          for (const consumptionSite of consumptionData) {
-            const allocation = {
-              productionSiteId: solarSite.productionSiteId,
-              productionSite: solarSite.siteName,
-              siteName: solarSite.siteName,
-              consumptionSiteId: consumptionSite.consumptionSiteId,
-              consumptionSite: consumptionSite.siteName,
-              type: 'Allocation',
-              allocated: {},
-              month: formatAllocationMonth(selectedMonth)
-            };
-
-            // Allocate peak periods (c2, c3)
-            ['c2', 'c3'].forEach(period => {
-              const available = Math.round(availableUnits[period]);
-              const required = Math.round(Number(consumptionSite[period] || 0));
-              if (available > 0 && required > 0) {
-                const allocated = Math.round(Math.min(available, required));
-                if (allocated > 0) {
-                  allocation.allocated[period] = allocated;
-                  availableUnits[period] -= allocated;
-                }
-              }
-            });
-
-            // Then allocate non-peak periods (c1, c4, c5)
-            ['c1', 'c4', 'c5'].forEach(period => {
-              const available = Math.round(availableUnits[period]);
-              const required = Math.round(Number(consumptionSite[period] || 0));
-              if (available > 0 && required > 0) {
-                const allocated = Math.round(Math.min(available, required));
-                if (allocated > 0) {
-                  allocation.allocated[period] = allocated;
-                  availableUnits[period] -= allocated;
-                }
-              }
-            });
-
-            // Only add allocation if any units were allocated
-            if (Object.values(allocation.allocated).some(v => Math.round(v) > 0)) {
-              newAllocations.push(allocation);
-            }
-          }
-
-          // Create lapse record for remaining units
-          const remainingTotal = Object.values(availableUnits).reduce((sum, val) => sum + val, 0);
-          if (remainingTotal > 0) {
-            newAllocations.push({
-              productionSiteId: solarSite.productionSiteId,
-              productionSite: solarSite.siteName,
-              siteName: solarSite.siteName,
-              type: 'Lapse',
-              month: formatAllocationMonth(selectedMonth),
-              allocated: availableUnits
-            });
-          }
-        }
-      }
-
-      // Process wind sites
-      for (const windSite of windSites) {
-        const availableUnits = getAvailableUnits(windSite);
-        const total = Object.values(availableUnits).reduce((sum, val) => sum + val, 0);
-
-        if (total > 0) {
-          const canBank = windSite.banking === 1;
-
-          if (canBank) {
-            // Create banking record
-            newAllocations.push({
-              productionSiteId: windSite.productionSiteId,
-              productionSite: windSite.siteName,
-              siteName: windSite.siteName,
-              type: 'Banking',
-              month: formatAllocationMonth(selectedMonth),
-              bankingEnabled: true,
-              allocated: availableUnits
-            });
-          } else {
-            // Create lapse record
-            newAllocations.push({
-              productionSiteId: windSite.productionSiteId,
-              productionSite: windSite.siteName,
-              siteName: windSite.siteName,
-              type: 'Lapse',
-              month: formatAllocationMonth(selectedMonth),
-              allocated: availableUnits
-            });
-          }
-        }
-      }
-
-      // Update allocation state
-      setAllocationData(newAllocations);
-
-      // Create allocations in backend
-      for (const allocation of newAllocations) {
-        try {
-          await allocationApi.create(allocation, allocation.type);
-        } catch (error) {
-          console.error('Failed to create allocation:', allocation, error);
-          enqueueSnackbar(`Failed to create ${allocation.type.toLowerCase()} for ${allocation.productionSite}: ${error.message}`, { 
-            variant: 'error',
-            autoHideDuration: 5000
-          });
-        }
-      }
-
-      enqueueSnackbar('Auto allocation completed successfully', { variant: 'success' });
-    } catch (error) {
-      console.error('Error in auto allocation:', error);
-      enqueueSnackbar(`Failed to auto allocate units: ${error.message}`, { 
+      // Compute allocations and update state
+      runAllocationCalculation();
+      setShowAllocations(true);
+      enqueueSnackbar('Allocations computed successfully.', { 
+        variant: 'success',
+        autoHideDuration: 6000
+      });
+    } catch (err) {
+      console.error('[Allocation] Error during auto allocation:', err);
+      setError(err.message || 'Error during auto allocation');
+      enqueueSnackbar(err.message || 'Error during auto allocation', { 
         variant: 'error',
-        autoHideDuration: 5000
+        autoHideDuration: 6000
       });
     } finally {
-      setLoading(false);
+      setIsSaving(false);
     }
   };
 
@@ -461,7 +413,7 @@ const Allocation = () => {
       }
 
       // Update allocation data state
-      setAllocationData(prevData => 
+      setAllocations(prevData => 
         prevData.map(a => 
           a.consumptionSiteId === allocation.consumptionSiteId ? updatedAllocation : a
         )
@@ -474,41 +426,38 @@ const Allocation = () => {
     }
   };
 
+  // Save handler: send each type to its respective API and log payloads
   const handleSaveAllocation = async () => {
+    setIsSaving(true);
     try {
-      setIsSaving(true);
-      
-      // Calculate unused units
-      const unusedUnitsByPeriod = {};
-      ['c1', 'c2', 'c3', 'c4', 'c5'].forEach(period => {
-        const totalAvailable = productionData.reduce((sum, site) => sum + (Number(site[period]) || 0), 0);
-        const totalAllocated = allocationData
-          .filter(a => a.type === 'Allocation')
-          .reduce((sum, alloc) => sum + (Number(alloc.allocated[period]) || 0), 0);
-        unusedUnitsByPeriod[period] = Math.max(0, totalAvailable - totalAllocated);
-      });
-
-      // Save allocations to database
-      await Promise.all(allocationData.map(allocation => 
-        allocationApi.create(allocation, allocation.type)
-      ));
-
-      // Update banking data with unused units
-      setBankingData(prev => ([
-        ...prev,
-        {
-          type: 'Banking',
-          allocated: unusedUnitsByPeriod,
-          isDirect: true,
-          productionSite: 'Unused Units',
-          siteName: 'Unused Units'
+      // 1. Save allocations
+      if (allocations.length) {
+        const allocPayloads = allocations.map(a => prepareAllocationPayload(a, 'ALLOCATION', selectedMonth, selectedYear));
+        console.log('[AllocationApi] Payload to allocation table:', allocPayloads);
+        for (const payload of allocPayloads) {
+          await allocationApi.createAllocation(payload);
         }
-      ]));
-
-      enqueueSnackbar('Allocations saved successfully', { variant: 'success' });
+      }
+      // 2. Save banking allocations
+      if (bankingAllocations.length) {
+        const bankPayloads = bankingAllocations.map(b => prepareAllocationPayload(b, 'BANKING', selectedMonth, selectedYear));
+        console.log('[BankingApi] Payload to banking table:', bankPayloads);
+        for (const payload of bankPayloads) {
+          await allocationApi.createBanking(payload);
+        }
+      }
+      // 3. Save lapse allocations
+      if (lapseAllocations.length) {
+        const lapsePayloads = lapseAllocations.map(l => prepareAllocationPayload(l, 'LAPSE', selectedMonth, selectedYear));
+        console.log('[LapseApi] Payload to lapse table:', lapsePayloads);
+        for (const payload of lapsePayloads) {
+          await allocationApi.createLapse(payload);
+        }
+      }
+      enqueueSnackbar('Allocations saved successfully!', { variant: 'success' });
+      updateAllocationData();
     } catch (error) {
-      console.error('Error saving allocations:', error);
-      enqueueSnackbar('Failed to save allocations: ' + error.message, { variant: 'error' });
+      enqueueSnackbar(error.message || 'Failed to save allocations', { variant: 'error' });
     } finally {
       setIsSaving(false);
     }
@@ -585,7 +534,19 @@ const Allocation = () => {
 
       {error && (
         <Alert severity="error" sx={{ mb: 3 }}>
-          {error}
+          {typeof error === 'string' ? error : (
+            <Box>
+              {error.allocation?.length > 0 && (
+                <Typography>Allocation Errors: {error.allocation.join(', ')}</Typography>
+              )}
+              {error.banking?.length > 0 && (
+                <Typography>Banking Errors: {error.banking.join(', ')}</Typography>
+              )}
+              {error.lapse?.length > 0 && (
+                <Typography>Lapse Errors: {error.lapse.join(', ')}</Typography>
+              )}
+            </Box>
+          )}
         </Alert>
       )}
 
@@ -612,12 +573,16 @@ const Allocation = () => {
         </Button>
       </Box>
 
-      <AllocationDetailsTable 
-        allocations={allocationData}
-        loading={loading || isSaving}
-        onEdit={handleEditAllocation}
-        onSave={handleSaveAllocation}
-      />
+      {showAllocations && (
+        <AllocationDetailsTable 
+          allocations={allocations}
+          bankingAllocations={bankingAllocations}
+          lapseAllocations={lapseAllocations}
+          loading={loading || isSaving}
+          onEdit={handleEditAllocation}
+          onSave={handleSaveAllocation}
+        />
+      )}
 
       <Grid container spacing={3} sx={{ mt: 4 }}>
         <Grid item xs={12} md={2.4}>
@@ -654,7 +619,7 @@ const Allocation = () => {
             <Box>
               <Typography variant="subtitle2">Direct Banking</Typography>
               <Typography variant="h6">
-                {allocationData
+                {allocations
                   .filter(a => a.type === 'Banking' && a.isDirect)
                   .reduce((sum, bank) => sum + calculateTotal(bank.allocated), 0)} units
               </Typography>
@@ -696,8 +661,7 @@ const Allocation = () => {
             <Box>
               <Typography variant="subtitle2">Total Lapse</Typography>
               <Typography variant="h6">
-                {allocationData
-                  .filter(a => a.type === 'Lapse')
+                {lapseAllocations
                   .reduce((sum, lapse) => sum + calculateTotal(lapse.allocated), 0)} units
               </Typography>
             </Box>
@@ -718,7 +682,7 @@ const Allocation = () => {
             <Box>
               <Typography variant="subtitle2">Total Allocated</Typography>
               <Typography variant="h6">
-                {allocationData
+                {allocations
                   .filter(a => a.type === 'Allocation')
                   .reduce((sum, alloc) => sum + calculateTotal(alloc.allocated), 0)} units
               </Typography>

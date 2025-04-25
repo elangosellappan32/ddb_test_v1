@@ -9,6 +9,13 @@ class LapseDAL extends BaseDAL {
         super(TableNames.LAPSE);
     }
 
+    validateSortKey(sk) {
+        // Accepts MMYYYY or 6 digit string for month-year
+        if (!sk || typeof sk !== 'string' || !/^(0[1-9]|1[0-2])\d{4}$/.test(sk)) {
+            throw new Error(`Invalid sort key (sk): ${sk}. Must be in MMYYYY format (e.g., 042025)`);
+        }
+    }
+
     async createLapse(lapseData) {
         try {
             this.validateSortKey(lapseData.sk);

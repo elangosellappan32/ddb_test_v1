@@ -14,7 +14,18 @@ const logger = {
             message: error.message,
             stack: error.stack
         });
-    }
+    },
+    // Add a simple timer for performance logging
+    startTimer: () => {
+        const start = process.hrtime.bigint();
+        return {
+            end: (label, data) => {
+                const end = process.hrtime.bigint();
+                const ms = Number(end - start) / 1e6;
+                console.log(`[TIMER] ${label} took ${ms.toFixed(2)} ms`, data || '');
+            }
+        };
+    },
 };
 
 module.exports = logger;
