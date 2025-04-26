@@ -1,6 +1,6 @@
 const logger = require('../utils/logger');
 
-const validateBanking = (req, res, next) => {
+const bankingValidator = (req, res, next) => {
     try {
         const banking = req.body;
 
@@ -75,4 +75,4 @@ const validateBanking = (req, res, next) => {
     }
 };
 
-module.exports = validateBanking;
+module.exports = bankingValidator;

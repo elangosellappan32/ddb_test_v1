@@ -1,6 +1,4 @@
-const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 const {
-    DynamoDBDocumentClient,
     ScanCommand,
     GetCommand,
     PutCommand,
@@ -10,6 +8,7 @@ const {
 } = require("@aws-sdk/lib-dynamodb");
 const logger = require('../utils/logger');
 const docClient = require('../utils/db');
+
 class BaseDAL {
     constructor(tableName) {
         this.tableName = tableName;
@@ -82,13 +81,13 @@ class BaseDAL {
                 ReturnValues: 'ALL_NEW'
             };
 
-            console.log(`[DynamoDB] Updating item:`, params);
+            logger.debug(`[BaseDAL] Updating item:`, params);
             const command = new UpdateCommand(params);
-            const response = await ddbDocClient.send(command);
+            const response = await this.docClient.send(command);
 
             return response.Attributes;
         } catch (err) {
-            console.error(`[DynamoDB] UpdateItem error:`, err);
+            logger.error(`[BaseDAL] UpdateItem error:`, err);
             throw err;
         }
     }
@@ -101,13 +100,13 @@ class BaseDAL {
                 ReturnValues: 'ALL_OLD'
             };
 
-            console.log(`[DynamoDB] Deleting item with key:`, key);
+            logger.debug(`[BaseDAL] Deleting item with key:`, key);
             const command = new DeleteCommand(params);
-            const response = await ddbDocClient.send(command);
+            const response = await this.docClient.send(command);
 
             return response.Attributes;
         } catch (err) {
-            console.error(`[DynamoDB] DeleteItem error:`, err);
+            logger.error(`[BaseDAL] DeleteItem error:`, err);
             throw err;
         }
     }
@@ -129,13 +128,13 @@ class BaseDAL {
                 };
             }
 
-            console.log(`[DynamoDB] Querying items:`, params);
+            logger.debug(`[BaseDAL] Querying items:`, params);
             const command = new QueryCommand(params);
-            const response = await ddbDocClient.send(command);
+            const response = await this.docClient.send(command);
 
             return response.Items || [];
         } catch (err) {
-            console.error(`[DynamoDB] Query error:`, err);
+            logger.error(`[BaseDAL] Query error:`, err);
             throw err;
         }
     }

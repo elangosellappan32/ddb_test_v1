@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const allocationController = require('./allocationController');
-const validateAllocation = require('./validateAllocation');
-const validateJson = require('../middleware/validateJson');
+const validateAllocation = require('./Allocationvalidator');
+const validateJson = require('../middleware/validatejson');
 
 // Create single allocation
 router.post('/', validateJson, validateAllocation, allocationController.createAllocation);
