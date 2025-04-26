@@ -23,7 +23,6 @@ import { TrendingDown, Edit as EditIcon, Autorenew as AutorenewIcon, Info as Inf
 import { format } from "date-fns";
 import api from '../../services/apiUtils';
 import { API_CONFIG } from '../../config/api.config';
-import allocationService from '../../services/allocationService';
 import { useSnackbar } from 'notistack';
 
 const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onAllocationSaved }) => {
@@ -165,29 +164,23 @@ const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onAllocationSave
     }
     
     try {
-      const allocationData = consumptionSites.map((site, index) => ({
+      const allocationPercentages = consumptionSites.map((site, index) => ({
         siteName: site.name,
-        siteId: site.id,
         consumptionSiteId: site.consumptionSiteId,
         percentage: splitPercentages[index],
-        peakTotal: calculateTotal(site, PEAK_PERIODS),
-        nonPeakTotal: calculateTotal(site, NON_PEAK_PERIODS),
-        month: formatMonth(site.sk).api // Use API formatted month
       }));
 
-      await allocationService.batchUpdate(allocationData);
-      localStorage.setItem('allocationPercentages', JSON.stringify(allocationData));
+      localStorage.setItem('allocationPercentages', JSON.stringify(allocationPercentages));
       setAllocationDialog(false);
       setError("");
-      enqueueSnackbar('Allocation saved successfully', { variant: 'success' });
-      
+      enqueueSnackbar('Allocation percentages saved', { variant: 'success' });
       if (onAllocationSaved) {
-        onAllocationSaved(allocationData);
+        onAllocationSaved(allocationPercentages);
       }
     } catch (error) {
-      console.error('Failed to save allocation:', error);
-      setError('Failed to save allocation');
-      enqueueSnackbar('Failed to save allocation', { variant: 'error' });
+      console.error('Error saving allocations:', error);
+      setError('Failed to save allocation percentages');
+      enqueueSnackbar('Failed to save allocation percentages', { variant: 'error' });
     }
   };
 

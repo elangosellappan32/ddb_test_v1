@@ -228,7 +228,7 @@ const Allocation = () => {
                   consumptionSiteId: site.consumptionSiteId,
                   type: site.type,
                   // Generate pk for allocation (productionSiteId_consumptionSiteId)
-                  pk: `${unit.productionSiteId}_${site.consumptionSiteId}`,
+                  pk: `${companyId}_${unit.productionSiteId}_${site.consumptionSiteId}`,
                   // Generate sk in mmyyyy format
                   sk: formattedMonth,
                   c1: Number(unit.c1) || 0,

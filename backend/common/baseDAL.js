@@ -10,28 +10,6 @@ const {
 } = require("@aws-sdk/lib-dynamodb");
 const logger = require('../utils/logger');
 const docClient = require('../utils/db');
-
-// DynamoDB Local Configuration
-const client = new DynamoDBClient({
-    region: "local",
-    endpoint: "http://localhost:8000",
-    credentials: {
-        accessKeyId: "local",
-        secretAccessKey: "local"
-    },
-    tls: false,
-    forcePathStyle: true
-});
-
-// Configure DocumentClient with proper marshalling
-const ddbDocClient = DynamoDBDocumentClient.from(client, {
-    marshallOptions: {
-        convertEmptyValues: true,
-        removeUndefinedValues: true,
-        convertClassInstanceToMap: true
-    }
-});
-
 class BaseDAL {
     constructor(tableName) {
         this.tableName = tableName;

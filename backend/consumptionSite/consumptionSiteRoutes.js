@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const consumptionSiteController = require('./consumptionSiteController');
-const validateConsumptionSite = require('../middleware/validateConsumptionSite');
-const validateConsumptionSiteUpdate = require('../middleware/validateConsumptionSiteUpdate');
+const validateConsumptionSite = require('./validateConsumptionSite');
+const validateConsumptionSiteUpdate = require('./validateConsumptionSiteUpdate');
 
 // Ensure all controller methods exist before using them
 router.get('/all', consumptionSiteController.getAllConsumptionSites);

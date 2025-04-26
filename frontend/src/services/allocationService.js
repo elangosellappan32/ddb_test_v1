@@ -93,9 +93,8 @@ class AllocationService {
                 updatedat: new Date().toISOString()
             }));
 
-            const response = await api.put(API_CONFIG.ENDPOINTS.ALLOCATION.BATCH, { 
-                allocations: enrichedAllocations 
-            });
+            // Use POST for batch create/update to match backend POST /allocation/batch
+            const response = await api.post(API_CONFIG.ENDPOINTS.ALLOCATION.BATCH, enrichedAllocations);
             return response.data;
         } catch (error) {
             throw error.response?.data || { 

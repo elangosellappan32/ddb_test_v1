@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const consumptionUnitController = require('./consumptionUnitController');
-const validateConsumptionUnit = require('../middleware/validateConsumptionUnit');
+const validateConsumptionUnit = require('./validateConsumptionUnit');
 
 // Create consumption unit
 router.post('/:companyId/:consumptionSiteId', validateConsumptionUnit, consumptionUnitController.createConsumptionUnit);

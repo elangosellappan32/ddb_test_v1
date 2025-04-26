@@ -10,13 +10,7 @@ const {
 } = require('@aws-sdk/lib-dynamodb');
 const TableNames = require('../constants/tableNames');
 const logger = require('../utils/logger');
-
-const client = new DynamoDBClient({
-    region: 'local',
-    endpoint: 'http://localhost:8000'
-});
-
-const docClient = DynamoDBDocumentClient.from(client);
+const docClient = require('../utils/db');
 
 
 const create = async (item) => {

@@ -9,14 +9,7 @@ const {
 } = require('@aws-sdk/lib-dynamodb');
 const TableNames = require('../constants/tableNames');
 const logger = require('../utils/logger');
-
-// Initialize DynamoDB client
-const client = new DynamoDBClient({
-    region: process.env.AWS_REGION || 'local',
-    endpoint: process.env.DYNAMODB_ENDPOINT || 'http://localhost:8000'
-});
-
-const docClient = DynamoDBDocumentClient.from(client);
+const docClient = require('../utils/db');
 
 const getAllCharges = async (companyId, productionSiteId) => {
     try {

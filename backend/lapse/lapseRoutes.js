@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const lapseController = require('./lapseController');
-const validateLapse = require('../middleware/validateLapse');
+const validateLapse = require('./validateLapse');
 const validateJson = require('../middleware/validateJson');
 
 // Get all lapse records
