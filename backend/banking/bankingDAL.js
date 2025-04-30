@@ -17,24 +17,29 @@ const TableName = TableNames.BANKING;
 const createBanking = async (item) => {
     try {
         const now = new Date().toISOString();
+        // Get existing banking record if it exists
+        const existingBanking = await getBanking(item.pk, item.sk);
+        
         const bankingItem = {
             ...item,
-            c1: Number(item.c1 || 0),
-            c2: Number(item.c2 || 0),
-            c3: Number(item.c3 || 0),
-            c4: Number(item.c4 || 0),
-            c5: Number(item.c5 || 0),
-            totalBanking: calculateTotal(item),
+            // Add new banking values to existing ones
+            c1: (existingBanking?.c1 || 0) + Number(item.c1 || 0),
+            c2: (existingBanking?.c2 || 0) + Number(item.c2 || 0),
+            c3: (existingBanking?.c3 || 0) + Number(item.c3 || 0),
+            c4: (existingBanking?.c4 || 0) + Number(item.c4 || 0),
+            c5: (existingBanking?.c5 || 0) + Number(item.c5 || 0),
             siteName: item.siteName || '',
-            createdAt: now,
+            createdAt: existingBanking?.createdAt || now,
             updatedAt: now,
-            version: 1
+            version: (existingBanking?.version || 0) + 1
         };
+
+        // Calculate total banking after update
+        bankingItem.totalBanking = calculateTotal(bankingItem);
 
         await docClient.send(new PutCommand({
             TableName,
             Item: bankingItem
-            // Removed ConditionExpression to allow upsert
         }));
 
         return bankingItem;

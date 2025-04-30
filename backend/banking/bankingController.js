@@ -1,5 +1,6 @@
 const bankingDAL = require('./bankingDAL');
 const logger = require('../utils/logger');
+const { ALL_PERIODS } = require('../constants/periods');
 
 const validateBankingData = (data) => {
     const requiredFields = ['pk', 'sk', 'siteName'];
@@ -10,18 +11,6 @@ const validateBankingData = (data) => {
             isValid: false,
             error: `Missing required fields: ${missingFields.join(', ')}`
         };
-    }
-
-    // Validate C values are numbers
-    const cValues = ['c1', 'c2', 'c3', 'c4', 'c5'];
-    for (const field of cValues) {
-        const value = Number(data[field]);
-        if (data[field] !== undefined && (isNaN(value) || value < 0)) {
-            return {
-                isValid: false,
-                error: `${field} must be a positive number`
-            };
-        }
     }
 
     // Clean and transform the data

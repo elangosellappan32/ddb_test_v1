@@ -10,17 +10,12 @@ const validateAllocation = (req, res, next) => {
             const type = (alloc.type || 'ALLOCATION').toUpperCase();
             const validationErrors = [];
 
-            // Common required fields for all types
-            const commonFields = [
-                'productionSiteId',
-                'siteName',
-                'productionSite',
-                'month'
-            ];
+            // Common required fields: only pk and sk
+            const commonFields = ['pk', 'sk'];
 
             // Type-specific required fields
             const typeFields = {
-                'ALLOCATION': ['consumptionSiteId', 'consumptionSite', 'allocated'],
+                'ALLOCATION': ['consumptionSiteId', 'allocated'],
                 'BANKING': ['allocated'],
                 'LAPSE': ['allocated']
             };
@@ -35,38 +30,12 @@ const validateAllocation = (req, res, next) => {
                 validationErrors.push(`Missing required fields: ${missingFields.join(', ')}`);
             }
 
-            // Validate allocation amounts
+            // Coerce all allocation periods to numbers (default 0)
             if (alloc.allocated) {
                 const periods = ['c1', 'c2', 'c3', 'c4', 'c5'];
-                const invalidPeriods = periods.filter(p => {
-                    const val = Number(alloc.allocated[p]);
-                    return isNaN(val) || val < 0;
-                });
-                
-                if (invalidPeriods.length > 0) {
-                    validationErrors.push(`Invalid allocation amounts for periods: ${invalidPeriods.join(', ')}`);
-                }
-
-                // Convert allocated values to numbers and normalize
                 periods.forEach(p => {
                     alloc.allocated[p] = Number(alloc.allocated[p]) || 0;
                 });
-
-                // Check if any period has units
-                const totalUnits = Object.values(alloc.allocated).reduce((sum, val) => sum + val, 0);
-                if (totalUnits === 0) {
-                    validationErrors.push('At least one period must have units allocated');
-                }
-            }
-
-            // Auto-generate pk and sk if not provided
-            if (!alloc.pk) {
-                alloc.pk = type === 'ALLOCATION' 
-                    ? `${alloc.productionSiteId}_${alloc.consumptionSiteId}`
-                    : `${alloc.companyId || '1'}_${alloc.productionSiteId}`;
-            }
-            if (!alloc.sk) {
-                alloc.sk = alloc.month;
             }
 
             // Set defaults for banking and lapse
@@ -90,14 +59,20 @@ const validateAllocation = (req, res, next) => {
             });
         }
 
-        // Add validated flag and metadata to request for controller
-        req.validatedAllocations = allocations.map(alloc => ({
-            ...alloc,
-            type: (alloc.type || 'ALLOCATION').toUpperCase(),
-            validated: true,
-            timestamp: new Date().toISOString(),
-            version: alloc.version || 1
-        }));
+        // Add validated flag, metadata, and strip unwanted fields
+        req.validatedAllocations = allocations.map(alloc => {
+            const cleaned = {
+                ...alloc,
+                validated: true,
+                timestamp: new Date().toISOString(),
+                version: alloc.version || 1
+            };
+            delete cleaned.siteName;
+            delete cleaned.productionSite;
+            delete cleaned.siteType;
+            delete cleaned.consumptionSite;
+            return cleaned;
+        });
 
         next();
     } catch (error) {

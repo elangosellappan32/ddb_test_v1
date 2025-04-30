@@ -1,5 +1,10 @@
-const lapseService = require('../services/lapseService');
 const logger = require('../utils/logger');
+const { ALL_PERIODS } = require('../constants/periods');
+const lapseService = require('../services/lapseService');
+
+const calculateTotal = (data) => {
+    return ALL_PERIODS.reduce((sum, key) => sum + (Number(data[key]) || 0), 0);
+};
 
 // Get all lapse records
 exports.getAllLapse = async (req, res) => {

@@ -1,5 +1,10 @@
 const consumptionUnitDAL = require('./consumptionUnitDAL');
 const logger = require('../utils/logger');
+const { ALL: ALL_PERIODS } = require('../constants/periods');
+
+const calculateTotal = (unit) => {
+    return ALL_PERIODS.reduce((sum, key) => sum + (Number(unit[key]) || 0), 0);
+};
 
 const formatDateToMMYYYY = (dateString) => {
     const date = new Date(dateString);
@@ -23,11 +28,7 @@ const createConsumptionUnit = async (req, res) => {
             c3: Number(req.body.c3 || 0),
             c4: Number(req.body.c4 || 0),
             c5: Number(req.body.c5 || 0),
-            total: Number(req.body.c1 || 0) + 
-                   Number(req.body.c2 || 0) + 
-                   Number(req.body.c3 || 0) + 
-                   Number(req.body.c4 || 0) + 
-                   Number(req.body.c5 || 0),
+            total: calculateTotal(req.body),
             createdat: now,
             updatedat: now,
             version: 1,
@@ -126,11 +127,7 @@ const updateConsumptionUnit = async (req, res) => {
             c3: Number(req.body.c3 || existing.c3 || 0),
             c4: Number(req.body.c4 || existing.c4 || 0),
             c5: Number(req.body.c5 || existing.c5 || 0),
-            total: Number(req.body.c1 || existing.c1 || 0) + 
-                   Number(req.body.c2 || existing.c2 || 0) + 
-                   Number(req.body.c3 || existing.c3 || 0) + 
-                   Number(req.body.c4 || existing.c4 || 0) + 
-                   Number(req.body.c5 || existing.c5 || 0),
+            total: calculateTotal({ ...existing, ...req.body }),
             version: (existing.version || 0) + 1
         };
 

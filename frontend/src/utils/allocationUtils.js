@@ -1,7 +1,7 @@
 // Period constants
 export const PEAK_PERIODS = ['c2', 'c3'];
 export const NON_PEAK_PERIODS = ['c1', 'c4', 'c5'];
-export const ALL_PERIODS = [...PEAK_PERIODS, ...NON_PEAK_PERIODS];
+export const ALL_PERIODS = ['c1', 'c2', 'c3', 'c4', 'c5'];  // Ordered from c1 to c5
 
 export const ALLOCATION_TYPES = {
     ALLOCATION: 'Allocation',
@@ -45,9 +45,14 @@ export const getAllocationTypeColor = (type) => {
 /**
  * Normalize allocated values to ensure all periods exist with default value 0
  */
-export const normalizeAllocatedValues = (allocated = {}) => {
+export const normalizeAllocatedValues = (allocated = {}, type = 'ALLOCATION') => {
     return ALL_PERIODS.reduce((acc, period) => {
-        acc[period] = Math.round(Number(allocated[period] || 0));
+        // For banking type, allow negative values
+        if (type === 'BANKING') {
+            acc[period] = Number(allocated[period] || 0);
+        } else {
+            acc[period] = Math.max(0, Math.round(Number(allocated[period] || 0)));
+        }
         return acc;
     }, {});
 };
@@ -60,7 +65,7 @@ export const roundAllocationValues = (allocation) => {
 
     return {
         ...allocation,
-        allocated: normalizeAllocatedValues(allocation.allocated)
+        allocated: normalizeAllocatedValues(allocation.allocated, allocation.type)
     };
 };
 
@@ -78,11 +83,6 @@ export const validateAllocation = (allocation) => {
         }
     });
 
-    // Validate production site ID
-    if (allocation.productionSiteId && !allocation.productionSiteId.toString()) {
-        errors.push('Invalid production site ID');
-    }
-
     // Validate allocation values
     if (allocation.allocated) {
         Object.entries(allocation.allocated).forEach(([period, value]) => {
@@ -95,7 +95,8 @@ export const validateAllocation = (allocation) => {
 
     return {
         isValid: errors.length === 0,
-        errors
+        errors,
+        allocation: roundAllocationValues(allocation)
     };
 };
 
@@ -294,11 +295,11 @@ export const sortAllocationsByDate = (allocations) => {
  * Get available allocation periods
  */
 export const getAllocationPeriods = () => ([
-    { id: 'c1', label: 'C1', isPeak: false },
-    { id: 'c2', label: 'C2', isPeak: true },
-    { id: 'c3', label: 'C3', isPeak: true },
-    { id: 'c4', label: 'C4', isPeak: false },
-    { id: 'c5', label: 'C5', isPeak: false }
+  { id: 'c1', label: 'C1', isPeak: false },
+  { id: 'c2', label: 'C2', isPeak: true },
+  { id: 'c3', label: 'C3', isPeak: true },
+  { id: 'c4', label: 'C4', isPeak: false },
+  { id: 'c5', label: 'C5', isPeak: false }
 ]);
 
 /**
@@ -315,9 +316,14 @@ export const validateBankingBalance = (currentBalance, previousBalance) => {
     const current = normalizeAllocatedValues(currentBalance);
     const previous = normalizeAllocatedValues(previousBalance);
 
+    // Calculate net balance for each period
     ALL_PERIODS.forEach(period => {
-        if (current[period] > previous[period]) {
-            errors.push(`Invalid banking balance for period ${period}`);
+        const oldValue = Number(previous[period] || 0);
+        const newValue = Number(current[period] || 0);
+        const netBalance = newValue + oldValue;  // Add because banking values are stored as negatives
+        
+        if (netBalance < 0) {
+            errors.push(`Net banking balance for period ${period} cannot be negative`);
         }
     });
 
@@ -415,6 +421,19 @@ export const calculateAllocationSummary = (allocations) => {
 };
 
 /**
+ * Calculate net banking units (new banking - used banking)
+ */
+export const calculateNetBankingUnits = (newBanking, usedBanking) => {
+    const result = {};
+    ALL_PERIODS.forEach(period => {
+        const newValue = Number(newBanking[period] || 0);
+        const usedValue = Number(usedBanking[period] || 0);
+        result[period] = newValue - usedValue;
+    });
+    return result;
+};
+
+/**
  * Validates banking data
  */
 export const validateBankingData = (bankingData) => {
@@ -429,9 +448,10 @@ export const validateBankingData = (bankingData) => {
     }
 
     if (bankingData?.allocated) {
-        const normalized = normalizeAllocatedValues(bankingData.allocated);
+        // For banking, just ensure values are valid numbers (can be negative)
+        const normalized = normalizeAllocatedValues(bankingData.allocated, 'BANKING');
         Object.entries(normalized).forEach(([period, value]) => {
-            if (isNaN(value) || value < 0) {
+            if (isNaN(value)) {
                 errors.push(`Invalid value for period ${period}`);
             }
         });
@@ -440,30 +460,9 @@ export const validateBankingData = (bankingData) => {
         bankingData.allocated = normalized;
     }
 
-    const hasAllocation = bankingData?.allocated && 
-        Object.values(bankingData.allocated).some(val => val > 0);
-
-    if (!hasAllocation) {
-        errors.push('At least one period must have a banking amount');
-    }
-
     return {
         isValid: errors.length === 0,
         errors
-    };
-};
-
-/**
- * Validate peak and non-peak mixing
- */
-export const validatePeakNonPeakMixing = (allocated) => {
-    const normalized = normalizeAllocatedValues(allocated);
-    const hasPeak = PEAK_PERIODS.some(period => normalized[period] > 0);
-    const hasNonPeak = NON_PEAK_PERIODS.some(period => normalized[period] > 0);
-
-    return {
-        isValid: !(hasPeak && hasNonPeak),
-        error: hasPeak && hasNonPeak ? 'Cannot mix peak and non-peak period allocations' : null
     };
 };
 

@@ -11,14 +11,10 @@ const api = axios.create({
 });
 
 // Add response interceptor to handle common error cases
+// Propagate errors to callers (including 404) so API methods can handle them
 api.interceptors.response.use(
   response => response,
-  error => {
-    if (error.response?.status === 404) {
-      throw new Error('Resource not found - Please check the URL parameters');
-    }
-    throw error;
-  }
+  error => Promise.reject(error)
 );
 
 export const handleApiError = (error) => {

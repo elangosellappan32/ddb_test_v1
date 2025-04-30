@@ -36,8 +36,9 @@ const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onAllocationSave
 
   const PEAK_PERIODS = ['c2', 'c3'];
   const NON_PEAK_PERIODS = ['c1', 'c4', 'c5'];
+  const ALL_PERIODS = ['c1', 'c2', 'c3', 'c4', 'c5'];  // Ordered from c1 to c5
 
-  const calculateTotal = (row, periods = ['c1', 'c2', 'c3', 'c4', 'c5']) => {
+  const calculateTotal = (row, periods = ALL_PERIODS) => {
     return periods.reduce((sum, key) => sum + (Number(row[key]) || 0), 0);
   };
 

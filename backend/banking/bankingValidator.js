@@ -5,15 +5,9 @@ const bankingValidator = (req, res, next) => {
         const banking = req.body;
 
         // Required fields validation
-        const requiredFields = [
-            'productionSiteId',
-            'productionSite',
-            'siteName',
-            'allocated',
-            'month'
-        ];
+        const requiredFields = ['pk', 'sk', 'allocated'];
 
-        const missingFields = requiredFields.filter(field => !banking[field]);
+        const missingFields = requiredFields.filter(field => banking[field] === undefined || banking[field] === null);
         if (missingFields.length > 0) {
             return res.status(400).json({
                 success: false,
@@ -27,33 +21,13 @@ const bankingValidator = (req, res, next) => {
             banking.bankingEnabled = true;
         }
 
-        // Validate allocation amounts
-        const allocated = banking.allocated || {};
-        const hasAllocation = Object.values(allocated).some(val => Number(val) > 0);
-        if (!hasAllocation) {
-            return res.status(400).json({
-                success: false,
-                message: 'At least one period must have a banking amount',
-                invalidBanking: banking
-            });
-        }
-
-        // Check for negative values
-        if (Object.values(allocated).some(val => Number(val) < 0)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Banking amounts cannot be negative',
-                invalidBanking: banking
-            });
-        }
-
         // Convert allocated values to numbers
-        Object.keys(allocated).forEach(key => {
-            allocated[key] = Number(allocated[key]) || 0;
-        });
+        if (banking.allocated && typeof banking.allocated === 'object') {
+            Object.keys(banking.allocated).forEach(key => {
+                banking.allocated[key] = Number(banking.allocated[key]) || 0;
+            });
+        }
 
-        // Add type and timestamp
-        banking.type = 'BANKING';
         banking.timestamp = new Date().toISOString();
 
         // Version check for updates
@@ -65,6 +39,11 @@ const bankingValidator = (req, res, next) => {
             });
         }
 
+        // Strip unwanted fields
+        delete banking.productionSite;
+        delete banking.siteType;
+        delete banking.month;
+        delete banking.companyId;
         next();
     } catch (error) {
         logger.error('[ValidateBanking] Error:', error);

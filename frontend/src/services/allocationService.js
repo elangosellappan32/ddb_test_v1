@@ -1,16 +1,7 @@
-import api from './apiUtils';
-import { API_CONFIG } from '../config/api.config';
+const api = require('./apiUtils');
+const { API_CONFIG } = require('../config/api.config');
 
 class AllocationService {
-    async getAllocations(month) {
-        try {
-            const response = await api.get(`${API_CONFIG.ENDPOINTS.ALLOCATION.GET_ALL}/${month || ''}`);
-            return response.data;
-        } catch (error) {
-            throw this.handleError(error);
-        }
-    }
-
     async createAllocation(data, type = 'ALLOCATION') {
         try {
             const enrichedData = {
@@ -22,11 +13,31 @@ class AllocationService {
                 updatedat: new Date().toISOString()
             };
 
+            // For banking type, ensure we keep negative values
+            if (type.toUpperCase() === 'BANKING') {
+                enrichedData.allocated = Object.keys(enrichedData.allocated || {}).reduce((acc, period) => {
+                    acc[period] = Number(enrichedData.allocated[period]);
+                    return acc;
+                }, {});
+            } else {
+                // For other types, ensure non-negative values
+                enrichedData.allocated = Object.keys(enrichedData.allocated || {}).reduce((acc, period) => {
+                    acc[period] = Math.max(0, Number(enrichedData.allocated[period] || 0));
+                    return acc;
+                }, {});
+            }
+
             const endpoint = type.toLowerCase() === 'banking' 
                 ? API_CONFIG.ENDPOINTS.BANKING.CREATE 
                 : type.toLowerCase() === 'lapse'
                 ? API_CONFIG.ENDPOINTS.LAPSE.CREATE
                 : API_CONFIG.ENDPOINTS.ALLOCATION.CREATE;
+
+            console.log(`📝 Creating ${type}:`, {
+                site: enrichedData.siteName,
+                type: enrichedData.type,
+                periods: enrichedData.allocated
+            });
 
             const response = await api.post(endpoint, enrichedData);
             return response.data;
@@ -44,6 +55,20 @@ class AllocationService {
                 updatedat: new Date().toISOString()
             };
 
+            // For banking type, allow negative values
+            if (type.toUpperCase() === 'BANKING') {
+                enrichedData.allocated = Object.keys(enrichedData.allocated || {}).reduce((acc, period) => {
+                    acc[period] = Number(enrichedData.allocated[period]);
+                    return acc;
+                }, {});
+            } else {
+                // For other types, ensure non-negative values
+                enrichedData.allocated = Object.keys(enrichedData.allocated || {}).reduce((acc, period) => {
+                    acc[period] = Math.max(0, Number(enrichedData.allocated[period] || 0));
+                    return acc;
+                }, {});
+            }
+
             const endpoint = type.toLowerCase() === 'banking'
                 ? API_CONFIG.ENDPOINTS.BANKING.UPDATE(data.pk, data.sk)
                 : type.toLowerCase() === 'lapse'
@@ -57,92 +82,12 @@ class AllocationService {
         }
     }
 
-    async autoAllocate(productionSites, consumptionSites, month) {
-        try {
-            const allocations = this.calculateAllocations(productionSites, consumptionSites, month);
-            const response = await api.post(API_CONFIG.ENDPOINTS.ALLOCATION.BATCH, { allocations });
-            return response.data;
-        } catch (error) {
-            throw this.handleError(error);
-        }
-    }
-
-    async getBankingAllocations(month) {
-        try {
-            const response = await api.get(`${API_CONFIG.ENDPOINTS.BANKING.GET_ALL}/${month || ''}`);
-            return response.data;
-        } catch (error) {
-            throw this.handleError(error);
-        }
-    }
-
-    async getLapseAllocations(month) {
-        try {
-            const response = await api.get(`${API_CONFIG.ENDPOINTS.LAPSE.GET_ALL}/${month || ''}`);
-            return response.data;
-        } catch (error) {
-            throw this.handleError(error);
-        }
-    }
-
-    async batchUpdate(allocations) {
-        try {
-            const enrichedAllocations = allocations.map(allocation => ({
-                ...allocation,
-                companyId: String(localStorage.getItem('companyId') || '1'),
-                updatedat: new Date().toISOString()
-            }));
-
-            // Use POST for batch create/update to match backend POST /allocation/batch
-            const response = await api.post(API_CONFIG.ENDPOINTS.ALLOCATION.BATCH, enrichedAllocations);
-            return response.data;
-        } catch (error) {
-            throw error.response?.data || { 
-                success: false, 
-                message: 'Failed to batch update allocations' 
-            };
-        }
-    }
-
-    calculateAllocations(productionSites, consumptionSites, month) {
-        return consumptionSites.map(site => ({
-            consumptionSiteId: site.consumptionSiteId,
-            productionSiteId: this.findBestProductionSite(site, productionSites),
-            month,
-            companyId: String(localStorage.getItem('companyId') || '1'),
-            type: 'ALLOCATION',
-            allocated: {
-                c1: 0, c2: 0, c3: 0, c4: 0, c5: 0
-            },
-            createdat: new Date().toISOString(),
-            updatedat: new Date().toISOString(),
-            version: 1
-        }));
-    }
-
-    findBestProductionSite(consumptionSite, productionSites) {
-        // Simple allocation - pick first available site
-        // This can be enhanced with more sophisticated matching logic
-        const availableSite = productionSites.find(site => site.status === 'active');
-        return availableSite?.productionSiteId;
-    }
-
     handleError(error) {
-        console.error('[AllocationService] Error:', error);
-        
-        if (error.response?.data?.message) {
-            throw new Error(error.response.data.message);
-        }
-
-        if (error.response?.status === 400) {
-            throw new Error('Validation failed: Please check your input');
-        }
-
-        if (error.response?.status === 404) {
-            throw new Error('Resource not found');
-        }
-
-        throw new Error(error.message || 'An unexpected error occurred');
+        console.error('❌ Allocation Error:', error?.response?.data || error?.message);
+        throw error.response?.data || { 
+            success: false, 
+            message: error.message || 'An unexpected error occurred' 
+        };
     }
 }
 

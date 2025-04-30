@@ -3,33 +3,38 @@ import { API_CONFIG } from '../config/api.config';
 
 class AllocationApi {
     formatAllocationData(data, type = 'ALLOCATION') {
-        // Extract flat period values into root
-        const ensureAllocated = (input) => {
-            const a = input.allocated || {};
-            return {
-                c1: Number(a.c1) || 0,
-                c2: Number(a.c2) || 0,
-                c3: Number(a.c3) || 0,
-                c4: Number(a.c4) || 0,
-                c5: Number(a.c5) || 0,
-            };
+        // Normalize allocated fields
+        const inputAlloc = data.allocated || {};
+        const allocated = {
+            c1: Math.max(0, Math.round(Number(inputAlloc.c1) || 0)),
+            c2: Math.max(0, Math.round(Number(inputAlloc.c2) || 0)),
+            c3: Math.max(0, Math.round(Number(inputAlloc.c3) || 0)),
+            c4: Math.max(0, Math.round(Number(inputAlloc.c4) || 0)),
+            c5: Math.max(0, Math.round(Number(inputAlloc.c5) || 0)),
         };
-        const flat = ensureAllocated(data);
-        const base = { ...data, ...flat };
-
-        // For ALLOCATION, ensure consumptionSiteId and consumptionSite are present
-        if ((type || data.type || '').toUpperCase() === 'ALLOCATION') {
-            return {
-                ...base,
-                consumptionSiteId: data.consumptionSiteId,
-                consumptionSite: data.consumptionSite
-            };
+        // Build payload
+        const payload = {
+            companyId: data.companyId,
+            pk: data.pk,
+            sk: data.sk,
+            allocated
+        };
+        const t = (type || data.type || 'ALLOCATION').toUpperCase();
+        if (t === 'ALLOCATION') {
+            payload.consumptionSiteId = data.consumptionSiteId;
+        } else if (t === 'BANKING') {
+            // Include siteName for banking payload
+            payload.siteName = data.productionSiteName || data.siteName;
+        } else if (t === 'LAPSE') {
+            // Include identifiers for lapse payload
+            payload.productionSiteId = data.productionSiteId;
+            payload.month = data.month;
         }
-        // For BANKING/LAPSE, only required fields plus allocated
-        if (["BANKING", "LAPSE"].includes((type || data.type || '').toUpperCase())) {
-            return { ...base };
-        }
-        return base;
+        // Pass through metadata fields
+        ['version','ttl','createdAt','updatedAt'].forEach(key => {
+            if (data[key] !== undefined) payload[key] = data[key];
+        });
+        return payload;
     }
 
     async fetchAll(month) {
@@ -54,7 +59,11 @@ class AllocationApi {
             const response = await api.post(API_CONFIG.ENDPOINTS.ALLOCATION.CREATE, formattedData);
             return response.data;
         } catch (error) {
-            console.error('[AllocationApi] Backend ALLOCATION error:', error?.response?.data || error);
+            // Only log unexpected errors (not simple duplicates)
+            const msg = error.response?.data?.message || '';
+            if (!(error.response?.status === 400 && msg.includes('already exists'))) {
+                console.error('[AllocationApi] Backend ALLOCATION error:', error?.response?.data || error);
+            }
             throw this.handleError(error);
         }
     }
@@ -127,6 +136,11 @@ class AllocationApi {
             const response = await api.put(updateEndpoint, formattedData);
             return response.data;
         } catch (error) {
+            // If not found, fallback to create for new records
+            if (error.response?.status === 404) {
+                // Create new record if update target doesn't exist
+                return this.create(data, type);
+            }
             throw this.handleError(error);
         }
     }
@@ -154,13 +168,16 @@ class AllocationApi {
     }
 
     handleError(error) {
-        // Enhanced error logging
+        // Only log unexpected errors
+        const msg = error.response?.data?.message || '';
         if (error.response) {
-            console.error('[Allocation API Error]:', {
-                status: error.response.status,
-                data: error.response.data,
-                headers: error.response.headers
-            });
+            if (!(error.response.status === 400 && msg.includes('already exists'))) {
+                console.error('[Allocation API Error]:', {
+                    status: error.response.status,
+                    data: error.response.data,
+                    headers: error.response.headers
+                });
+            }
         } else {
             console.error('[Allocation API Error]:', error);
         }

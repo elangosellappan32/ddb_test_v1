@@ -12,6 +12,10 @@ const formatMonthYearKey = (input) => {
     try {
         let month, year;
 
+        if (!input) {
+            throw new Error('Month/year input is required');
+        }
+
         if (input instanceof Date) {
             month = input.getMonth() + 1;
             year = input.getFullYear();
@@ -26,29 +30,53 @@ const formatMonthYearKey = (input) => {
             }
             // Handle YYYY-MM format
             else if (input.includes('-')) {
-                const [yearStr, monthStr] = input.split('-');
-                month = parseInt(monthStr);
-                year = parseInt(yearStr);
+                const parts = input.split('-');
+                if (parts.length === 2) {
+                    const [yearStr, monthStr] = parts;
+                    month = parseInt(monthStr);
+                    year = parseInt(yearStr);
+                } else {
+                    // Try parsing as full date string (YYYY-MM-DD)
+                    const date = new Date(input);
+                    if (!isNaN(date.getTime())) {
+                        month = date.getMonth() + 1;
+                        year = date.getFullYear();
+                    }
+                }
+            }
+            // Try parsing as numeric month (1-12)
+            else if (!isNaN(parseInt(input))) {
+                month = parseInt(input);
+                year = new Date().getFullYear(); // Use current year if only month provided
             }
             // Try parsing as date string
             else {
                 const date = new Date(input);
-                if (isNaN(date.getTime())) {
-                    throw new Error('Invalid date string format');
+                if (!isNaN(date.getTime())) {
+                    month = date.getMonth() + 1;
+                    year = date.getFullYear();
                 }
-                month = date.getMonth() + 1;
-                year = date.getFullYear();
             }
-        } else if (input && typeof input === 'object') {
+        } else if (typeof input === 'object') {
+            // Handle both string and number inputs for month/year
+            if (typeof input.month === 'undefined' || typeof input.year === 'undefined') {
+                throw new Error('Month and year are required when using object format');
+            }
             month = parseInt(input.month);
             year = parseInt(input.year);
-        } else {
-            throw new Error('Invalid input format');
+            
+            // If month is 0-based (0-11), convert to 1-based
+            if (month >= 0 && month <= 11) {
+                month += 1;
+            }
         }
 
         // Validate month and year
-        if (!month || !year || month < 1 || month > 12 || year < 2000 || year > 2100) {
-            throw new Error('Invalid month or year values');
+        if (isNaN(month) || isNaN(year) || month < 1 || month > 12) {
+            throw new Error(`Invalid month value: ${month}. Month must be between 1 and 12`);
+        }
+        if (year < 2000 || year > 2100) {
+            throw new Error(`Invalid year value: ${year}. Year must be between 2000 and 2100`);
         }
 
         return `${String(month).padStart(2, '0')}${year}`;

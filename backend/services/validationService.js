@@ -20,10 +20,20 @@ class ValidationService {
                 if (!normalizedData.consumptionSiteId || !normalizedData.consumptionSite) {
                     errors.push('Consumption site details are required for regular allocations');
                 }
+                // Check for negative values in regular allocations
+                if (normalizedData.allocated) {
+                    const negativeUnits = Object.entries(normalizedData.allocated)
+                        .filter(([_, value]) => Number(value) < 0)
+                        .map(([period]) => period);
+                    
+                    if (negativeUnits.length > 0) {
+                        errors.push(`Negative values not allowed for periods: ${negativeUnits.join(', ')}`);
+                    }
+                }
                 break;
 
             case 'BANKING':
-                // Banking validation is now more lenient - we auto-enable it if needed
+                // Banking validation - allow negative values
                 normalizedData.bankingEnabled = true;
                 break;
 
@@ -35,23 +45,14 @@ class ValidationService {
                 errors.push(`Invalid allocation type: ${type}`);
         }
 
-        // Validate allocated units
+        // Validate allocated units exist
         if (normalizedData.allocated) {
-            // Check for negative values
-            const negativeUnits = Object.entries(normalizedData.allocated)
-                .filter(([_, value]) => Number(value) < 0)
-                .map(([period]) => period);
-            
-            if (negativeUnits.length > 0) {
-                errors.push(`Negative values not allowed for periods: ${negativeUnits.join(', ')}`);
-            }
-
             // Normalize allocated values
             normalizedData.allocated = this.normalizeAllocatedValues(normalizedData.allocated);
 
             // Ensure at least one period has units
             const totalUnits = Object.values(normalizedData.allocated)
-                .reduce((sum, val) => sum + val, 0);
+                .reduce((sum, val) => sum + Math.abs(val), 0);
             
             if (totalUnits === 0) {
                 errors.push('At least one period must have units allocated');

@@ -14,17 +14,21 @@ import {
 } from '@mui/material';
 import { CheckCircle, Cancel, Info as InfoIcon } from '@mui/icons-material';
 
-const ProductionUnitsTable = ({ productionData }) => {
+const ProductionUnitsTable = ({ data = [], onManualAllocationChange = () => {} }) => {
+  const PEAK_PERIODS = ['c2', 'c3'];
+  const NON_PEAK_PERIODS = ['c1', 'c4', 'c5'];
+  const ALL_PERIODS = ['c1', 'c2', 'c3', 'c4', 'c5'];  // Ordered from c1 to c5
+
   const calculateTotal = (row) => {
-    return ['c1', 'c2', 'c3', 'c4', 'c5'].reduce((sum, key) => sum + (Number(row[key]) || 0), 0);
+    return ALL_PERIODS.reduce((sum, key) => sum + (Number(row[key]) || 0), 0);
   };
 
   const calculatePeakTotal = (row) => {
-    return ['c2', 'c3'].reduce((sum, key) => sum + (Number(row[key]) || 0), 0);
+    return PEAK_PERIODS.reduce((sum, key) => sum + (Number(row[key]) || 0), 0);
   };
 
   const calculateNonPeakTotal = (row) => {
-    return ['c1', 'c4', 'c5'].reduce((sum, key) => sum + (Number(row[key]) || 0), 0);
+    return NON_PEAK_PERIODS.reduce((sum, key) => sum + (Number(row[key]) || 0), 0);
   };
 
   return (
@@ -83,59 +87,82 @@ const ProductionUnitsTable = ({ productionData }) => {
           </TableRow>
         </TableHead>
         <TableBody>
-          {productionData.map((row, index) => (
-            <TableRow key={index}>
-              <TableCell>{row.siteName}</TableCell>
-              <TableCell>
-                <Chip
-                  icon={row.bankingStatus === 'Available' ? <CheckCircle /> : <Cancel />}
-                  label={row.bankingStatus}
-                  color={row.bankingStatus === 'Available' ? 'success' : 'error'}
-                  variant="outlined"
-                  size="small"
-                />
-              </TableCell>
-              <TableCell align="right">
-                <Typography sx={{ color: 'primary.main' }}>
-                  {row.c1}
-                </Typography>
-              </TableCell>
-              <TableCell align="right">
-                <Typography sx={{ color: 'warning.main', fontWeight: 'bold' }}>
-                  {row.c2}
-                </Typography>
-              </TableCell>
-              <TableCell align="right">
-                <Typography sx={{ color: 'warning.main', fontWeight: 'bold' }}>
-                  {row.c3}
-                </Typography>
-              </TableCell>
-              <TableCell align="right">
-                <Typography sx={{ color: 'primary.main' }}>
-                  {row.c4}
-                </Typography>
-              </TableCell>
-              <TableCell align="right">
-                <Typography sx={{ color: 'primary.main' }}>
-                  {row.c5}
-                </Typography>
-              </TableCell>
-              <TableCell align="right">
-                <Typography sx={{ color: 'warning.main', fontWeight: 'bold' }}>
-                  {calculatePeakTotal(row)}
-                </Typography>
-              </TableCell>
-              <TableCell align="right">
-                <Typography sx={{ color: 'primary.main' }}>
-                  {calculateNonPeakTotal(row)}
-                </Typography>
-              </TableCell>
-              <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-                {calculateTotal(row)}
-              </TableCell>
-            </TableRow>
-          ))}
-          {productionData.length > 0 && (
+          {data && data.length > 0 && data.map((row, index) => {
+            const c1 = Number(row.c1) || 0;
+            const c2 = Number(row.c2) || 0;
+            const c3 = Number(row.c3) || 0;
+            const c4 = Number(row.c4) || 0;
+            const c5 = Number(row.c5) || 0;
+            
+            return (
+              <TableRow key={index}>
+                <TableCell>{row.siteName || row.productionSite}</TableCell>
+                <TableCell>
+                  <Chip
+                    icon={row.banking === 1 ? <CheckCircle /> : <Cancel />}
+                    label={row.banking === 1 ? 'Available' : 'Not Available'}
+                    color={row.banking === 1 ? 'success' : 'error'}
+                    variant="outlined"
+                    size="small"
+                  />
+                </TableCell>
+                <TableCell align="right">
+                  <input
+                    type="number"
+                    value={c1}
+                    onChange={(e) => onManualAllocationChange(row.productionSiteId, row.productionSiteId, 'c1', e.target.value)}
+                    style={{ width: '100%', border: 'none', textAlign: 'right' }}
+                  />
+                </TableCell>
+                <TableCell align="right">
+                  <input
+                    type="number"
+                    value={c2}
+                    onChange={(e) => onManualAllocationChange(row.productionSiteId, row.productionSiteId, 'c2', e.target.value)}
+                    style={{ width: '100%', border: 'none', textAlign: 'right' }}
+                  />
+                </TableCell>
+                <TableCell align="right">
+                  <input
+                    type="number"
+                    value={c3}
+                    onChange={(e) => onManualAllocationChange(row.productionSiteId, row.productionSiteId, 'c3', e.target.value)}
+                    style={{ width: '100%', border: 'none', textAlign: 'right' }}
+                  />
+                </TableCell>
+                <TableCell align="right">
+                  <input
+                    type="number"
+                    value={c4}
+                    onChange={(e) => onManualAllocationChange(row.productionSiteId, row.productionSiteId, 'c4', e.target.value)}
+                    style={{ width: '100%', border: 'none', textAlign: 'right' }}
+                  />
+                </TableCell>
+                <TableCell align="right">
+                  <input
+                    type="number"
+                    value={c5}
+                    onChange={(e) => onManualAllocationChange(row.productionSiteId, row.productionSiteId, 'c5', e.target.value)}
+                    style={{ width: '100%', border: 'none', textAlign: 'right' }}
+                  />
+                </TableCell>
+                <TableCell align="right">
+                  <Typography sx={{ color: 'warning.main', fontWeight: 'bold' }}>
+                    {c2 + c3}
+                  </Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography sx={{ color: 'primary.main' }}>
+                    {c1 + c4 + c5}
+                  </Typography>
+                </TableCell>
+                <TableCell align="right" sx={{ fontWeight: 'bold' }}>
+                  {c1 + c2 + c3 + c4 + c5}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+          {data && data.length > 0 && (
             <TableRow sx={{ backgroundColor: 'rgba(0, 0, 0, 0.04)' }}>
               <TableCell sx={{ fontWeight: 'bold' }}>Total</TableCell>
               <TableCell />
@@ -144,17 +171,17 @@ const ProductionUnitsTable = ({ productionData }) => {
                   fontWeight: 'bold',
                   color: period === 'c2' || period === 'c3' ? 'warning.main' : 'primary.main'
                 }}>
-                  {productionData.reduce((sum, row) => sum + (Number(row[period]) || 0), 0)}
+                  {data.reduce((sum, row) => sum + (Number(row[period]) || 0), 0)}
                 </TableCell>
               ))}
               <TableCell align="right" sx={{ fontWeight: 'bold', color: 'warning.main' }}>
-                {productionData.reduce((sum, row) => sum + calculatePeakTotal(row), 0)}
+                {data.reduce((sum, row) => sum + (Number(row.c2) || 0) + (Number(row.c3) || 0), 0)}
               </TableCell>
               <TableCell align="right" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-                {productionData.reduce((sum, row) => sum + calculateNonPeakTotal(row), 0)}
+                {data.reduce((sum, row) => sum + (Number(row.c1) || 0) + (Number(row.c4) || 0) + (Number(row.c5) || 0), 0)}
               </TableCell>
               <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-                {productionData.reduce((sum, row) => sum + calculateTotal(row), 0)}
+                {data.reduce((sum, row) => sum + (Number(row.c1) || 0) + (Number(row.c2) || 0) + (Number(row.c3) || 0) + (Number(row.c4) || 0) + (Number(row.c5) || 0), 0)}
               </TableCell>
             </TableRow>
           )}

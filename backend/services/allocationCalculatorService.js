@@ -1,20 +1,11 @@
+const PERIODS = require('../constants/periods');
 const logger = require('../utils/logger');
-const { ValidationError } = require('../utils/errors');
-const { PEAK_PERIODS, NON_PEAK_PERIODS, ALL_PERIODS } = require('../constants/periods');
 
 class AllocationCalculatorService {
     constructor() {
-        this.PEAK_PERIODS = PEAK_PERIODS;
-        this.NON_PEAK_PERIODS = NON_PEAK_PERIODS;
-        this.ALL_PERIODS = ALL_PERIODS;
-        this.BANKING_LIMIT = 0.3; // 30% banking limit
-    }
-
-    normalizeAllocatedValues(allocated = {}) {
-        return this.ALL_PERIODS.reduce((acc, period) => {
-            acc[period] = Math.round(Number(allocated[period] || 0));
-            return acc;
-        }, {});
+        this.PEAK_PERIODS = PERIODS.PEAK;
+        this.NON_PEAK_PERIODS = PERIODS.NON_PEAK;
+        this.ALL_PERIODS = PERIODS.ALL;
     }
 
     calculateAllocation(productionSites, bankingUnits, consumptionSites) {
@@ -22,105 +13,102 @@ class AllocationCalculatorService {
             const allocations = [];
             const bankingAllocations = [];
             const lapseAllocations = [];
+            const companyId = '1';
 
-            // First, calculate total consumption needs
+            // Calculate initial consumption needs
             const consumptionNeeds = this.calculateConsumptionNeeds(consumptionSites);
             const sitePercentages = this.prepareSitePercentages(consumptionSites);
 
-            // Process solar sites first (they can't bank)
-            const solarSites = productionSites.filter(site => 
-                site.type?.toLowerCase() === 'solar'
-            );
+            // 1. First process solar sites (no banking allowed)
+            const solarSites = productionSites.filter(site => site.type?.toLowerCase() === 'solar');
+            this.processSolarSites(solarSites, consumptionNeeds, sitePercentages, allocations, lapseAllocations, companyId);
 
-            for (const site of solarSites) {
-                const availableUnits = this.getAvailableUnits(site);
-                if (this.hasAnyUnits(availableUnits)) {
-                    const consumptionAllocations = this.allocateToConsumptionSites(
-                        site, availableUnits, consumptionSites, sitePercentages, consumptionNeeds
-                    );
-
-                    allocations.push(...consumptionAllocations);
-                    this.updateConsumptionNeeds(consumptionNeeds, consumptionAllocations);
-
-                    // Remaining units go to lapse
-                    const remainingUnits = this.getRemainingUnits(availableUnits);
-                    if (this.hasAnyUnits(remainingUnits)) {
-                        lapseAllocations.push(this.createLapseAllocation(site, remainingUnits));
-                    }
-                }
-            }
-
-            // Process wind sites with banking
+            // 2. Process wind sites with banking enabled
             const bankingWindSites = productionSites.filter(site => 
                 site.type?.toLowerCase() === 'wind' && site.banking === 1
             );
-
+            
+            // Handle banking sites
             for (const site of bankingWindSites) {
                 const availableUnits = this.getAvailableUnits(site);
                 if (this.hasAnyUnits(availableUnits)) {
-                    bankingAllocations.push(this.createBankingAllocation(site, availableUnits));
+                    // Find existing banking for this site
+                    const existingBanking = bankingUnits?.find(b => b.productionSiteId === site.productionSiteId);
+                    
+                    // First try to use units for direct allocation
+                    const consumptionAllocs = this.allocateToConsumptionSites(
+                        site, availableUnits, consumptionSites, sitePercentages, consumptionNeeds, companyId
+                    );
+
+                    if (consumptionAllocs.length > 0) {
+                        allocations.push(...consumptionAllocs);
+                        this.updateConsumptionNeeds(consumptionNeeds, consumptionAllocs);
+                    }
+
+                    // Bank remaining units
+                    const remainingUnits = this.getRemainingUnits(availableUnits);
+                    if (this.hasAnyUnits(remainingUnits)) {
+                        const bankingAlloc = this.createBankingAllocation(
+                            site, 
+                            remainingUnits,
+                            existingBanking,
+                            companyId
+                        );
+                        bankingAllocations.push(bankingAlloc);
+                    }
                 }
             }
 
-            // Process non-banking wind sites
+            // 3. Process regular wind sites (no banking)
             const nonBankingWindSites = productionSites.filter(site => 
                 site.type?.toLowerCase() === 'wind' && site.banking !== 1
             );
+            this.processNonBankingSites(nonBankingWindSites, consumptionNeeds, sitePercentages, allocations, lapseAllocations, companyId);
 
-            for (const site of nonBankingWindSites) {
-                const availableUnits = this.getAvailableUnits(site);
-                if (this.hasAnyUnits(availableUnits)) {
-                    const consumptionAllocations = this.allocateToConsumptionSites(
-                        site, availableUnits, consumptionSites, sitePercentages, consumptionNeeds
-                    );
-
-                    allocations.push(...consumptionAllocations);
-                    this.updateConsumptionNeeds(consumptionNeeds, consumptionAllocations);
-
-                    const remainingUnits = this.getRemainingUnits(availableUnits);
-                    if (this.hasAnyUnits(remainingUnits)) {
-                        lapseAllocations.push(this.createLapseAllocation(site, remainingUnits));
-                    }
-                }
+            // 4. Use banked units for remaining needs
+            if (this.hasRemainingNeeds(consumptionNeeds) && bankingAllocations.length > 0) {
+                this.processBankedUnits(bankingAllocations, consumptionNeeds, sitePercentages, consumptionSites, allocations, companyId);
             }
 
-            // Use banked units for remaining needs
-            if (this.hasRemainingNeeds(consumptionNeeds)) {
-                const usedBankingAllocations = [];
-
-                for (const bankingAllocation of bankingAllocations) {
-                    const availableUnits = this.normalizeAllocatedValues(bankingAllocation.allocated);
-                    if (this.hasAnyUnits(availableUnits)) {
-                        const consumptionAllocations = this.allocateToConsumptionSites(
-                            { productionSiteId: bankingAllocation.productionSiteId, siteName: bankingAllocation.siteName },
-                            availableUnits,
-                            consumptionSites,
-                            sitePercentages,
-                            consumptionNeeds
-                        );
-
-                        if (consumptionAllocations.length > 0) {
-                            allocations.push(...consumptionAllocations);
-                            this.updateConsumptionNeeds(consumptionNeeds, consumptionAllocations);
-                            usedBankingAllocations.push(bankingAllocation);
-                        }
-                    }
-                }
-
-                // Remove used banking allocations
-                usedBankingAllocations.forEach(allocation => {
-                    const index = bankingAllocations.indexOf(allocation);
-                    if (index !== -1) {
-                        bankingAllocations.splice(index, 1);
-                    }
-                });
-            }
-
-            return [...allocations, ...bankingAllocations, ...lapseAllocations];
+            return {
+                allocations,
+                bankingAllocations,
+                lapseAllocations
+            };
         } catch (error) {
             logger.error('Allocation Calculator Error:', error);
             throw error;
         }
+    }
+
+    createBankingAllocation(site, units, existingBanking, companyId = '1') {
+        const normalizedUnits = this.normalizeAllocatedValues(units);
+        const previousBalance = existingBanking || {};
+        
+        // Calculate net banking
+        const bankingUnits = {};
+        this.ALL_PERIODS.forEach(period => {
+            const currentUnits = Number(normalizedUnits[period] || 0);
+            const existingUnits = Number(previousBalance[period] || 0);
+            bankingUnits[period] = currentUnits + existingUnits; // Accumulate banking
+        });
+
+        return {
+            productionSiteId: site.productionSiteId,
+            productionSiteName: site.siteName,
+            pk: `${companyId}_${site.productionSiteId}`,
+            allocated: bankingUnits,
+            previousBalance: previousBalance,
+            type: 'BANKING',
+            bankingEnabled: true
+        };
+    }
+
+    normalizeAllocatedValues(allocated = {}) {
+        return this.ALL_PERIODS.reduce((acc, period) => {
+            acc[period] = Math.round(Number(allocated[period] || 0));
+            return acc;
+        }, {});
     }
 
     calculateConsumptionNeeds(consumptionSites) {
@@ -157,27 +145,21 @@ class AllocationCalculatorService {
         for (const allocation of allocations) {
             const siteNeeds = needs[allocation.consumptionSiteId];
             if (siteNeeds) {
-                for (const period of this.PEAK_PERIODS) {
+                for (const period of this.ALL_PERIODS) {
                     const allocated = Math.round(Number(allocation.allocated[period] || 0));
-                    siteNeeds.peak[period] = Math.max(0, siteNeeds.peak[period] - allocated);
-                    siteNeeds.total.peak = Math.max(0, siteNeeds.total.peak - allocated);
-                }
-                for (const period of this.NON_PEAK_PERIODS) {
-                    const allocated = Math.round(Number(allocation.allocated[period] || 0));
-                    siteNeeds.nonPeak[period] = Math.max(0, siteNeeds.nonPeak[period] - allocated);
-                    siteNeeds.total.nonPeak = Math.max(0, siteNeeds.total.nonPeak - allocated);
+                    if (this.PEAK_PERIODS.includes(period)) {
+                        siteNeeds.peak[period] = Math.max(0, siteNeeds.peak[period] - allocated);
+                        siteNeeds.total.peak = Math.max(0, siteNeeds.total.peak - allocated);
+                    } else {
+                        siteNeeds.nonPeak[period] = Math.max(0, siteNeeds.nonPeak[period] - allocated);
+                        siteNeeds.total.nonPeak = Math.max(0, siteNeeds.total.nonPeak - allocated);
+                    }
                 }
             }
         }
     }
 
-    hasRemainingNeeds(needs) {
-        return Object.values(needs).some(siteNeeds => 
-            siteNeeds.total.peak > 0 || siteNeeds.total.nonPeak > 0
-        );
-    }
-
-    allocateToConsumptionSites(productionSite, availableUnits, consumptionSites, sitePercentages, consumptionNeeds) {
+    allocateToConsumptionSites(productionSite, availableUnits, consumptionSites, sitePercentages, consumptionNeeds, companyId = '1') {
         const allocations = [];
         const units = { ...availableUnits };
 
@@ -210,7 +192,8 @@ class AllocationCalculatorService {
                 consumptionSite,
                 units,
                 sitePercentages[consumptionSite.siteName]?.percentage || 0,
-                siteNeeds
+                siteNeeds,
+                companyId
             );
 
             if (allocation) {
@@ -226,14 +209,11 @@ class AllocationCalculatorService {
         return allocations;
     }
 
-    calculateSingleAllocation(productionSite, consumptionSite, availableUnits, allocationPercentage, siteNeeds) {
+    calculateSingleAllocation(productionSite, consumptionSite, availableUnits, allocationPercentage, siteNeeds, companyId = '1') {
         const allocation = {
             productionSiteId: productionSite.productionSiteId,
-            productionSite: productionSite.siteName,
-            siteName: productionSite.siteName,
             consumptionSiteId: consumptionSite.consumptionSiteId,
-            consumptionSite: consumptionSite.siteName,
-            type: 'Allocation',
+            pk: this.generatePK(companyId, productionSite.productionSiteId, consumptionSite.consumptionSiteId),
             allocated: {}
         };
 
@@ -297,348 +277,102 @@ class AllocationCalculatorService {
         return hasAllocation ? allocation : null;
     }
 
-    getSavedAllocationData() {
-        try {
-            const savedData = localStorage.getItem('allocationPercentages');
-            return savedData ? JSON.parse(savedData) : [];
-        } catch (error) {
-            logger.error('[AllocationCalculatorService] Error reading allocation data:', error);
-            return [];
-        }
+    generatePK(companyId, productionSiteId, consumptionSiteId) {
+        return `${companyId}_${productionSiteId}_${consumptionSiteId}`;
     }
 
-    getAvailableUnits(site) {
-        return this.normalizeAllocatedValues({
-            c1: site.c1,
-            c2: site.c2,
-            c3: site.c3,
-            c4: site.c4,
-            c5: site.c5
-        });
-    }
-
-    hasAnyUnits(units) {
-        return Object.values(units).some(v => Math.round(Number(v)) > 0);
-    }
-
-    getRemainingUnits(units) {
-        return this.normalizeAllocatedValues(units);
-    }
-
-    createBankingAllocation(site, units) {
-        return {
-            productionSiteId: site.productionSiteId,
-            productionSite: site.siteName,
-            siteName: site.siteName,
-            type: 'Banking',
-            bankingEnabled: true,
-            allocated: this.normalizeAllocatedValues(units)
-        };
-    }
-
-    createLapseAllocation(site, units) {
-        return {
-            productionSiteId: site.productionSiteId,
-            productionSite: site.siteName,
-            siteName: site.siteName,
-            type: 'Lapse',
-            allocated: this.normalizeAllocatedValues(units)
-        };
-    }
-
-    validateAllocation(allocation) {
-        if (!allocation?.allocated) {
-            throw new ValidationError('Allocation data is required');
-        }
-
-        const normalizedAllocated = this.normalizeAllocatedValues(allocation.allocated);
-        const errors = [];
-
-        // Validate values
-        Object.entries(normalizedAllocated).forEach(([period, value]) => {
-            if (value < 0) {
-                errors.push(`Period ${period} cannot have negative value`);
-            }
-        });
-
-        if (errors.length > 0) {
-            throw new ValidationError(errors.join('. '));
-        }
-
-        return {
-            ...allocation,
-            allocated: normalizedAllocated
-        };
-    }
-
-    calculateAllocation(productionUnits, consumptionUnits, options = {}) {
-        const { minThreshold = 0 } = options;
-
-        try {
-            // Normalize input values
-            const normalizedProduction = this.normalizeUnits(productionUnits);
-            const normalizedConsumption = this.normalizeUnits(consumptionUnits);
-
-            // Initialize result structure
-            const result = {
-                allocated: {},
-                remainingProduction: { ...normalizedProduction },
-                remainingConsumption: { ...normalizedConsumption },
-                totalAllocated: 0,
-                totalRemaining: 0
+    prepareSitePercentages(consumptionSites) {
+        const total = consumptionSites.reduce((sum, site) => sum + calculateTotal(site), 0);
+        return consumptionSites.reduce((acc, site) => {
+            acc[site.siteName] = {
+                percentage: total > 0 ? (calculateTotal(site) / total) * 100 : 0
             };
-
-            // First handle peak periods
-            PEAK_PERIODS.forEach(period => {
-                const allocated = this.calculatePeriodAllocation(
-                    normalizedProduction[period],
-                    normalizedConsumption[period],
-                    minThreshold
-                );
-                
-                if (allocated > 0) {
-                    result.allocated[period] = allocated;
-                    result.remainingProduction[period] -= allocated;
-                    result.remainingConsumption[period] -= allocated;
-                    result.totalAllocated += allocated;
-                }
-            });
-
-            // Then handle non-peak periods
-            NON_PEAK_PERIODS.forEach(period => {
-                const allocated = this.calculatePeriodAllocation(
-                    normalizedProduction[period],
-                    normalizedConsumption[period],
-                    minThreshold
-                );
-                
-                if (allocated > 0) {
-                    result.allocated[period] = allocated;
-                    result.remainingProduction[period] -= allocated;
-                    result.remainingConsumption[period] -= allocated;
-                    result.totalAllocated += allocated;
-                }
-            });
-
-            // Calculate total remaining
-            result.totalRemaining = ALL_PERIODS.reduce(
-                (sum, period) => sum + result.remainingProduction[period],
-                0
-            );
-
-            return result;
-
-        } catch (error) {
-            logger.error('[AllocationCalculator] Calculation Error:', error);
-            throw error;
-        }
-    }
-
-    calculatePeriodAllocation(production, consumption, minThreshold) {
-        if (!production || !consumption) return 0;
-        
-        const available = Math.max(0, Math.round(Number(production)));
-        const required = Math.max(0, Math.round(Number(consumption)));
-        
-        if (available < minThreshold || required < minThreshold) return 0;
-        
-        return Math.min(available, required);
-    }
-
-    calculateBankingAllocation(remainingUnits, currentBankingTotal = 0) {
-        const result = {
-            bankable: {},
-            lapse: {},
-            totalBankable: 0,
-            totalLapse: 0
-        };
-
-        try {
-            ALL_PERIODS.forEach(period => {
-                const remaining = Math.max(0, Math.round(Number(remainingUnits[period] || 0)));
-                if (remaining > 0) {
-                    // Calculate bankable amount based on banking limit
-                    const bankableAmount = Math.floor(remaining * this.BANKING_LIMIT);
-                    const lapseAmount = remaining - bankableAmount;
-
-                    if (bankableAmount > 0) {
-                        result.bankable[period] = bankableAmount;
-                        result.totalBankable += bankableAmount;
-                    }
-
-                    if (lapseAmount > 0) {
-                        result.lapse[period] = lapseAmount;
-                        result.totalLapse += lapseAmount;
-                    }
-                }
-            });
-
-            return result;
-
-        } catch (error) {
-            logger.error('[AllocationCalculator] Banking Calculation Error:', error);
-            throw error;
-        }
-    }
-
-    calculateLapseAllocation(remainingUnits) {
-        return {
-            lapse: this.normalizeUnits(remainingUnits),
-            totalLapse: ALL_PERIODS.reduce(
-                (sum, period) => sum + Math.max(0, Math.round(Number(remainingUnits[period] || 0))),
-                0
-            )
-        };
-    }
-
-    normalizeUnits(units = {}) {
-        return ALL_PERIODS.reduce((acc, period) => {
-            acc[period] = Math.max(0, Math.round(Number(units[period] || 0)));
             return acc;
         }, {});
     }
-}
 
-const calculateBankingAllocation = (site, availableUnits) => {
-    if (!site?.productionSiteId || !availableUnits) {
-        throw new Error('Invalid inputs for banking calculation');
+    hasRemainingNeeds(needs) {
+        return Object.values(needs).some(siteNeeds => 
+            siteNeeds.total.peak > 0 || siteNeeds.total.nonPeak > 0
+        );
     }
 
-    // Ensure production site ID exists and is formatted correctly
-    const productionSiteId = site.productionSiteId?.toString();
-    if (!productionSiteId) {
-        throw new Error('Production site ID is required for banking calculation');
+    getAvailableUnits(site) {
+        return this.ALL_PERIODS.reduce((acc, period) => {
+            acc[period] = Math.round(Number(site[period] || 0));
+            return acc;
+        }, {});
     }
 
-    // Transform and validate unit values
-    const sanitizedUnits = {};
-    ['c1', 'c2', 'c3', 'c4', 'c5'].forEach(period => {
-        sanitizedUnits[period] = Math.max(0, Math.round(Number(availableUnits[period] || 0)));
-    });
-
-    // Calculate total units
-    const totalUnits = Object.values(sanitizedUnits).reduce((sum, val) => sum + val, 0);
-
-    return {
-        productionSiteId,
-        siteName: site.siteName?.trim() || '',
-        type: 'Banking',
-        bankingEnabled: true,
-        version: 1,
-        allocated: sanitizedUnits,
-        total: totalUnits
-    };
-};
-
-const validateBankingData = (data) => {
-    if (!data) return { isValid: false, errors: ['Banking data is required'] };
-
-    const errors = [];
-
-    if (!data.productionSiteId?.toString()) {
-        errors.push('Production site ID is required');
+    hasAnyUnits(units) {
+        return this.ALL_PERIODS.some(period => Math.round(Number(units[period] || 0)) > 0);
     }
 
-    if (!data.allocated || typeof data.allocated !== 'object') {
-        errors.push('Allocated units data is required');
-    } else {
-        Object.entries(data.allocated).forEach(([period, value]) => {
-            const numValue = Number(value);
-            if (isNaN(numValue) || numValue < 0) {
-                errors.push(`Invalid value for period ${period}: ${value}`);
-            }
-        });
+    getRemainingUnits(units) {
+        return this.ALL_PERIODS.reduce((acc, period) => {
+            acc[period] = Math.round(Number(units[period] || 0));
+            return acc;
+        }, {});
     }
 
-    const hasAllocation = data.allocated && 
-        Object.values(data.allocated).some(val => Number(val) > 0);
+    processSolarSites(solarSites, consumptionNeeds, sitePercentages, allocations, lapseAllocations, companyId) {
+        for (const site of solarSites) {
+            const availableUnits = this.getAvailableUnits(site);
+            if (this.hasAnyUnits(availableUnits)) {
+                const consumptionAllocs = this.allocateToConsumptionSites(
+                    site, availableUnits, consumptionSites, sitePercentages, consumptionNeeds, companyId
+                );
 
-    if (!hasAllocation) {
-        errors.push('At least one period must have allocated units');
-    }
+                allocations.push(...consumptionAllocs);
+                this.updateConsumptionNeeds(consumptionNeeds, consumptionAllocs);
 
-    return {
-        isValid: errors.length === 0,
-        errors,
-        data: errors.length === 0 ? {
-            ...data,
-            productionSiteId: data.productionSiteId.toString(),
-            allocated: Object.entries(data.allocated || {}).reduce((acc, [key, value]) => {
-                acc[key] = Math.max(0, Math.round(Number(value) || 0));
-                return acc;
-            }, {}),
-            version: Number(data.version || 1)
-        } : null
-    };
-};
-
-const processAllocationSplit = (productionSite, consumptionSites, availableUnits) => {
-    if (!productionSite?.productionSiteId) {
-        throw new Error('Invalid production site data');
-    }
-
-    const sanitizedAvailable = {};
-    Object.entries(availableUnits || {}).forEach(([period, value]) => {
-        sanitizedAvailable[period] = Math.max(0, Math.round(Number(value || 0)));
-    });
-
-    let remainingUnits = { ...sanitizedAvailable };
-    const allocations = [];
-
-    // Process consumption site allocations
-    consumptionSites.forEach(site => {
-        if (!site?.consumptionSiteId) return;
-
-        const allocation = {
-            productionSiteId: productionSite.productionSiteId.toString(),
-            consumptionSiteId: site.consumptionSiteId.toString(),
-            allocated: {}
-        };
-
-        let hasAllocation = false;
-        Object.entries(remainingUnits).forEach(([period, available]) => {
-            const required = Math.max(0, Math.round(Number(site[period] || 0)));
-            if (available > 0 && required > 0) {
-                const allocated = Math.min(available, required);
-                if (allocated > 0) {
-                    allocation.allocated[period] = allocated;
-                    remainingUnits[period] -= allocated;
-                    hasAllocation = true;
+                const remainingUnits = this.getRemainingUnits(availableUnits);
+                if (this.hasAnyUnits(remainingUnits)) {
+                    lapseAllocations.push(this.createLapseAllocation(site, remainingUnits, companyId));
                 }
             }
-        });
-
-        if (hasAllocation) {
-            allocations.push(allocation);
-        }
-    });
-
-    // Handle remaining units based on site type
-    const hasRemainingUnits = Object.values(remainingUnits).some(val => val > 0);
-    if (hasRemainingUnits) {
-        if (productionSite.type?.toLowerCase() === 'wind' && productionSite.banking === 1) {
-            allocations.push({
-                productionSiteId: productionSite.productionSiteId.toString(),
-                type: 'Banking',
-                bankingEnabled: true,
-                allocated: remainingUnits
-            });
-        } else {
-            allocations.push({
-                productionSiteId: productionSite.productionSiteId.toString(),
-                type: 'Lapse',
-                allocated: remainingUnits
-            });
         }
     }
 
-    return allocations;
-};
+    processNonBankingSites(nonBankingWindSites, consumptionNeeds, sitePercentages, allocations, lapseAllocations, companyId) {
+        for (const site of nonBankingWindSites) {
+            const availableUnits = this.getAvailableUnits(site);
+            if (this.hasAnyUnits(availableUnits)) {
+                const consumptionAllocs = this.allocateToConsumptionSites(
+                    site, availableUnits, consumptionSites, sitePercentages, consumptionNeeds, companyId
+                );
 
-module.exports = {
-    calculateBankingAllocation,
-    validateBankingData,
-    processAllocationSplit
-};
+                allocations.push(...consumptionAllocs);
+                this.updateConsumptionNeeds(consumptionNeeds, consumptionAllocs);
+
+                const remainingUnits = this.getRemainingUnits(availableUnits);
+                if (this.hasAnyUnits(remainingUnits)) {
+                    lapseAllocations.push(this.createLapseAllocation(site, remainingUnits, companyId));
+                }
+            }
+        }
+    }
+
+    processBankedUnits(bankingAllocations, consumptionNeeds, sitePercentages, consumptionSites, allocations, companyId) {
+        for (const bankingAllocation of bankingAllocations) {
+            const availableUnits = this.normalizeAllocatedValues(bankingAllocation.allocated);
+            if (this.hasAnyUnits(availableUnits)) {
+                const consumptionAllocs = this.allocateToConsumptionSites(
+                    { productionSiteId: bankingAllocation.productionSiteId, siteName: bankingAllocation.siteName },
+                    availableUnits,
+                    consumptionSites,
+                    sitePercentages,
+                    consumptionNeeds,
+                    companyId
+                );
+
+                if (consumptionAllocs.length > 0) {
+                    allocations.push(...consumptionAllocs);
+                    this.updateConsumptionNeeds(consumptionNeeds, consumptionAllocs);
+                }
+            }
+        }
+    }
+}
 
 module.exports = new AllocationCalculatorService();
