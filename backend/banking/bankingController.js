@@ -27,6 +27,26 @@ const validateBankingData = (data) => {
     return { isValid: true, data: transformedData };
 };
 
+// Transform banking record to group c1-c5 under allocated
+function transformBankingRecord(record) {
+  if (!record) return record;
+  const { c1, c2, c3, c4, c5, ...rest } = record;
+  return {
+    ...rest,
+    allocated: { c1, c2, c3, c4, c5 }
+  };
+}
+
+// For response, you can still group c1-c5 under allocated if needed for frontend display
+function transformBankingRecordForResponse(record) {
+  if (!record) return record;
+  const { c1, c2, c3, c4, c5, ...rest } = record;
+  return {
+    ...rest,
+    allocated: { c1, c2, c3, c4, c5 }
+  };
+}
+
 // Accept batch creation for banking
 const createBanking = async (req, res) => {
     try {
@@ -41,6 +61,7 @@ const createBanking = async (req, res) => {
                 continue;
             }
             try {
+                // Store c1-c5 at root level
                 const result = await bankingDAL.createBanking(validation.data);
                 results.push(result);
             } catch (error) {
@@ -150,10 +171,7 @@ const getAllBanking = async (req, res) => {
         const result = await bankingDAL.getAllBanking();
         res.json({
             success: true,
-            data: result.map(item => ({
-                ...item,
-                amount: Number(item.amount)
-            }))
+            data: result.map(transformBankingRecord)
         });
     } catch (error) {
         logger.error('[BankingController] GetAll Error:', error);

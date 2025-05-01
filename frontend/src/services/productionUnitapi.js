@@ -104,7 +104,6 @@ const productionUnitApi = {
       );
       return response.data;
     } catch (error) {
-      console.error('[ProductionUnitAPI] Update Error:', error);
       throw error;
     }
   },
@@ -113,8 +112,6 @@ const productionUnitApi = {
     try {
       const pk = `${companyId}_${productionSiteId}`;
       const cleanSk = stripUnitPrefix(sk);
-      
-      console.log('[ProductionUnitAPI] Deleting unit:', { pk, sk: cleanSk });
       
       const response = await api.delete(
         API_CONFIG.ENDPOINTS.PRODUCTION.UNIT.DELETE(companyId, productionSiteId, cleanSk)

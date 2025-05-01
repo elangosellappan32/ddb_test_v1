@@ -30,7 +30,7 @@ const ProductionDataTable = ({
     const dataArray = Array.isArray(data) ? data : (data?.data || []);
     
     if (!dataArray.length) {
-      console.log('[ProductionDataTable] No data available');
+
       return [];
     }
 

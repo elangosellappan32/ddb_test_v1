@@ -38,107 +38,48 @@ export function calculateAllocations({ productionUnits, consumptionUnits, bankin
     const allocations = [];
     const bankingAllocations = [];
     const lapseAllocations = [];
-    
-    // Process manual allocations first
-    if (manualAllocations && Object.keys(manualAllocations).length > 0) {
-        const updatedAllocations = new Map();
-        
-        Object.entries(manualAllocations).forEach(([key, value]) => {
-            const [prodId, consId, period] = key.split('_');
-            const prodUnit = prodUnits.find(u => u.productionSiteId === prodId);
-            const consUnit = consUnits.find(u => u.consumptionSiteId === consId);
-            
-            if (prodUnit && consUnit) {
-                // Update production unit's remaining
-                const newValue = Number(value);
-                prodUnit.remaining[period] = newValue;
-                
-                // Calculate difference for banking
-                const prevValue = Number(manualAllocations[`${prodId}_${consId}_${period}`] || 0);
-                const diff = newValue - prevValue;
-                
-                // Create unique key for this allocation
-                const allocKey = `${prodId}_${consId}`;
-                
-                // If this allocation already exists, update it
-                if (updatedAllocations.has(allocKey)) {
-                    const existing = updatedAllocations.get(allocKey);
-                    existing[period] = newValue;
-                    existing.diff = diff;
+
+    // --- Capture initial banking/lapse tables before manual allocations ---
+    const initialBankingAllocations = [];
+    const initialLapseAllocations = [];
+    // We'll simulate what the tables would be without manual allocations
+    [solarUnits, windUnits, bankingWindUnits].forEach((group) => {
+        group.forEach(prod => {
+            if (Object.values(prod.remaining).some(val => val > 0)) {
+                if (prod.bankingEnabled) {
+                    initialBankingAllocations.push({
+                        productionSiteId: prod.productionSiteId,
+                        productionSite: prod.productionSite || prod.siteName,
+                        siteType: prod.type,
+                        siteName: prod.siteName || prod.productionSite,
+                        month: prod.month,
+                        type: 'BANKING',
+                        bankingEnabled: true,
+                        allocated: { ...prod.remaining }
+                    });
                 } else {
-                    const allocation = {
-                        productionSiteId: prodId,
-                        consumptionSiteId: consId,
-                        ...ALL_PERIODS.reduce((acc, p) => ({
-                            ...acc,
-                            [p]: 0
-                        }), {}),
-                        diff: diff,
-                        bankingEnabled: prodUnit.bankingEnabled
-                    };
-                    allocation[period] = newValue;
-                    updatedAllocations.set(allocKey, allocation);
+                    initialLapseAllocations.push({
+                        productionSiteId: prod.productionSiteId,
+                        productionSite: prod.productionSite || prod.siteName,
+                        siteType: prod.type,
+                        siteName: prod.siteName || prod.productionSite,
+                        month: prod.month,
+                        type: 'LAPSE',
+                        allocated: { ...prod.remaining }
+                    });
                 }
             }
         });
-
-        // Process all updated allocations
-        updatedAllocations.forEach(({ productionSiteId, consumptionSiteId, period, value, diff, bankingEnabled }) => {
-            const prodUnit = prodUnits.find(u => u.productionSiteId === productionSiteId);
-            const consUnit = consUnits.find(u => u.consumptionSiteId === consumptionSiteId);
-            
-            if (prodUnit && consUnit) {
-                // Update production unit's remaining
-                prodUnit.remaining[period] = value;
-                
-                // Handle banking only if it's a banking unit
-                if (diff !== 0 && bankingEnabled) {
-                    // Find banking allocation to update
-                    let bankingAlloc = bankingAllocations.find(b => 
-                        b.productionSiteId === productionSiteId && 
-                        b.consumptionSiteId === consumptionSiteId && 
-                        b.period === period
-                    );
-                    
-                    if (bankingAlloc) {
-                        bankingAlloc.amount += diff;
-                    } else {
-                        bankingAlloc = {
-                            productionSiteId,
-                            consumptionSiteId,
-                            period,
-                            amount: diff,
-                            type: 'BANKING'
-                        };
-                        bankingAllocations.push(bankingAlloc);
-                    }
-                }
-
-                // Find or create allocation for this combination
-                let allocation = allocations.find(a => 
-                    a.productionSiteId === productionSiteId && 
-                    a.consumptionSiteId === consumptionSiteId
-                );
-
-                if (allocation) {
-                    // Update existing allocation
-                    allocation.allocated[period] = value;
-                } else {
-                    // Create new allocation
-                    allocation = {
-                        productionSiteId,
-                        productionSite: prodUnit.productionSite,
-                        consumptionSiteId,
-                        consumptionSite: consUnit.consumptionSite,
-                        allocated: ALL_PERIODS.reduce((acc, p) => ({
-                            ...acc,
-                            [p]: 0
-                        }), {})
-                    };
-                    allocation.allocated[period] = value;
-                    allocations.push(allocation);
-                }
-            }
+    });
+    // --- End initial capture ---
+    
+    // Process manual allocations first
+    if (manualAllocations && Object.keys(manualAllocations).length > 0) {
+        Object.entries(manualAllocations).forEach(([key, value]) => {
+            const [prodId, consId, period] = key.split('_');
+            const prodUnit = prodUnits.find(u => u.productionSiteId === prodId);
+            if (!prodUnit) return;
+            prodUnit.remaining[period] = Number(value);
         });
     }
 
@@ -155,36 +96,39 @@ export function calculateAllocations({ productionUnits, consumptionUnits, bankin
         console.group(`Processing ${index === 0 ? 'Solar' : index === 1 ? 'Wind' : 'Banking Wind'} Units`);
         
         group.forEach(prod => {
-            // Try direct allocation first
             consUnits.forEach(cons => {
                 if (!hasRemainingNeeds(cons)) return;
                 if (prod.month && cons.month && prod.month !== cons.month) return;
 
-                const allocation = {
-                    productionSiteId: prod.productionSiteId,
-                    productionSite: prod.productionSite,
-                    siteType: prod.type,
-                    siteName: prod.siteName,
-                    consumptionSiteId: cons.consumptionSiteId,
-                    consumptionSite: cons.consumptionSite,
-                    month: cons.month,
-                    allocated: {}
-                };
+                // Find or create allocation for this combination
+                let allocation = allocations.find(a =>
+                    a.productionSiteId === prod.productionSiteId &&
+                    a.consumptionSiteId === cons.consumptionSiteId
+                );
+                if (!allocation) {
+                    allocation = {
+                        productionSiteId: prod.productionSiteId,
+                        productionSite: prod.productionSite,
+                        siteType: prod.type,
+                        siteName: prod.siteName,
+                        consumptionSiteId: cons.consumptionSiteId,
+                        consumptionSite: cons.consumptionSite,
+                        month: cons.month,
+                        allocated: {}
+                    };
+                    allocations.push(allocation);
+                }
 
-                let anyAlloc = false;
                 ALL_PERIODS.forEach(period => {
                     if (cons.remaining[period] > 0 && prod.remaining[period] > 0) {
                         const allocated = Math.min(prod.remaining[period], cons.remaining[period]);
                         if (allocated > 0) {
-                            allocation.allocated[period] = allocated;
+                            allocation.allocated[period] = (allocation.allocated[period] || 0) + allocated;
                             prod.remaining[period] -= allocated;
                             cons.remaining[period] -= allocated;
-                            anyAlloc = true;
                         }
                     }
                 });
-
-                if (anyAlloc) allocations.push(allocation);
             });
 
             // Cross-allocation from peak period (c3) to other periods
@@ -196,18 +140,26 @@ export function calculateAllocations({ productionUnits, consumptionUnits, bankin
                         if (periodCross === 'c3') return;
                         const needed = Number(consCross.remaining[periodCross] || 0);
                         if (needed > 0 && prod.remaining.c3 > 0) {
+                            // Find or create allocation for this combination
+                            let allocation = allocations.find(a =>
+                                a.productionSiteId === prod.productionSiteId &&
+                                a.consumptionSiteId === consCross.consumptionSiteId
+                            );
+                            if (!allocation) {
+                                allocation = {
+                                    productionSiteId: prod.productionSiteId,
+                                    productionSite: prod.productionSite,
+                                    siteType: prod.type,
+                                    siteName: prod.siteName,
+                                    consumptionSiteId: consCross.consumptionSiteId,
+                                    consumptionSite: consCross.consumptionSite,
+                                    month: consCross.month,
+                                    allocated: {}
+                                };
+                                allocations.push(allocation);
+                            }
                             const allocAmt = Math.min(prod.remaining.c3, needed);
-                            const crossAlloc = {
-                                productionSiteId: prod.productionSiteId,
-                                productionSite: prod.productionSite,
-                                siteType: prod.type,
-                                siteName: prod.siteName,
-                                consumptionSiteId: consCross.consumptionSiteId,
-                                consumptionSite: consCross.consumptionSite,
-                                month: consCross.month,
-                                allocated: { [periodCross]: allocAmt }
-                            };
-                            allocations.push(crossAlloc);
+                            allocation.allocated[periodCross] = (allocation.allocated[periodCross] || 0) + allocAmt;
                             prod.remaining.c3 -= allocAmt;
                             consCross.remaining[periodCross] -= allocAmt;
                         }
@@ -217,31 +169,47 @@ export function calculateAllocations({ productionUnits, consumptionUnits, bankin
 
             // After direct allocation, handle remaining units
             if (hasRemainingAllocation(prod)) {
-                // Create banking or lapse allocation from remaining units
-                if (prod.bankingEnabled) {
-                    // Create banking allocation for current month only
-                    const bankingAlloc = {
-                        productionSiteId: prod.productionSiteId,
-                        productionSite: prod.productionSite || prod.siteName,
-                        siteType: prod.type,
-                        siteName: prod.siteName || prod.productionSite,
-                        month: prod.month,
-                        type: 'BANKING',
-                        bankingEnabled: true,
-                        allocated: { ...prod.remaining }
-                    };
-                    bankingAllocations.push(bankingAlloc);
-                } else {
-                    lapseAllocations.push({
-                        productionSiteId: prod.productionSiteId,
-                        productionSite: prod.productionSite || prod.siteName,
-                        siteType: prod.type,
-                        siteName: prod.siteName || prod.productionSite,
-                        month: prod.month,
-                        type: 'LAPSE',
-                        allocated: { ...prod.remaining }
-                    });
-                }
+                // Create or update banking/lapse allocation for each period separately
+                ALL_PERIODS.forEach(period => {
+                    const remaining = prod.remaining[period];
+                    if (remaining > 0) {
+                        if (prod.bankingEnabled) {
+                            // Find or create banking allocation for this site
+                            let bankingAlloc = bankingAllocations.find(b => b.productionSiteId === prod.productionSiteId);
+                            if (!bankingAlloc) {
+                                bankingAlloc = {
+                                    productionSiteId: prod.productionSiteId,
+                                    productionSite: prod.productionSite || prod.siteName,
+                                    siteType: prod.type,
+                                    siteName: prod.siteName || prod.productionSite,
+                                    month: prod.month,
+                                    type: 'BANKING',
+                                    bankingEnabled: true,
+                                    allocated: {}
+                                };
+                                bankingAllocations.push(bankingAlloc);
+                            }
+                            bankingAlloc.allocated[period] = (bankingAlloc.allocated[period] || 0) + remaining;
+                        } else {
+                            // Find or create lapse allocation for this site
+                            let lapseAlloc = lapseAllocations.find(l => l.productionSiteId === prod.productionSiteId);
+                            if (!lapseAlloc) {
+                                lapseAlloc = {
+                                    productionSiteId: prod.productionSiteId,
+                                    productionSite: prod.productionSite || prod.siteName,
+                                    siteType: prod.type,
+                                    siteName: prod.siteName || prod.productionSite,
+                                    month: prod.month,
+                                    type: 'LAPSE',
+                                    allocated: {}
+                                };
+                                lapseAllocations.push(lapseAlloc);
+                            }
+                            lapseAlloc.allocated[period] = (lapseAlloc.allocated[period] || 0) + remaining;
+                        }
+                        prod.remaining[period] = 0;
+                    }
+                });
             }
         });
     });
@@ -294,7 +262,54 @@ export function calculateAllocations({ productionUnits, consumptionUnits, bankin
         });
     }
 
-    return { allocations, bankingAllocations, lapseAllocations };
+    // After all allocations, set banking/lapse for all periods to the true remaining units
+    prodUnits.forEach(prod => {
+        ALL_PERIODS.forEach(period => {
+            const remaining = prod.remaining[period];
+            if (remaining > 0) {
+                if (prod.bankingEnabled) {
+                    let bankingAlloc = bankingAllocations.find(b => b.productionSiteId === prod.productionSiteId);
+                    if (!bankingAlloc) {
+                        bankingAlloc = {
+                            productionSiteId: prod.productionSiteId,
+                            productionSite: prod.productionSite || prod.siteName,
+                            siteType: prod.type,
+                            siteName: prod.siteName || prod.productionSite,
+                            month: prod.month,
+                            type: 'BANKING',
+                            bankingEnabled: true,
+                            allocated: {}
+                        };
+                        bankingAllocations.push(bankingAlloc);
+                    }
+                    bankingAlloc.allocated[period] = (bankingAlloc.allocated[period] || 0) + remaining;
+                } else {
+                    let lapseAlloc = lapseAllocations.find(l => l.productionSiteId === prod.productionSiteId);
+                    if (!lapseAlloc) {
+                        lapseAlloc = {
+                            productionSiteId: prod.productionSiteId,
+                            productionSite: prod.productionSite || prod.siteName,
+                            siteType: prod.type,
+                            siteName: prod.siteName || prod.productionSite,
+                            month: prod.month,
+                            type: 'LAPSE',
+                            allocated: {}
+                        };
+                        lapseAllocations.push(lapseAlloc);
+                    }
+                    lapseAlloc.allocated[period] = (lapseAlloc.allocated[period] || 0) + remaining;
+                }
+            }
+        });
+    });
+
+    return { 
+        allocations, 
+        bankingAllocations, 
+        lapseAllocations, 
+        initialBankingAllocations, 
+        initialLapseAllocations 
+    };
 }
 
 export { ALL_PERIODS, PEAK_PERIODS, NON_PEAK_PERIODS };

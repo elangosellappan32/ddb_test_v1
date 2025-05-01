@@ -107,7 +107,6 @@ const bankingApi = {
         bankingData = { ...bankingData, ...data.allocated };
         delete bankingData.allocated;
       }
-      console.log('[BankingAPI] Creating banking record:', bankingData);
       const response = await api.post(API_CONFIG.ENDPOINTS.BANKING.CREATE, bankingData);
       return response.data;
     } catch (error) {
@@ -117,7 +116,6 @@ const bankingApi = {
 
   update: async (pk, sk, data) => {
     try {
-      console.log('[BankingAPI] Updating banking record:', { pk, sk, data });
       const response = await api.put(
         API_CONFIG.ENDPOINTS.BANKING.UPDATE(pk, sk),
         {

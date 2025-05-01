@@ -46,7 +46,6 @@ const stripUnitPrefix = (sk) => {
 const consumptionUnitApi = {
   fetchAll: async (companyId, consumptionSiteId) => {
     try {
-      console.log('[ConsumptionUnitAPI] Fetching units for site:', { companyId, consumptionSiteId });
       const pk = generatePK(companyId, consumptionSiteId);
       
       const response = await api.get(
@@ -122,14 +121,18 @@ const consumptionUnitApi = {
 
       const pk = generatePK(companyId, consumptionSiteId);
       const updateData = {
-        ...data,
         pk,
         sk,
         companyId: String(companyId),
         consumptionSiteId: String(consumptionSiteId),
         type: 'UNIT',
         version: (data.version || 0) + 1,
-        updatedat: new Date().toISOString()
+        updatedat: new Date().toISOString(),
+        c1: Number(data.c1 || 0),
+        c2: Number(data.c2 || 0),
+        c3: Number(data.c3 || 0),
+        c4: Number(data.c4 || 0),
+        c5: Number(data.c5 || 0)
       };
 
       console.log('[ConsumptionUnitAPI] Updating unit:', updateData);

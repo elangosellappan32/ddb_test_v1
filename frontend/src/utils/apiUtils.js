@@ -10,10 +10,9 @@ const api = axios.create({
 export const fetchData = async (endpoint) => {
   try {
     const response = await api.get(endpoint);
-    console.log(`[API] Successfully fetched data from ${endpoint}:`, response.data);
+
     return response.data;
   } catch (error) {
-    console.error(`[API] Error fetching data from ${endpoint}:`, error);
     if (error.response) {
       // The request was made and the server responded with a status code
       // that falls out of the range of 2xx

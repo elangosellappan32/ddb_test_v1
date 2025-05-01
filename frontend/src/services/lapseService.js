@@ -49,7 +49,7 @@ const lapseApi = {
         lapseData = { ...lapseData, ...data.allocated };
         delete lapseData.allocated;
       }
-      console.log('[LapseAPI] Creating lapse record:', lapseData);
+
       const response = await api.post(API_CONFIG.LAPSE.CREATE, lapseData);
       return response.data;
     } catch (error) {

@@ -3,34 +3,34 @@ import { API_CONFIG } from '../config/api.config';
 
 class AllocationApi {
     formatAllocationData(data, type = 'ALLOCATION') {
-        // Normalize allocated fields
-        const inputAlloc = data.allocated || {};
-        const allocated = {
-            c1: Math.max(0, Math.round(Number(inputAlloc.c1) || 0)),
-            c2: Math.max(0, Math.round(Number(inputAlloc.c2) || 0)),
-            c3: Math.max(0, Math.round(Number(inputAlloc.c3) || 0)),
-            c4: Math.max(0, Math.round(Number(inputAlloc.c4) || 0)),
-            c5: Math.max(0, Math.round(Number(inputAlloc.c5) || 0)),
-        };
-        // Build payload
+        // Accept c1-c5 at root level if present, otherwise from allocated
+        const allocated = data.allocated || {};
+        // Use c1-c5 from root if present, else from allocated
+        const c1 = data.c1 !== undefined ? data.c1 : allocated.c1 || 0;
+        const c2 = data.c2 !== undefined ? data.c2 : allocated.c2 || 0;
+        const c3 = data.c3 !== undefined ? data.c3 : allocated.c3 || 0;
+        const c4 = data.c4 !== undefined ? data.c4 : allocated.c4 || 0;
+        const c5 = data.c5 !== undefined ? data.c5 : allocated.c5 || 0;
+        // Build payload with c1-c5 at root
         const payload = {
             companyId: data.companyId,
             pk: data.pk,
             sk: data.sk,
-            allocated
+            c1: Math.max(0, Math.round(Number(c1) || 0)),
+            c2: Math.max(0, Math.round(Number(c2) || 0)),
+            c3: Math.max(0, Math.round(Number(c3) || 0)),
+            c4: Math.max(0, Math.round(Number(c4) || 0)),
+            c5: Math.max(0, Math.round(Number(c5) || 0))
         };
         const t = (type || data.type || 'ALLOCATION').toUpperCase();
         if (t === 'ALLOCATION') {
             payload.consumptionSiteId = data.consumptionSiteId;
         } else if (t === 'BANKING') {
-            // Include siteName for banking payload
             payload.siteName = data.productionSiteName || data.siteName;
         } else if (t === 'LAPSE') {
-            // Include identifiers for lapse payload
             payload.productionSiteId = data.productionSiteId;
             payload.month = data.month;
         }
-        // Pass through metadata fields
         ['version','ttl','createdAt','updatedAt'].forEach(key => {
             if (data[key] !== undefined) payload[key] = data[key];
         });
@@ -47,6 +47,17 @@ class AllocationApi {
                 banking: response.data?.banking || [],
                 lapse: response.data?.lapse || []
             };
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async fetchAllAllocations() {
+        try {
+            const endpoint = `${API_CONFIG.ENDPOINTS.ALLOCATION.BASE}`;
+            const response = await api.get(endpoint);
+            // Expect response.data to be an array of records with allocated: {c1, c2, ...}
+            return response.data?.data || [];
         } catch (error) {
             throw this.handleError(error);
         }
@@ -108,7 +119,6 @@ class AllocationApi {
                     endpoint = API_CONFIG.ENDPOINTS.ALLOCATION.CREATE;
             }
 
-            console.log('[AllocationApi] Outgoing payload:', formattedData);
             const response = await api.post(endpoint, formattedData);
             return response.data;
         } catch (error) {

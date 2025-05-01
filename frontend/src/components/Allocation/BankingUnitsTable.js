@@ -91,27 +91,53 @@ const BankingUnitsTable = ({ bankingData = [], selectedYear }) => {
                     {row.siteName}
                   </Box>
                 </TableCell>
-                {ALL_PERIODS.map(period => (
-                  <TableCell key={period} align="right">
-                    <Typography sx={{
-                      color: PEAK_PERIODS.includes(period) ? 'warning.main' : 'primary.main',
-                      fontWeight: PEAK_PERIODS.includes(period) ? 'bold' : 'normal'
-                    }}>
-                      {formatValue(netValues[period])}
-                    </Typography>
-                  </TableCell>
-                ))}
+                {ALL_PERIODS.map(period => {
+                  const value = formatValue(netValues[period]);
+                  const total = calculatePeriodTotal(row, [period]);
+                  return (
+                    <TableCell key={period} align="right">
+                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                        <Typography sx={{
+                          color: PEAK_PERIODS.includes(period) ? 'warning.main' : 'primary.main',
+                          fontWeight: PEAK_PERIODS.includes(period) ? 'bold' : 'normal'
+                        }}>
+                          {value}
+                        </Typography>
+                        <Typography variant="caption" sx={{
+                          color: 'text.secondary',
+                          fontSize: '0.75rem'
+                        }}>
+                          Total: {total}
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                  );
+                })}
                 <TableCell align="right" sx={{ color: 'text.secondary' }}>
-                  {calculatePeriodTotal(row.previousBalance, ALL_PERIODS)}
+                  <Typography variant="caption" sx={{
+                    color: 'text.secondary',
+                    fontSize: '0.75rem'
+                  }}>
+                    Previous Total: {calculatePeriodTotal(row.previousBalance, ALL_PERIODS)}
+                  </Typography>
                 </TableCell>
                 <TableCell align="right" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-                  {calculatePeriodTotal(row, ALL_PERIODS)}
+                  <Typography variant="caption" sx={{
+                    color: 'primary.main',
+                    fontSize: '0.75rem'
+                  }}>
+                    Current Total: {calculatePeriodTotal(row, ALL_PERIODS)}
+                  </Typography>
                 </TableCell>
                 <TableCell align="right" sx={{ 
                   fontWeight: 'bold', 
                   color: calculateNetBalance(row) > 0 ? 'success.main' : 'error.main'
                 }}>
-                  {calculateNetBalance(row)}
+                  <Typography variant="caption" sx={{
+                    fontSize: '0.75rem'
+                  }}>
+                    Net Total: {calculateNetBalance(row)}
+                  </Typography>
                 </TableCell>
               </TableRow>
             );

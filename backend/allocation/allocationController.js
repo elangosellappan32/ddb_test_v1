@@ -6,6 +6,16 @@ const { ALL_PERIODS } = require('../constants/periods');
 const ValidationError = require('../utils/errors').ValidationError;
 const productionSiteDAL = require('../productionSite/productionSiteDAL');
 
+// Transform allocation/banking/lapse record to group c1-c5 under allocated
+function transformAllocationRecord(record) {
+  if (!record) return record;
+  const { c1, c2, c3, c4, c5, ...rest } = record;
+  return {
+    ...rest,
+    allocated: { c1, c2, c3, c4, c5 }
+  };
+}
+
 const createAllocation = async (req, res, next) => {
     try {
         const allocations = req.validatedAllocations || [];
@@ -38,7 +48,12 @@ const getAllocations = async (req, res, next) => {
         const allBanking = await bankingDAL.getAllBanking();
         const banking = allBanking.filter(item => item.sk === month);
         const lapseRecords = await lapseService.getLapsesByMonth(month);
-        res.json({ success: true, data: allocations, banking, lapse: lapseRecords });
+        res.json({
+          success: true,
+          data: allocations.map(transformAllocationRecord),
+          banking: banking.map(transformAllocationRecord),
+          lapse: lapseRecords.map(transformAllocationRecord)
+        });
     } catch (error) {
         logger.error('[AllocationController] GetAllocations Error:', error);
         next(error);

@@ -185,7 +185,6 @@ const productionSiteApi = {
         updatedat: new Date().toISOString()
       };
 
-      console.log('[ProductionSiteAPI] Updating site:', { companyId: 1, productionSiteId, siteData });
       const response = await api.put(
         API_CONFIG.ENDPOINTS.PRODUCTION.SITE.UPDATE(1, productionSiteId),
         siteData
@@ -198,7 +197,6 @@ const productionSiteApi = {
 
   delete: async (companyId, productionSiteId) => {
     try {
-      console.log('[ProductionSiteAPI] Deleting site:', { companyId: 1, productionSiteId });
       const response = await api.delete(
         API_CONFIG.ENDPOINTS.PRODUCTION.SITE.DELETE(1, productionSiteId)
       );

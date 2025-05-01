@@ -23,7 +23,7 @@ import {
 import { Edit as EditIcon, SaveOutlined } from '@mui/icons-material';
 import { getAllocationPeriods, getAllocationTypeColor, ALL_PERIODS } from '../../utils/allocationUtils';
 
-const AllocationDetailsTable = ({ allocations = [], bankingAllocations = [], lapseAllocations = [], loading = false, onEdit, onSave, error = null }) => {
+const AllocationDetailsTable = ({ allocations = [], bankingAllocations = [], oldBankingAllocations = [], lapseAllocations = [], oldLapseAllocations = [], loading = false, onEdit, onSave, error = null }) => {
     const [editDialog, setEditDialog] = useState(false);
     const [editingAllocation, setEditingAllocation] = useState(null);
     const [editValues, setEditValues] = useState({});
@@ -132,18 +132,42 @@ const AllocationDetailsTable = ({ allocations = [], bankingAllocations = [], lap
             .reduce((sum, key) => sum + Math.round(Number(row[key] || 0)), 0);
     };
 
+    // Helper to group and sum allocations by productionSiteId and consumptionSiteId
+    const getIntegratedAllocations = (data) => {
+        const grouped = {};
+        data.forEach(a => {
+            const key = `${a.productionSiteId}_${a.consumptionSiteId}`;
+            if (!grouped[key]) {
+                grouped[key] = {
+                    ...a,
+                    allocated: { ...a.allocated }
+                };
+            } else {
+                // Sum each period
+                Object.keys(a.allocated || {}).forEach(period => {
+                    grouped[key].allocated[period] = (grouped[key].allocated[period] || 0) + (a.allocated[period] || 0);
+                });
+            }
+        });
+        return Object.values(grouped);
+    };
+
+    // Helper to merge new and old data for fallback display (always show all original data, overwrite with adjusted if present)
+    const mergeWithFallback = (primary, fallback, keyField = 'productionSiteId') => {
+        const map = new Map();
+        (fallback || []).forEach(item => map.set(item[keyField], { ...item })); // Start with original
+        (primary || []).forEach(item => map.set(item[keyField], { ...item }));  // Overwrite with adjusted if present
+        return Array.from(map.values());
+    };
+
     const renderSection = (title, data, type, bgColor) => {
-        if (!data?.length) return null;
-        // Remove duplicates by productionSiteId + consumptionSiteId (for allocations)
-        let uniqueData = data;
-        if (type === 'allocation') {
-            const seen = new Set();
-            uniqueData = data.filter(a => {
-                const key = `${a.productionSiteId || ''}_${a.consumptionSiteId || ''}`;
-                if (seen.has(key)) return false;
-                seen.add(key);
-                return true;
-            });
+        let uniqueData = (type === 'allocation') ? getIntegratedAllocations(data) : data;
+        // For banking/lapse, always merge new and old data for fallback display
+        if (type === 'banking') {
+            uniqueData = mergeWithFallback(uniqueData, oldBankingAllocations);
+        }
+        if (type === 'lapse') {
+            uniqueData = mergeWithFallback(uniqueData, oldLapseAllocations);
         }
         return (
             <Paper variant="outlined" sx={{ mb: 3, borderRadius: 2, overflow: 'hidden' }}>
@@ -162,7 +186,7 @@ const AllocationDetailsTable = ({ allocations = [], bankingAllocations = [], lap
                             </TableRow>
                         </TableHead>
                         <TableBody>
-                            {uniqueData.map((allocation, idx) => (
+                            {uniqueData.length > 0 ? uniqueData.map((allocation, idx) => (
                                 <TableRow 
                                     key={`${allocation.productionSiteId}-${allocation.consumptionSiteId || type}-${idx}`} 
                                     hover 
@@ -219,7 +243,13 @@ const AllocationDetailsTable = ({ allocations = [], bankingAllocations = [], lap
                                         </TableCell>
                                     )}
                                 </TableRow>
-                            ))}
+                            )) : (
+                                <TableRow>
+                                    <TableCell colSpan={type === 'allocation' ? getAllocationPeriods().length + 3 : getAllocationPeriods().length + 2} align="center">
+                                        <Typography color="textSecondary">No {title.toLowerCase()} data available</Typography>
+                                    </TableCell>
+                                </TableRow>
+                            )}
                         </TableBody>
                     </Table>
                 </Box>

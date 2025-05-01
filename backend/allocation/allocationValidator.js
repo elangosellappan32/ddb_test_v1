@@ -10,14 +10,14 @@ const validateAllocation = (req, res, next) => {
             const type = (alloc.type || 'ALLOCATION').toUpperCase();
             const validationErrors = [];
 
-            // Common required fields: only pk and sk
+            // Common required fields: pk and sk
             const commonFields = ['pk', 'sk'];
 
             // Type-specific required fields
             const typeFields = {
-                'ALLOCATION': ['consumptionSiteId', 'allocated'],
-                'BANKING': ['allocated'],
-                'LAPSE': ['allocated']
+                'ALLOCATION': ['consumptionSiteId', 'c1', 'c2', 'c3', 'c4', 'c5'],
+                'BANKING': ['c1', 'c2', 'c3', 'c4', 'c5'],
+                'LAPSE': ['c1', 'c2', 'c3', 'c4', 'c5']
             };
 
             const requiredFields = [...commonFields, ...(typeFields[type] || [])];
@@ -31,12 +31,10 @@ const validateAllocation = (req, res, next) => {
             }
 
             // Coerce all allocation periods to numbers (default 0)
-            if (alloc.allocated) {
-                const periods = ['c1', 'c2', 'c3', 'c4', 'c5'];
-                periods.forEach(p => {
-                    alloc.allocated[p] = Number(alloc.allocated[p]) || 0;
-                });
-            }
+            const periods = ['c1', 'c2', 'c3', 'c4', 'c5'];
+            periods.forEach(p => {
+                alloc[p] = Number(alloc[p]) || 0;
+            });
 
             // Set defaults for banking and lapse
             if (type === 'BANKING') {

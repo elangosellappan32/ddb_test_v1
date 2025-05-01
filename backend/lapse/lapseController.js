@@ -6,6 +6,26 @@ const calculateTotal = (data) => {
     return ALL_PERIODS.reduce((sum, key) => sum + (Number(data[key]) || 0), 0);
 };
 
+// Transform lapse record to group c1-c5 under allocated
+function transformLapseRecord(record) {
+  if (!record) return record;
+  const { c1, c2, c3, c4, c5, ...rest } = record;
+  return {
+    ...rest,
+    allocated: { c1, c2, c3, c4, c5 }
+  };
+}
+
+// For response, you can still group c1-c5 under allocated if needed for frontend display
+function transformLapseRecordForResponse(record) {
+  if (!record) return record;
+  const { c1, c2, c3, c4, c5, ...rest } = record;
+  return {
+    ...rest,
+    allocated: { c1, c2, c3, c4, c5 }
+  };
+}
+
 // Get all lapse records
 exports.getAllLapse = async (req, res) => {
     try {
@@ -13,7 +33,7 @@ exports.getAllLapse = async (req, res) => {
         const result = await lapseService.getLapsesByMonth(month);
         res.json({
             success: true,
-            data: result
+            data: result.map(transformLapseRecord)
         });
     } catch (error) {
         logger.error('[LapseController] GetAll Error:', error);
@@ -59,6 +79,7 @@ exports.createLapse = async (req, res) => {
         const errors = [];
         for (const lapse of data) {
             try {
+                // Store c1-c5 at root level
                 const result = await lapseService.create(lapse);
                 results.push(result);
             } catch (error) {

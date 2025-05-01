@@ -88,7 +88,6 @@ const productionChargeApi = {
 
       return response.data;
     } catch (error) {
-      console.error('[ProductionChargeAPI] Update Error:', error);
       throw error;
     }
   },
@@ -99,13 +98,11 @@ const productionChargeApi = {
         throw new Error('Sort key (sk) is required for deletion');
       }
 
-      console.log('[ProductionChargeAPI] Deleting charge:', { companyId, productionSiteId, sk });
       const response = await api.delete(
         API_CONFIG.ENDPOINTS.PRODUCTION.CHARGE.DELETE(companyId, productionSiteId, sk)
       );
       return response.data;
     } catch (error) {
-      console.error('[ProductionChargeAPI] Delete Error:', error);
       throw error;
     }
   }

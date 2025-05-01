@@ -87,10 +87,8 @@ const Production = () => {
       }
 
     } catch (err) {
-      console.error('[Production] Fetch error:', err);
       
       if (retryCount < MAX_RETRIES) {
-        console.log(`[Production] Retrying... Attempt ${retryCount + 1} of ${MAX_RETRIES}`);
         setRetryCount(prev => prev + 1);
         setTimeout(() => fetchSites(true), RETRY_DELAY);
         return;

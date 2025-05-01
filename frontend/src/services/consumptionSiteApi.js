@@ -39,7 +39,6 @@ const consumptionSiteApi = {
 
   fetchOne: async (companyId, consumptionSiteId) => {
     try {
-      console.log('[ConsumptionSiteAPI] Fetching site:', { companyId, consumptionSiteId });
       const response = await api.get(
         API_CONFIG.ENDPOINTS.CONSUMPTION.SITE.GET_ONE(companyId, consumptionSiteId)
       );

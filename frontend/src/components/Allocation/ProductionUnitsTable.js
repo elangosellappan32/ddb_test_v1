@@ -14,7 +14,7 @@ import {
 } from '@mui/material';
 import { CheckCircle, Cancel, Info as InfoIcon } from '@mui/icons-material';
 
-const ProductionUnitsTable = ({ data = [], onManualAllocationChange = () => {} }) => {
+const ProductionUnitsTable = ({ data = [] }) => {
   const PEAK_PERIODS = ['c2', 'c3'];
   const NON_PEAK_PERIODS = ['c1', 'c4', 'c5'];
   const ALL_PERIODS = ['c1', 'c2', 'c3', 'c4', 'c5'];  // Ordered from c1 to c5
@@ -107,44 +107,19 @@ const ProductionUnitsTable = ({ data = [], onManualAllocationChange = () => {} }
                   />
                 </TableCell>
                 <TableCell align="right">
-                  <input
-                    type="number"
-                    value={c1}
-                    onChange={(e) => onManualAllocationChange(row.productionSiteId, row.productionSiteId, 'c1', e.target.value)}
-                    style={{ width: '100%', border: 'none', textAlign: 'right' }}
-                  />
+                  <Typography align="right" sx={{ color: 'primary.main' }}>{c1}</Typography>
                 </TableCell>
                 <TableCell align="right">
-                  <input
-                    type="number"
-                    value={c2}
-                    onChange={(e) => onManualAllocationChange(row.productionSiteId, row.productionSiteId, 'c2', e.target.value)}
-                    style={{ width: '100%', border: 'none', textAlign: 'right' }}
-                  />
+                  <Typography align="right" sx={{ color: 'warning.main' }}>{c2}</Typography>
                 </TableCell>
                 <TableCell align="right">
-                  <input
-                    type="number"
-                    value={c3}
-                    onChange={(e) => onManualAllocationChange(row.productionSiteId, row.productionSiteId, 'c3', e.target.value)}
-                    style={{ width: '100%', border: 'none', textAlign: 'right' }}
-                  />
+                  <Typography align="right" sx={{ color: 'warning.main' }}>{c3}</Typography>
                 </TableCell>
                 <TableCell align="right">
-                  <input
-                    type="number"
-                    value={c4}
-                    onChange={(e) => onManualAllocationChange(row.productionSiteId, row.productionSiteId, 'c4', e.target.value)}
-                    style={{ width: '100%', border: 'none', textAlign: 'right' }}
-                  />
+                  <Typography align="right" sx={{ color: 'primary.main' }}>{c4}</Typography>
                 </TableCell>
                 <TableCell align="right">
-                  <input
-                    type="number"
-                    value={c5}
-                    onChange={(e) => onManualAllocationChange(row.productionSiteId, row.productionSiteId, 'c5', e.target.value)}
-                    style={{ width: '100%', border: 'none', textAlign: 'right' }}
-                  />
+                  <Typography align="right" sx={{ color: 'primary.main' }}>{c5}</Typography>
                 </TableCell>
                 <TableCell align="right">
                   <Typography sx={{ color: 'warning.main', fontWeight: 'bold' }}>

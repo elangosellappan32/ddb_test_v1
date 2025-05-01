@@ -1,27 +1,23 @@
-import React from 'react';
-import { Box, Typography, Paper, Grid } from '@mui/material';
+import React, { lazy, Suspense } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { Box, CircularProgress } from '@mui/material';
+
+const AllocationReport = lazy(() => import('./Reports/AllocationReport'));
+
+const Loading = () => (
+  <Box display="flex" justifyContent="center" alignItems="center" minHeight="50vh">
+    <CircularProgress />
+  </Box>
+);
 
 const Reports = () => {
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom>
-        Reports
-      </Typography>
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6">Production Reports</Typography>
-            {/* Add your production reports component here */}
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6">Consumption Reports</Typography>
-            {/* Add your consumption reports component here */}
-          </Paper>
-        </Grid>
-      </Grid>
-    </Box>
+    <Suspense fallback={<Loading />}>
+      <Routes>
+        <Route path="allocation-report" element={<AllocationReport />} />
+        <Route path="*" element={<Navigate to="allocation-report" replace />} />
+      </Routes>
+    </Suspense>
   );
 };
 

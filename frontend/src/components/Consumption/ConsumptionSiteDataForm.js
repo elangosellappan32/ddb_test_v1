@@ -146,10 +146,8 @@ const ConsumptionSiteDataForm = ({
     try {
       const sk = generateSK(formData.date);
       
-      // When updating, create new data object with all fields reset to zero
-      // Then apply only the non-zero values from the form
+      // Create submit data with all period values
       const submitData = {
-        ...formData,
         sk,
         pk: `${companyId}_${consumptionSiteId}`,
         companyId,
@@ -157,21 +155,12 @@ const ConsumptionSiteDataForm = ({
         date: format(formData.date, 'yyyy-MM-dd'),
         type: type.toUpperCase(),
         version: initialData ? (initialData.version || 0) + 1 : 1,
-        // Reset all fields to zero first
-        c1: 0,
-        c2: 0,
-        c3: 0,
-        c4: 0,
-        c5: 0
+        c1: parseFloat(formData.c1) || 0,
+        c2: parseFloat(formData.c2) || 0,
+        c3: parseFloat(formData.c3) || 0,
+        c4: parseFloat(formData.c4) || 0,
+        c5: parseFloat(formData.c5) || 0
       };
-
-      // Only include non-zero values from the form
-      getFields().forEach(field => {
-        const value = parseFloat(formData[field.id]);
-        if (!isNaN(value) && value !== 0) {
-          submitData[field.id] = value;
-        }
-      });
 
       await onSubmit(submitData);
       enqueueSnackbar('Data saved successfully', { variant: 'success' });
