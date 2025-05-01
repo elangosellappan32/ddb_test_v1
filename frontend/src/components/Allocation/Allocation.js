@@ -61,96 +61,86 @@ const Allocation = () => {
 
   const handleManualAllocationChange = (prodId, consId, period, value) => {
     const key = `${prodId}_${consId}_${period}`;
-    const newValue = Number(value) || 0;
-    
-    // Update manual allocations
-    setManualAllocations(prev => ({
-      ...prev,
-      [key]: newValue
-    }));
+    const newValue = Math.max(0, Number(value) || 0);
 
-    // Update production data directly
+    // Find the relevant production and consumption units
+    const prodUnit = productionData.find(row => row.productionSiteId === prodId);
+    const consUnit = consumptionData.find(row => row.consumptionSiteId === consId);
+    if (!prodUnit || !consUnit) return;
+
+    // Calculate the maximum allowed allocation for this period
+    const maxAlloc = Math.min(
+      Number(prodUnit[period] || 0) + (manualAllocations[key] || 0), // add back previous manual allocation for this cell
+      Number(consUnit[period] || 0)
+    );
+    const finalValue = Math.min(newValue, maxAlloc);
+
+    // Update manualAllocations state
+    setManualAllocations(prev => ({ ...prev, [key]: finalValue }));
+
+    // Update productionData's allocated and remaining for this period
     setProductionData(prev => prev.map(row => {
       if (row.productionSiteId === prodId) {
-        const currentRemaining = Number(row.remaining[period]) || 0;
-        const difference = newValue - currentRemaining;
-        
+        // Calculate total manual allocations for this prodId and period
+        let totalManual = 0;
+        Object.keys(manualAllocations).forEach(k => {
+          const [pId, , per] = k.split('_');
+          if (pId === String(prodId) && per === period) {
+            totalManual += Number(manualAllocations[k] || 0);
+          }
+        });
+        // Add the new value for this cell
+        totalManual = totalManual - (manualAllocations[key] || 0) + finalValue;
+        const orig = Number(row[period] || 0);
+        const remaining = { ...row.remaining };
+        remaining[period] = Math.max(0, orig - totalManual);
         return {
           ...row,
-          [period]: newValue,
-          remaining: {
-            ...row.remaining,
-            [period]: newValue
-          },
-          // Update banking status if this is a banking unit
-          bankingEnabled: row.bankingEnabled || (difference !== 0)
+          remaining,
         };
       }
       return row;
     }));
 
-    // Recalculate allocations and update tables
-    const newAllocations = calculateAllocations({
+    // Recalculate allocations with updated manualAllocations
+    const updatedManualAllocations = { ...manualAllocations, [key]: finalValue };
+    let newAllocations = calculateAllocations({
       productionUnits: productionData,
       consumptionUnits: consumptionData,
       bankingUnits: bankingData,
-      manualAllocations: manualAllocations
+      manualAllocations: updatedManualAllocations
     });
 
-    // Update state with new allocations
-    setAllocations(prev => {
-      // Filter out duplicates and keep only the latest allocation
-      const allocationMap = new Map();
-      newAllocations.allocations.forEach(allocation => {
-        // Create unique key based on production and consumption sites
-        const key = `${allocation.productionSiteId}_${allocation.consumptionSiteId}`;
-        
-        // If key exists, update existing allocation
-        const existing = allocationMap.get(key);
-        if (existing) {
-          // Update each period value
-          Object.keys(allocation.allocated).forEach(period => {
-            existing.allocated[period] = allocation.allocated[period];
-          });
-        } else {
-          allocationMap.set(key, allocation);
-        }
-      });
-      return Array.from(allocationMap.values());
+    // Validation: at least one period in allocated must be > 0, else set all to zero
+    const fixZeroAllocations = (arr) => arr.map(a => {
+      const allocated = a.allocated || {};
+      const hasNonZero = Object.values(allocated).some(v => Number(v) > 0);
+      if (!hasNonZero) {
+        return {
+          ...a,
+          allocated: Object.fromEntries(Object.keys(allocated).map(p => [p, 0]))
+        };
+      }
+      return a;
     });
-    
-    setBankingAllocations(prev => {
-      // Filter out duplicates and keep only the latest banking allocation
-      const bankingMap = new Map();
-      newAllocations.bankingAllocations.forEach(allocation => {
-        const key = `${allocation.productionSiteId}_${allocation.consumptionSiteId}_${allocation.period}`;
-        const existing = bankingMap.get(key);
-        if (existing) {
-          // Combine banking amounts
-          existing.amount += allocation.amount;
-        } else {
-          bankingMap.set(key, allocation);
-        }
-      });
-      return Array.from(bankingMap.values());
-    });
-    
-    setLapseAllocations(prev => {
-      // Filter out duplicates and keep only the latest lapse allocation
-      const lapseMap = new Map();
-      newAllocations.lapseAllocations.forEach(allocation => {
-        const key = `${allocation.productionSiteId}_${Object.keys(allocation.allocated)[0]}`;
-        const existing = lapseMap.get(key);
-        if (existing) {
-          // Combine lapse amounts
-          const period = Object.keys(allocation.allocated)[0];
-          existing.allocated[period] = (existing.allocated[period] || 0) + allocation.allocated[period];
-        } else {
-          lapseMap.set(key, allocation);
-        }
-      });
-      return Array.from(lapseMap.values());
-    });
+
+    setAllocations(fixZeroAllocations(newAllocations.allocations));
+    setBankingAllocations(fixZeroAllocations(newAllocations.bankingAllocations).map(b => {
+      const prod = productionData.find(p => p.productionSiteId === b.productionSiteId);
+      return {
+        ...b,
+        siteName: prod ? (prod.siteName || prod.productionSite || '') : '',
+        productionSite: prod ? (prod.productionSite || prod.siteName || '') : '',
+      };
+    }));
+    setLapseAllocations(fixZeroAllocations(newAllocations.lapseAllocations).map(l => {
+      const prod = productionData.find(p => p.productionSiteId === l.productionSiteId);
+      return {
+        ...l,
+        siteName: prod ? (prod.siteName || prod.productionSite || '') : '',
+        productionSite: prod ? (prod.productionSite || prod.siteName || '') : '',
+      };
+    }));
   };
 
   const runAllocationCalculation = useCallback(() => {
@@ -172,19 +162,7 @@ const Allocation = () => {
       variant: 'success',
       autoHideDuration: 2000 
     });
-  }, [productionData, consumptionData, bankingData, enqueueSnackbar]);
-
-  const fetchProductionData = useCallback(async () => {
-    try {
-      const monthYear = formatAllocationMonth(selectedMonth, selectedYear);
-      const data = await productionUnitApi.getProductionUnits(monthYear);
-      setProductionData(data);
-      runAllocationCalculation();
-    } catch (error) {
-      setError(error.message);
-      enqueueSnackbar('Error fetching production data', { variant: 'error' });
-    }
-  }, [selectedMonth, selectedYear, runAllocationCalculation, enqueueSnackbar]);
+  }, [productionData, consumptionData, bankingData, manualAllocations, enqueueSnackbar]);
 
   const updateAllocationData = useCallback(() => {
     if (!showAllocations) return;
@@ -229,59 +207,91 @@ const Allocation = () => {
     return payload;
   };
 
+  // Fix edit dialog selection: match by productionSiteId and consumptionSiteId (if present)
   const handleEditAllocation = useCallback((allocation, type) => {
     setDialogData({ allocation, type });
     setConfirmDialogOpen(true);
   }, []);
 
-  // Local UI edit: update allocations/bankingAllocations only; persistence on 'Save Changes'
+  // Local UI edit: update allocations/bankingAllocations/lapseAllocations only; persistence on 'Save Changes'
   const handleEditAllocationConfirmed = useCallback(() => {
     const { allocation, type } = dialogData;
     setConfirmDialogOpen(false);
 
     if (type === 'allocation') {
-      setAllocations(prevAllocs => {
-        const updatedAllocs = prevAllocs.map(a =>
-          a.productionSiteId === allocation.productionSiteId &&
-          a.consumptionSiteId === allocation.consumptionSiteId
-            ? allocation
-            : a
-        );
-        // Recalculate banking and lapse based on updated allocations
-        const productionMap = productionData.reduce((m, prod) => { m[prod.productionSiteId] = prod; return m; }, {});
-        const allocatedMap = {};
-        updatedAllocs.forEach(item => {
-          const pid = item.productionSiteId;
-          if (!allocatedMap[pid]) allocatedMap[pid] = ALL_PERIODS.reduce((acc, p) => { acc[p] = 0; return acc; }, {});
-          ALL_PERIODS.forEach(p => { allocatedMap[pid][p] += Number(item.allocated[p] || 0); });
-        });
-        const newBanking = [];
-        const newLapse = [];
-        const ts = new Date().toISOString();
-        Object.entries(productionMap).forEach(([pid, prod]) => {
-          const orig = ALL_PERIODS.reduce((acc, p) => { acc[p] = Number(prod[p] || 0); return acc; }, {});
-          const allocs = allocatedMap[pid] || ALL_PERIODS.reduce((acc, p) => { acc[p] = 0; return acc; }, {});
-          const remaining = ALL_PERIODS.reduce((acc, p) => { acc[p] = orig[p] - allocs[p]; return acc; }, {});
-          const entryBase = {
-            productionSiteId: pid,
-            siteName: prod.siteName || prod.productionSite || '',
-            month: prod.month,
-            allocated: remaining,
-            version: 1,
-            ttl: 0,
-            createdAt: ts,
-            updatedAt: ts
-          };
-          if (Number(prod.banking || 0) === 1) {
-            newBanking.push({ ...entryBase, type: 'BANKING' });
-          } else {
-            newLapse.push({ ...entryBase, type: 'LAPSE' });
+      setAllocations(prevAllocs => prevAllocs.map(a =>
+        a.productionSiteId === allocation.productionSiteId &&
+        a.consumptionSiteId === allocation.consumptionSiteId
+          ? { ...a, allocated: allocation.allocated, version: (a.version || 0) + 1, updatedAt: new Date().toISOString() }
+          : a
+      ));
+      // Handle banking/lapse adjustments
+      if (allocation.bankingAdjustments) {
+        setBankingAllocations(prev => {
+          let found = false;
+          const updated = prev.map(b => {
+            if (b.productionSiteId === allocation.productionSiteId) {
+              found = true;
+              const newAllocated = { ...b.allocated };
+              Object.entries(allocation.bankingAdjustments).forEach(([period, diff]) => {
+                newAllocated[period] = Math.round((Number(newAllocated[period]) || 0) + diff);
+              });
+              // Remove if all periods are zero
+              const allZero = ALL_PERIODS.every(p => !newAllocated[p]);
+              return allZero ? null : { ...b, allocated: newAllocated, updatedAt: new Date().toISOString() };
+            }
+            return b;
+          }).filter(Boolean);
+          // If not found and any adjustment is nonzero, add new row
+          if (!found && Object.values(allocation.bankingAdjustments).some(v => v !== 0)) {
+            const newAllocated = {};
+            ALL_PERIODS.forEach(p => { newAllocated[p] = Math.round(allocation.bankingAdjustments[p] || 0); });
+            if (Object.values(newAllocated).some(v => v !== 0)) {
+              updated.push({
+                productionSiteId: allocation.productionSiteId,
+                siteName: allocation.siteName,
+                allocated: newAllocated,
+                type: 'BANKING',
+                updatedAt: new Date().toISOString(),
+              });
+            }
           }
+          return updated;
         });
-        setBankingAllocations(newBanking);
-        setLapseAllocations(newLapse);
-        return updatedAllocs;
-      });
+      }
+      if (allocation.lapseAdjustments) {
+        setLapseAllocations(prev => {
+          let found = false;
+          const updated = prev.map(l => {
+            if (l.productionSiteId === allocation.productionSiteId) {
+              found = true;
+              const newAllocated = { ...l.allocated };
+              Object.entries(allocation.lapseAdjustments).forEach(([period, diff]) => {
+                newAllocated[period] = Math.round((Number(newAllocated[period]) || 0) + diff);
+              });
+              // Remove if all periods are zero
+              const allZero = ALL_PERIODS.every(p => !newAllocated[p]);
+              return allZero ? null : { ...l, allocated: newAllocated, updatedAt: new Date().toISOString() };
+            }
+            return l;
+          }).filter(Boolean);
+          // If not found and any adjustment is nonzero, add new row
+          if (!found && Object.values(allocation.lapseAdjustments).some(v => v !== 0)) {
+            const newAllocated = {};
+            ALL_PERIODS.forEach(p => { newAllocated[p] = Math.round(allocation.lapseAdjustments[p] || 0); });
+            if (Object.values(newAllocated).some(v => v !== 0)) {
+              updated.push({
+                productionSiteId: allocation.productionSiteId,
+                siteName: allocation.siteName,
+                allocated: newAllocated,
+                type: 'LAPSE',
+                updatedAt: new Date().toISOString(),
+              });
+            }
+          }
+          return updated;
+        });
+      }
     } else if (type === 'banking') {
       setBankingAllocations(prev => prev.map(a =>
         a.productionSiteId === allocation.productionSiteId ? allocation : a
@@ -292,7 +302,7 @@ const Allocation = () => {
       variant: 'success',
       autoHideDuration: 3000
     });
-  }, [dialogData, enqueueSnackbar, productionData]);
+  }, [dialogData, enqueueSnackbar]);
 
   // When fetch completes or month/year changes, update data
   useEffect(() => {

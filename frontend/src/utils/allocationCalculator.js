@@ -217,13 +217,14 @@ export function calculateAllocations({ productionUnits, consumptionUnits, bankin
 
             // After direct allocation, handle remaining units
             if (hasRemainingAllocation(prod)) {
+                // Create banking or lapse allocation from remaining units
                 if (prod.bankingEnabled) {
                     // Create banking allocation for current month only
                     const bankingAlloc = {
                         productionSiteId: prod.productionSiteId,
-                        productionSite: prod.productionSite,
+                        productionSite: prod.productionSite || prod.siteName,
                         siteType: prod.type,
-                        siteName: prod.siteName,
+                        siteName: prod.siteName || prod.productionSite,
                         month: prod.month,
                         type: 'BANKING',
                         bankingEnabled: true,
@@ -233,9 +234,9 @@ export function calculateAllocations({ productionUnits, consumptionUnits, bankin
                 } else {
                     lapseAllocations.push({
                         productionSiteId: prod.productionSiteId,
-                        productionSite: prod.productionSite,
+                        productionSite: prod.productionSite || prod.siteName,
                         siteType: prod.type,
-                        siteName: prod.siteName,
+                        siteName: prod.siteName || prod.productionSite,
                         month: prod.month,
                         type: 'LAPSE',
                         allocated: { ...prod.remaining }
