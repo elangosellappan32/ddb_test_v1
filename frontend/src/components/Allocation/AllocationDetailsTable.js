@@ -29,6 +29,89 @@ const AllocationDetailsTable = ({ allocations = [], bankingAllocations = [], old
     const [editValues, setEditValues] = useState({});
     const [validationError, setValidationError] = useState(null);
 
+    // Store allocation adjustment history
+    const [allocationHistory, setAllocationHistory] = useState([]);
+
+    // Helper to update banking/lapse based on allocation history
+    const updateBankingLapseFromHistory = (history) => {
+        // This function will simulate the flow of units between periods, tracking fromPeriod → toPeriod
+        // We'll use a queue to track banked units and match returned (lapsed) units to their original source
+        const banking = [];
+        const lapse = [];
+        // Map: compositeKey (companyId_prodId_consId) => [{fromPeriod, toPeriod, units, timestamp}]
+        const bankedUnitsMap = {};
+
+        history.forEach(item => {
+            const compositeKey = `${item.companyId}_${item.productionSiteId}_${item.consumptionSiteId}`;
+            // Banking: delta > 0 (units banked from prodPeriod to consPeriod)
+            if (item.delta > 0) {
+                if (!bankedUnitsMap[compositeKey]) bankedUnitsMap[compositeKey] = [];
+                bankedUnitsMap[compositeKey].push({
+                    fromPeriod: item.prodPeriod,
+                    toPeriod: item.consPeriod,
+                    units: item.delta,
+                    timestamp: item.timestamp
+                });
+                banking.push({
+                    compositeKey,
+                    fromPeriod: item.prodPeriod,
+                    toPeriod: item.consPeriod,
+                    units: item.delta,
+                    timestamp: item.timestamp
+                });
+            }
+            // Lapse: delta < 0 (units returned from consPeriod to prodPeriod)
+            else if (item.delta < 0) {
+                // Try to match returned units to previously banked units (FIFO)
+                let unitsToReturn = -item.delta;
+                if (!bankedUnitsMap[compositeKey]) bankedUnitsMap[compositeKey] = [];
+                while (unitsToReturn > 0 && bankedUnitsMap[compositeKey].length > 0) {
+                    const banked = bankedUnitsMap[compositeKey][0];
+                    const matchUnits = Math.min(unitsToReturn, banked.units);
+                    lapse.push({
+                        compositeKey,
+                        fromPeriod: banked.fromPeriod,
+                        toPeriod: item.consPeriod, // returned to this period
+                        units: matchUnits,
+                        timestamp: item.timestamp
+                    });
+                    banked.units -= matchUnits;
+                    unitsToReturn -= matchUnits;
+                    if (banked.units === 0) {
+                        bankedUnitsMap[compositeKey].shift();
+                    }
+                }
+                // If there are still units to return that weren't matched, treat as direct lapse
+                if (unitsToReturn > 0) {
+                    lapse.push({
+                        compositeKey,
+                        fromPeriod: item.prodPeriod,
+                        toPeriod: item.consPeriod,
+                        units: unitsToReturn,
+                        timestamp: item.timestamp
+                    });
+                }
+            }
+        });
+        return {
+            banking,
+            lapse
+        };
+    };
+
+    // When allocationHistory changes, update banking/lapse allocations
+    useEffect(() => {
+        const { banking, lapse } = updateBankingLapseFromHistory(allocationHistory);
+        // Optionally, you can update state or pass these to parent via a callback
+        // For now, just display in the history section
+        setBankingHistory(banking);
+        setLapseHistory(lapse);
+    }, [allocationHistory]);
+
+    // State to hold derived banking/lapse from history
+    const [bankingHistory, setBankingHistory] = useState([]);
+    const [lapseHistory, setLapseHistory] = useState([]);
+
     // Reset edit values when allocations change
     useEffect(() => {
         if (editingAllocation) {
@@ -81,33 +164,67 @@ const AllocationDetailsTable = ({ allocations = [], bankingAllocations = [], old
             differences[period] = newValue - oldValue;
         });
 
-        // Prepare banking/lapse adjustments (net change only, single row)
+        // Extract IDs for composite key (ensure all are string and present)
+        const companyId = String(editingAllocation.companyId || editingAllocation.company || '');
+        const prodId = String(editingAllocation.productionSiteId || editingAllocation.productionSite || '');
+        const consId = String(editingAllocation.consumptionSiteId || editingAllocation.consumptionSite || '');
+
+        // Prepare delta data for each period using composite key
+        const deltaData = {};
+        ALL_PERIODS.forEach(period => {
+            const compositeKey = `${companyId}_${prodId}_${consId}_${period}_${period}`;
+            const delta = differences[period];
+            if (delta !== 0) {
+                deltaData[compositeKey] = {
+                    compositeKey,
+                    companyId,
+                    productionSiteId: prodId,
+                    consumptionSiteId: consId,
+                    prodPeriod: period,
+                    consPeriod: period,
+                    delta,
+                    oldValue: Math.round(Number(originalValues[period] || 0)),
+                    newValue: roundedEditValues[period],
+                    timestamp: new Date().toISOString()
+                };
+            }
+        });
+
+        // Prepare banking/lapse adjustments using composite key for each period
         let bankingAdjustments = undefined;
         let lapseAdjustments = undefined;
         if (isBankingEnabled) {
             bankingAdjustments = {};
             ALL_PERIODS.forEach(period => {
                 if (differences[period] !== 0) {
-                    bankingAdjustments[period] = -differences[period]; // If allocation decreases, banking increases
+                    const compositeKey = `${companyId}_${prodId}_${consId}_${period}_${period}`;
+                    bankingAdjustments[compositeKey] = -differences[period];
                 }
             });
-            // Remove zero entries
-            Object.keys(bankingAdjustments).forEach(period => {
-                if (bankingAdjustments[period] === 0) delete bankingAdjustments[period];
+            Object.keys(bankingAdjustments).forEach(key => {
+                if (bankingAdjustments[key] === 0) delete bankingAdjustments[key];
             });
             if (Object.keys(bankingAdjustments).length === 0) bankingAdjustments = undefined;
         } else {
             lapseAdjustments = {};
             ALL_PERIODS.forEach(period => {
                 if (differences[period] < 0) {
-                    lapseAdjustments[period] = -differences[period]; // Only when allocation decreases
+                    const compositeKey = `${companyId}_${prodId}_${consId}_${period}_${period}`;
+                    lapseAdjustments[compositeKey] = -differences[period];
                 }
             });
-            // Remove zero entries
-            Object.keys(lapseAdjustments).forEach(period => {
-                if (lapseAdjustments[period] === 0) delete lapseAdjustments[period];
+            Object.keys(lapseAdjustments).forEach(key => {
+                if (lapseAdjustments[key] === 0) delete lapseAdjustments[key];
             });
             if (Object.keys(lapseAdjustments).length === 0) lapseAdjustments = undefined;
+        }
+
+        // Store history of changes
+        if (Object.keys(deltaData).length > 0) {
+            setAllocationHistory(prev => [
+                ...prev,
+                ...Object.values(deltaData)
+            ]);
         }
 
         if (onEdit) {
@@ -117,7 +234,8 @@ const AllocationDetailsTable = ({ allocations = [], bankingAllocations = [], old
                 version: (editingAllocation.version || 0) + 1,
                 updatedAt: new Date().toISOString(),
                 bankingAdjustments,
-                lapseAdjustments
+                lapseAdjustments,
+                deltaData // Attach deltaData for reference
             };
             onEdit(updatedAllocation, editingAllocation.type);
         }
@@ -257,12 +375,113 @@ const AllocationDetailsTable = ({ allocations = [], bankingAllocations = [], old
         );
     };
 
+    // Show allocation modification history and derived banking/lapse
+    const renderHistory = () => (
+        <Paper variant="outlined" sx={{ mb: 3, borderRadius: 2, overflow: 'hidden' }}>
+            <Box sx={{ p: 2 }}>
+                <Typography variant="h6" sx={{ mb: 1, color: '#607d8b', fontWeight: 'bold' }}>Allocation Change History</Typography>
+                <Table size="small">
+                    <TableHead>
+                        <TableRow>
+                            <TableCell>Composite Key</TableCell>
+                            <TableCell>Period</TableCell>
+                            <TableCell>Old Value</TableCell>
+                            <TableCell>New Value</TableCell>
+                            <TableCell>Delta</TableCell>
+                            <TableCell>Timestamp</TableCell>
+                        </TableRow>
+                    </TableHead>
+                    <TableBody>
+                        {allocationHistory.length > 0 ? allocationHistory.map((item, idx) => (
+                            <TableRow key={item.compositeKey + '-' + idx}>
+                                <TableCell>{item.compositeKey}</TableCell>
+                                <TableCell>{item.prodPeriod}</TableCell>
+                                <TableCell align="right">{item.oldValue}</TableCell>
+                                <TableCell align="right">{item.newValue}</TableCell>
+                                <TableCell align="right">{item.delta}</TableCell>
+                                <TableCell>{item.timestamp}</TableCell>
+                            </TableRow>
+                        )) : (
+                            <TableRow>
+                                <TableCell colSpan={6} align="center">
+                                    <Typography color="textSecondary">No allocation changes yet</Typography>
+                                </TableCell>
+                            </TableRow>
+                        )}
+                    </TableBody>
+                </Table>
+                <Box sx={{ mt: 3 }}>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 'bold', color: '#4CAF50' }}>Banking (Units Banked)</Typography>
+                    <Table size="small">
+                        <TableHead>
+                            <TableRow>
+                                <TableCell>Composite Key</TableCell>
+                                <TableCell>From Period</TableCell>
+                                <TableCell>To Period</TableCell>
+                                <TableCell>Units</TableCell>
+                                <TableCell>Timestamp</TableCell>
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            {bankingHistory.length > 0 ? bankingHistory.map((item, idx) => (
+                                <TableRow key={item.compositeKey + '-banking-' + idx}>
+                                    <TableCell>{item.compositeKey}</TableCell>
+                                    <TableCell>{item.fromPeriod}</TableCell>
+                                    <TableCell>{item.toPeriod}</TableCell>
+                                    <TableCell align="right">{item.units}</TableCell>
+                                    <TableCell>{item.timestamp}</TableCell>
+                                </TableRow>
+                            )) : (
+                                <TableRow>
+                                    <TableCell colSpan={5} align="center">
+                                        <Typography color="textSecondary">No banking actions yet</Typography>
+                                    </TableCell>
+                                </TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                </Box>
+                <Box sx={{ mt: 3 }}>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 'bold', color: '#FF9800' }}>Lapse (Units Returned)</Typography>
+                    <Table size="small">
+                        <TableHead>
+                            <TableRow>
+                                <TableCell>Composite Key</TableCell>
+                                <TableCell>From Period</TableCell>
+                                <TableCell>To Period</TableCell>
+                                <TableCell>Units</TableCell>
+                                <TableCell>Timestamp</TableCell>
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            {lapseHistory.length > 0 ? lapseHistory.map((item, idx) => (
+                                <TableRow key={item.compositeKey + '-lapse-' + idx}>
+                                    <TableCell>{item.compositeKey}</TableCell>
+                                    <TableCell>{item.fromPeriod}</TableCell>
+                                    <TableCell>{item.toPeriod}</TableCell>
+                                    <TableCell align="right">{item.units}</TableCell>
+                                    <TableCell>{item.timestamp}</TableCell>
+                                </TableRow>
+                            )) : (
+                                <TableRow>
+                                    <TableCell colSpan={5} align="center">
+                                        <Typography color="textSecondary">No lapse actions yet</Typography>
+                                    </TableCell>
+                                </TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                </Box>
+            </Box>
+        </Paper>
+    );
+
     return (
         <Box>
             {renderSection('Allocations', allocations, 'allocation', '#3F51B5')}
             {renderSection('Banking', bankingAllocations, 'banking', '#4CAF50')}
             {renderSection('Lapse', lapseAllocations, 'lapse', '#FF9800')}
-            
+            {renderHistory()}
             {onSave && (
                 <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
                     <Button 

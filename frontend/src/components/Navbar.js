@@ -73,7 +73,7 @@ const Navbar = () => {
     { 
       icon: <ReportsIcon />, 
       label: 'Reports', 
-      path: '/reports',
+      path: '/report',
       color: '#9C27B0' // Purple
     }
   ], []);

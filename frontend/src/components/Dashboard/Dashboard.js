@@ -287,7 +287,7 @@ const Dashboard = () => {
             icon={ReportsIcon}
             title="Reports"
             color="info"
-            onClick={() => navigate('/reports')}
+            onClick={() => navigate('/report')}
             content={
               <Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>

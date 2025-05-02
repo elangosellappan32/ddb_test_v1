@@ -89,6 +89,11 @@ class AllocationDAL extends BaseDAL {
             throw error;
         }
     }
+
+    // Scan all items in the table (for report page, no filter)
+    async scanAll() {
+        return await this.scanTable();
+    }
 }
 
 module.exports = new AllocationDAL();

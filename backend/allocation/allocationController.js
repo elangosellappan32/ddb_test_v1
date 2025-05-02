@@ -60,6 +60,21 @@ const getAllocations = async (req, res, next) => {
     }
 };
 
+// Get all allocations (no month filter, for report page)
+const getAllAllocations = async (req, res, next) => {
+    try {
+        // Fetch all allocations from the DB (no filter)
+        const allocations = await allocationDAL.scanAll();
+        res.json({
+            success: true,
+            data: allocations.map(transformAllocationRecord)
+        });
+    } catch (error) {
+        logger.error('[AllocationController] getAllAllocations Error:', error);
+        next(error);
+    }
+};
+
 const updateAllocation = async (req, res, next) => {
     try {
         const { pk, sk } = req.params;
@@ -163,5 +178,6 @@ module.exports = {
     getAllocations,
     calculateTotal,
     updateAllocation,
-    deleteAllocation
+    deleteAllocation,
+    getAllAllocations
 };

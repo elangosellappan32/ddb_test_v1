@@ -184,7 +184,7 @@ const Allocation = () => {
 
     // Set keys and required fields based on type
     if (payload.type === 'ALLOCATION') {
-      payload.pk = `${payload.productionSiteId}_${payload.consumptionSiteId}`;
+      payload.pk = `${companyId}_${payload.productionSiteId}_${payload.consumptionSiteId}`;
       payload.sk = monthYear;
     } else if (payload.type === 'BANKING') {
       payload.pk = `${companyId}_${payload.productionSiteId}`;
