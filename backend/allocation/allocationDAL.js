@@ -94,6 +94,33 @@ class AllocationDAL extends BaseDAL {
     async scanAll() {
         return await this.scanTable();
     }
+
+    async getAllAllocations() {
+        try {
+            return await this.scanAll();
+        } catch (error) {
+            logger.error('[AllocationDAL] GetAllAllocations Error:', error);
+            throw error;
+        }
+    }
+
+    // Get all allocations without any month filter for report calculations
+    async getAllAllocatedUnits() {
+        try {
+            const items = await this.scanTable();
+            return items.map(item => ({
+                ...item,
+                c1: Number(item.c1 || 0),
+                c2: Number(item.c2 || 0),
+                c3: Number(item.c3 || 0),
+                c4: Number(item.c4 || 0),
+                c5: Number(item.c5 || 0)
+            }));
+        } catch (error) {
+            logger.error('[AllocationDAL] GetAllAllocatedUnits Error:', error);
+            throw error;
+        }
+    }
 }
 
 module.exports = new AllocationDAL();

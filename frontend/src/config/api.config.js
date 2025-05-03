@@ -21,13 +21,13 @@ export const API_CONFIG = {
             BASE: '/auth',
             LOGIN: '/auth/login',
             VERIFY: '/auth/verify',
-            GET_CURRENT_USER: '/auth/me',
+            GET_CURRENT_USER: '/auth/me'
         },
         ROLES: {
             BASE: '/roles',
             GET_ALL: '/roles/all',
             GET_BY_ID: (roleId) => `/roles/${roleId}`,
-            GET_BY_USERNAME: (username) => `/roles/user/${username}`,
+            GET_BY_USERNAME: (username) => `/roles/user/${username}`
         },
         PRODUCTION: {
             SITE: {

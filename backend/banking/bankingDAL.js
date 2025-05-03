@@ -161,6 +161,10 @@ const getAllBanking = async () => {
     }
 };
 
+const getAllBankingUnits = async () => {
+    return getAllBanking();
+};
+
 const getYearlyBanking = async (year) => {
     try {
         const params = {
@@ -208,6 +212,7 @@ module.exports = {
     updateBanking,
     deleteBanking,
     getAllBanking,
+    getAllBankingUnits,  // Add the new alias
     getYearlyBanking,
     getAprilMayData
 };

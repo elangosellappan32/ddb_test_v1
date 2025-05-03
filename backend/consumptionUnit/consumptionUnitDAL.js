@@ -3,7 +3,8 @@ const {
     PutCommand,
     GetCommand,
     QueryCommand,
-    DeleteCommand
+    DeleteCommand,
+    ScanCommand
 } = require('@aws-sdk/lib-dynamodb');
 const logger = require('../utils/logger');
 const docClient = require('../utils/db');
@@ -55,16 +56,25 @@ const getConsumptionUnit = async (pk, sk) => {
     }
 };
 
-const getAllConsumptionUnits = async (pk) => {
+const getAllConsumptionUnits = async (pk = null) => {
     try {
-        const { Items } = await docClient.send(new QueryCommand({
-            TableName,
-            KeyConditionExpression: 'pk = :pk',
-            ExpressionAttributeValues: {
-                ':pk': pk
-            }
-        }));
-        return Items || [];
+        if (pk) {
+            // If pk is provided, query by pk
+            const { Items } = await docClient.send(new QueryCommand({
+                TableName,
+                KeyConditionExpression: 'pk = :pk',
+                ExpressionAttributeValues: {
+                    ':pk': pk
+                }
+            }));
+            return Items || [];
+        } else {
+            // If no pk is provided, scan all items
+            const { Items } = await docClient.send(new ScanCommand({
+                TableName
+            }));
+            return Items || [];
+        }
     } catch (error) {
         logger.error('[ConsumptionUnitDAL] GetAll Error:', error);
         throw error;

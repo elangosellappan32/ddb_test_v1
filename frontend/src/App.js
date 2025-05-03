@@ -21,9 +21,8 @@ const Production = lazy(() => import("./components/Production/Production"));
 const ProductionSiteDetails = lazy(() => import("./components/Production/ProductionSiteDetails"));
 const Consumption = lazy(() => import("./components/Consumption/Consumption"));
 const ConsumptionSiteDetails = lazy(() => import("./components/Consumption/ConsumptionSiteDetails"));
-const Reports = lazy(() => import("./components/Reports"));
 const Allocation = lazy(() => import("./components/Allocation/Allocation"));
-const AllocationReport = lazy(() => import("./components/Reports/AllocationReport"));
+const Report = lazy(() => import("./components/Reports/Report"));
 
 // Loading component for suspense fallback
 const LoadingFallback = () => (
@@ -48,9 +47,8 @@ const AppRoutes = () => {
           <Route path="/production/:companyId/:productionSiteId" element={<ProductionSiteDetails />} />
           <Route path="/consumption" element={<Consumption />} />
           <Route path="/consumption/:companyId/:consumptionSiteId" element={<ConsumptionSiteDetails />} />
-          <Route path="/reports" element={<Reports />} />
+          <Route path="/report" element={<Report/>} />
           <Route path="/allocation" element={<Allocation />} />
-          <Route path="/report" element={<AllocationReport />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Routes>

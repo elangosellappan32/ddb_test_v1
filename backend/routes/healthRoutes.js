@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const packageJson = require('../package.json');
+const calculateFormVAMetrics = require('../services/formVACalculation');
+const logger = require('../utils/logger');
 
 /**
  * Health check endpoint
@@ -16,6 +18,20 @@ router.get('/', (req, res) => {
     };
 
     res.json(serverInfo);
+});
+
+// Define the /api/health/formva route
+router.get('/formva', async (req, res) => {
+    try {
+        const metrics = await calculateFormVAMetrics();
+        res.json(metrics);
+    } catch (error) {
+        logger.error('[HealthRoutes] FormVA Error:', error);
+        res.status(500).json({ 
+            error: 'Internal Server Error',
+            message: error.message
+        });
+    }
 });
 
 module.exports = router;
