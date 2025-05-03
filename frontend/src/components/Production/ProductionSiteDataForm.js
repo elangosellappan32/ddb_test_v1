@@ -52,12 +52,32 @@ const ProductionSiteDataForm = ({
     return `${month}${year}`;
   };
 
-  // Add a function to format date for display
+  // Function to parse sk (mmyyyy) into a Date object
+  const parseSKToDate = (sk) => {
+    if (!sk || sk.length !== 6) return null;
+    const month = parseInt(sk.slice(0, 2), 10) - 1; // Convert to zero-based month
+    const year = parseInt(sk.slice(2), 10);
+    return new Date(year, month);
+  };
+
+  const handleDateChange = (newDate) => {
+    if (!newDate || isNaN(newDate.getTime())) {
+      setErrors((prev) => ({ ...prev, date: 'Please select a valid date' }));
+      return;
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      date: newDate,
+    }));
+    setErrors((prev) => ({ ...prev, date: undefined }));
+  };
+
   const formatDateForDisplay = (date) => {
-    if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
+    if (!date || isNaN(date.getTime())) {
       return '';
     }
-    return format(date, 'MMMM yyyy'); // This will show as "March 2024"
+    return format(date, 'MMMM yyyy'); // Display as "March 2024"
   };
 
   // Generate initial values based on type
@@ -79,11 +99,14 @@ const ProductionSiteDataForm = ({
   }
 
   // Initialize form data with proper date handling
-  const [formData, setFormData] = useState(() => ({
-    date: initialData?.date ? new Date(initialData.date) : new Date(),
-    version: initialData?.version || 1,
-    ...generateInitialValues(type, initialData)
-  }));
+  const [formData, setFormData] = useState(() => {
+    const initialDate = initialData?.sk ? parseSKToDate(initialData.sk) : new Date();
+    return {
+      date: initialDate,
+      version: initialData?.version || 1,
+      ...generateInitialValues(type, initialData),
+    };
+  });
 
   // Initialize with empty errors
   const [errors, setErrors] = useState({});
@@ -125,19 +148,6 @@ const ProductionSiteDataForm = ({
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  };
-
-  const handleDateChange = (newDate) => {
-    if (!newDate || isNaN(newDate.getTime())) {
-      setErrors(prev => ({ ...prev, date: 'Please select a valid date' }));
-      return;
-    }
-
-    setFormData(prev => ({
-      ...prev,
-      date: newDate
-    }));
-    setErrors(prev => ({ ...prev, date: undefined }));
   };
 
   const handleSubmit = async (e) => {

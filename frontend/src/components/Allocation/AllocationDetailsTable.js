@@ -376,112 +376,12 @@ const AllocationDetailsTable = ({ allocations = [], bankingAllocations = [], old
     };
 
     // Show allocation modification history and derived banking/lapse
-    const renderHistory = () => (
-        <Paper variant="outlined" sx={{ mb: 3, borderRadius: 2, overflow: 'hidden' }}>
-            <Box sx={{ p: 2 }}>
-                <Typography variant="h6" sx={{ mb: 1, color: '#607d8b', fontWeight: 'bold' }}>Allocation Change History</Typography>
-                <Table size="small">
-                    <TableHead>
-                        <TableRow>
-                            <TableCell>Composite Key</TableCell>
-                            <TableCell>Period</TableCell>
-                            <TableCell>Old Value</TableCell>
-                            <TableCell>New Value</TableCell>
-                            <TableCell>Delta</TableCell>
-                            <TableCell>Timestamp</TableCell>
-                        </TableRow>
-                    </TableHead>
-                    <TableBody>
-                        {allocationHistory.length > 0 ? allocationHistory.map((item, idx) => (
-                            <TableRow key={item.compositeKey + '-' + idx}>
-                                <TableCell>{item.compositeKey}</TableCell>
-                                <TableCell>{item.prodPeriod}</TableCell>
-                                <TableCell align="right">{item.oldValue}</TableCell>
-                                <TableCell align="right">{item.newValue}</TableCell>
-                                <TableCell align="right">{item.delta}</TableCell>
-                                <TableCell>{item.timestamp}</TableCell>
-                            </TableRow>
-                        )) : (
-                            <TableRow>
-                                <TableCell colSpan={6} align="center">
-                                    <Typography color="textSecondary">No allocation changes yet</Typography>
-                                </TableCell>
-                            </TableRow>
-                        )}
-                    </TableBody>
-                </Table>
-                <Box sx={{ mt: 3 }}>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 'bold', color: '#4CAF50' }}>Banking (Units Banked)</Typography>
-                    <Table size="small">
-                        <TableHead>
-                            <TableRow>
-                                <TableCell>Composite Key</TableCell>
-                                <TableCell>From Period</TableCell>
-                                <TableCell>To Period</TableCell>
-                                <TableCell>Units</TableCell>
-                                <TableCell>Timestamp</TableCell>
-                            </TableRow>
-                        </TableHead>
-                        <TableBody>
-                            {bankingHistory.length > 0 ? bankingHistory.map((item, idx) => (
-                                <TableRow key={item.compositeKey + '-banking-' + idx}>
-                                    <TableCell>{item.compositeKey}</TableCell>
-                                    <TableCell>{item.fromPeriod}</TableCell>
-                                    <TableCell>{item.toPeriod}</TableCell>
-                                    <TableCell align="right">{item.units}</TableCell>
-                                    <TableCell>{item.timestamp}</TableCell>
-                                </TableRow>
-                            )) : (
-                                <TableRow>
-                                    <TableCell colSpan={5} align="center">
-                                        <Typography color="textSecondary">No banking actions yet</Typography>
-                                    </TableCell>
-                                </TableRow>
-                            )}
-                        </TableBody>
-                    </Table>
-                </Box>
-                <Box sx={{ mt: 3 }}>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 'bold', color: '#FF9800' }}>Lapse (Units Returned)</Typography>
-                    <Table size="small">
-                        <TableHead>
-                            <TableRow>
-                                <TableCell>Composite Key</TableCell>
-                                <TableCell>From Period</TableCell>
-                                <TableCell>To Period</TableCell>
-                                <TableCell>Units</TableCell>
-                                <TableCell>Timestamp</TableCell>
-                            </TableRow>
-                        </TableHead>
-                        <TableBody>
-                            {lapseHistory.length > 0 ? lapseHistory.map((item, idx) => (
-                                <TableRow key={item.compositeKey + '-lapse-' + idx}>
-                                    <TableCell>{item.compositeKey}</TableCell>
-                                    <TableCell>{item.fromPeriod}</TableCell>
-                                    <TableCell>{item.toPeriod}</TableCell>
-                                    <TableCell align="right">{item.units}</TableCell>
-                                    <TableCell>{item.timestamp}</TableCell>
-                                </TableRow>
-                            )) : (
-                                <TableRow>
-                                    <TableCell colSpan={5} align="center">
-                                        <Typography color="textSecondary">No lapse actions yet</Typography>
-                                    </TableCell>
-                                </TableRow>
-                            )}
-                        </TableBody>
-                    </Table>
-                </Box>
-            </Box>
-        </Paper>
-    );
-
+    
     return (
         <Box>
             {renderSection('Allocations', allocations, 'allocation', '#3F51B5')}
             {renderSection('Banking', bankingAllocations, 'banking', '#4CAF50')}
             {renderSection('Lapse', lapseAllocations, 'lapse', '#FF9800')}
-            {renderHistory()}
             {onSave && (
                 <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
                     <Button 
