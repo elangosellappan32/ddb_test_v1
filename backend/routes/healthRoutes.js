@@ -23,7 +23,23 @@ router.get('/', (req, res) => {
 // Define the /api/health/formva route
 router.get('/formva', async (req, res) => {
     try {
-        const metrics = await calculateFormVAMetrics();
+        const { financialYear } = req.query;
+        if (!financialYear) {
+            return res.status(400).json({
+                error: 'Bad Request',
+                message: 'financialYear query parameter is required'
+            });
+        }
+
+        // Validate financial year format (YYYY-YYYY)
+        if (!/^\d{4}-\d{4}$/.test(financialYear)) {
+            return res.status(400).json({
+                error: 'Bad Request',
+                message: 'Invalid financial year format. Expected: YYYY-YYYY'
+            });
+        }
+
+        const metrics = await calculateFormVAMetrics(financialYear);
         res.json(metrics);
     } catch (error) {
         logger.error('[HealthRoutes] FormVA Error:', error);

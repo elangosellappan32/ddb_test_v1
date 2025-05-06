@@ -22,7 +22,12 @@ import {
   DialogContentText,
   DialogActions,
   Slide,
-  Snackbar
+  Snackbar,
+  MenuItem,
+  Select,
+  FormControl,
+  InputLabel,
+  Grid
 } from '@mui/material';
 import { 
   Download as DownloadIcon,
@@ -34,18 +39,20 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
+import { useSnackbar } from 'notistack';
+import { fetchReportDataByFinancialYear } from '../../services/reportService';
 
 const REFRESH_INTERVAL = 30000; // Refresh every 30 seconds
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 2000;
 
-const Transition = React.forwardRef(function Transition(
-  props, ref
-) {
+const Transition = React.forwardRef(function Transition(props, ref) {
   return <Slide direction="up" ref={ref} {...props} />;
 });
 
 const AllocationReport = () => {
-  const [isForm5B, setIsForm5B] = useState(false); // Changed to false to show Form VA by default
-  const [reportData, setReportData] = useState({});
+  const [isForm5B, setIsForm5B] = useState(false);
+  const [reportData, setReportData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState({ excel: false, csv: false });
@@ -53,30 +60,83 @@ const AllocationReport = () => {
   const [dialogConfig, setDialogConfig] = useState({
     title: '',
     content: '',
-    type: 'download', // 'download' | 'error' | 'success'
+    type: 'download',
     action: null
   });
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [financialYear, setFinancialYear] = useState('');
+  const [financialYears, setFinancialYears] = useState([]);
+  const { enqueueSnackbar } = useSnackbar();
+
+  useEffect(() => {
+    // Generate financial years (current year and previous 10 years)
+    const currentYear = new Date().getFullYear();
+    const years = [];
+    for (let i = 0; i < 10; i++) {
+      const startYear = currentYear - i;
+      years.push(`${startYear}-${startYear + 1}`);
+    }
+    setFinancialYears(years);
+    setFinancialYear(years[0]); // Set current year as default
+  }, []);
 
   const fetchData = useCallback(async () => {
+    if (!financialYear) return;
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      const response = await axios.get('http://localhost:3333/api/health/formva');
-      setReportData(response.data);
+      const data = await fetchReportDataByFinancialYear(financialYear);
+      if (!data) {
+        setReportData(null);
+        setError('No data available for the selected financial year.');
+        return;
+      }
+
+      if (isForm5B && (!data.siteMetrics || data.siteMetrics.length === 0)) {
+        setReportData(null);
+        setError('No consumption site data available for Form V-B.');
+        return;
+      }
+
+      setReportData(data);
       setError(null);
     } catch (err) {
       console.error('Error fetching report data:', err);
-      setError('Failed to fetch report data');
+      setError(err.message || 'Failed to fetch data for the selected financial year.');
+      setReportData(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [financialYear, isForm5B]);
 
   useEffect(() => {
-    fetchData();
-    const intervalId = setInterval(fetchData, REFRESH_INTERVAL);
-    return () => clearInterval(intervalId);
+    let mounted = true;
+
+    const fetchDataSafely = async () => {
+      if (!mounted) return;
+      await fetchData();
+    };
+
+    fetchDataSafely();
+    const intervalId = setInterval(fetchDataSafely, REFRESH_INTERVAL);
+
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
+    };
   }, [fetchData]);
+
+  const handleRefresh = () => {
+    fetchData();
+  };
+
+  const validateData = useCallback((data) => {
+    if (!data) return false;
+    if (Array.isArray(data)) {
+      return data.length > 0 && data.some(item => item !== null && typeof item === 'object');
+    }
+    return Object.keys(data).filter(key => data[key] !== undefined && data[key] !== null).length > 0;
+  }, []);
 
   const handleOpenDialog = (config) => {
     setDialogConfig(config);
@@ -117,97 +177,285 @@ const AllocationReport = () => {
   };
 
   const prepareForm5AData = () => {
+    if (!reportData) {
+      return [
+        { 'Sl.No.': 1, 'Particulars': 'Total Generated units of a generating plant / Station identified for captive use', 'Energy in Units': 0 },
+        { 'Sl.No.': 2, 'Particulars': 'Less : Auxiliary Consumption in the above in units', 'Energy in Units': 0 },
+        { 'Sl.No.': 3, 'Particulars': 'Net units available for captive consumption (Aggregate generation for captive use)', 'Energy in Units': 0 },
+        { 'Sl.No.': 4, 'Particulars': '51% of aggregate generation available for captive consumption in units', 'Energy in Units': 0 },
+        { 'Sl.No.': 5, 'Particulars': 'Actual Adjusted / Consumed units by the captive users', 'Energy in Units': 0 },
+        { 'Sl.No.': 6, 'Particulars': 'Percentage of actual adjusted / consumed units by the captive users with respect to aggregate generation for captive use', 'Energy in Units': '0%' }
+      ];
+    }
+  
     return [
-      { 
-        'Sl.No.': 1,
-        'Particulars': 'Total Generated units of a generating plant / Station identified for captive use',
-        'Energy in Units': reportData.totalGeneratedUnits || 0
-      },
-      {
-        'Sl.No.': 2,
-        'Particulars': 'Less : Auxiliary Consumption in the above in units',
-        'Energy in Units': reportData.auxiliaryConsumption || 0
-      },
-      {
-        'Sl.No.': 3,
-        'Particulars': 'Net units available for captive consumption (Aggregate generation for captive use)',
-        'Energy in Units': reportData.aggregateGeneration || 0
-      },
-      {
-        'Sl.No.': 4,
-        'Particulars': '51% of aggregate generation available for captive consumption in units',
-        'Energy in Units': reportData.percentage51 || 0
-      },
-      {
-        'Sl.No.': 5,
-        'Particulars': 'Actual Adjusted / Consumed units by the captive users',
-        'Energy in Units': reportData.totalAllocatedUnits || 0
-      },
-      {
-        'Sl.No.': 6,
-        'Particulars': 'Percentage of actual adjusted / consumed units by the captive users with respect to aggregate generation for captive use',
-        'Energy in Units': `${reportData.percentageAdjusted || 0}%`
-      }
+      { 'Sl.No.': 1, 'Particulars': 'Total Generated units of a generating plant / Station identified for captive use', 'Energy in Units': reportData.totalGeneratedUnits || 0 },
+      { 'Sl.No.': 2, 'Particulars': 'Less : Auxiliary Consumption in the above in units', 'Energy in Units': reportData.auxiliaryConsumption || 0 },
+      { 'Sl.No.': 3, 'Particulars': 'Net units available for captive consumption (Aggregate generation for captive use)', 'Energy in Units': reportData.aggregateGeneration || 0 },
+      { 'Sl.No.': 4, 'Particulars': '51% of aggregate generation available for captive consumption in units', 'Energy in Units': reportData.percentage51 || 0 },
+      { 'Sl.No.': 5, 'Particulars': 'Actual Adjusted / Consumed units by the captive users', 'Energy in Units': reportData.totalAllocatedUnits || 0 },
+      { 'Sl.No.': 6, 'Particulars': 'Percentage of actual adjusted / consumed units by the captive users with respect to aggregate generation for captive use', 'Energy in Units': `${reportData.percentageAdjusted || 0}%` }
     ];
   };
 
-  const prepareForm5BData = () => ({
-    headers: [
-      'Sl.No.',
-      'Particulars',
-      'As per share certificates',
-      '% of ownership',
-      'With 0% variation',
-      '-10%',
-      '+10%',
-      'Actual Adjusted',
-      'Total',
-      'Compliance'
-    ],
-    rows: [
-      {
-        slNo: 1,
-        particulars: 'M/s. POLYSPIN EXPORTS LTD',
-        sharesCertificates: '',
-        ownership: '20.00%',
-        variation0: '384283',
-        minus10: '',
-        plus10: '',
-        actualAdjusted: '194692',
-        total: '384283',
-        compliance: 'Yes'
+  const defaultFormVBData = {
+    title: 'FORMAT V-B',
+    financialYear: '',
+    mainColumns: [
+      { 
+        id: 'slNo', 
+        label: 'Sl.\nNo.', 
+        width: 60, 
+        align: 'center',
+        rowSpan: 2 
+      },
+      { 
+        id: 'shareholder', 
+        label: 'Name of share\nholder', 
+        width: 200, 
+        align: 'left',
+        rowSpan: 2 
+      },
+      { 
+        id: 'sharesGroup', 
+        label: 'No. of equity shares of value Rs. /-', 
+        align: 'center',
+        colSpan: 2,
+        children: [
+          { id: 'certificates', label: 'As per share\ncertificates\nas on 31st\nMarch', align: 'right', width: 120 },
+          { id: 'ownership', label: '% of ownership\nthrough shares in\nCompany/\nunit of CGP', align: 'center', width: 120 }
+        ]
+      },
+      { 
+        id: 'proRata', 
+        label: '% to be\nconsumed on\npro rata basis\nby each\ncaptive\nuser', 
+        align: 'center',
+        width: 100,
+        rowSpan: 2
+      },
+      { 
+        id: 'generation', 
+        label: '100%\nannual\ngeneration in\nMUs\n(x)', 
+        width: 100, 
+        align: 'right',
+        rowSpan: 2
+      },
+      { 
+        id: 'auxiliary', 
+        label: 'Annual\nAuxiliary\nconsumption\nin MUs\n(y)', 
+        width: 100, 
+        align: 'right',
+        rowSpan: 2
+      },
+      { 
+        id: 'criteria', 
+        label: 'Generation\nconsidered to\nverify\nconsumption\ncriteria in MUs\n(x-y)*51%', 
+        width: 120, 
+        align: 'right',
+        rowSpan: 2
       },
       {
-        slNo: 2,
-        particulars: 'M/s. PEL TEXTILES',
-        sharesCertificates: '',
-        ownership: '6.00%',
-        variation0: '305228',
-        minus10: '2534',
-        plus10: '155666',
-        actualAdjusted: '757343',
-        total: '305228',
-        compliance: 'Yes'
+        id: 'permittedGroup',
+        label: 'Permitted consumption as per\nnorms in MUs',
+        align: 'center',
+        colSpan: 3,
+        children: [
+          { id: 'withZero', label: 'with 0%\nvariation', align: 'right', width: 100 },
+          { id: 'minus10', label: '-10\n%', align: 'right', width: 80 },
+          { id: 'plus10', label: '+10\n%', align: 'right', width: 80 }
+        ]
       },
-      {
-        slNo: 3,
-        particulars: 'M/s. A RAMAR AND SONS',
-        sharesCertificates: '',
-        ownership: 'Minimum 51%',
-        variation0: '22117',
-        minus10: '',
-        plus10: '',
-        actualAdjusted: '11280',
-        total: '22117',
-        compliance: 'Yes'
+      { 
+        id: 'actual', 
+        label: 'Actual\nconsumption\nin MUs', 
+        width: 100, 
+        align: 'right',
+        rowSpan: 2
+      },
+      { 
+        id: 'norms', 
+        label: 'Whether\nconsumption\nnorms met', 
+        width: 100, 
+        align: 'center',
+        rowSpan: 2
       }
-    ],
-    summary: {
-      companyName: 'JEYAM BLUE METALS',
-      percentageOne: '76.9230769',
-      percentageTwo: '23.0769231'
+    ]
+  };
+
+  const prepareForm5BData = () => {
+    if (!reportData?.siteMetrics || !Array.isArray(reportData.siteMetrics)) {
+        return defaultFormVBData;
     }
-  });
+
+    const rows = reportData.siteMetrics.map((site, index) => ({
+        slNo: index + 1,
+        name: site.siteName,
+        shares: {
+            certificates: site.equityShares,
+            ownership: `${site.allocationPercentage}%`
+        },
+        proRata: 'Minimum 51%',
+        generation: site.annualGeneration.toFixed(2),
+        auxiliary: site.auxiliaryConsumption.toFixed(2),
+        criteria: site.verificationCriteria.toFixed(2),
+        permitted: {
+            withZero: site.permittedConsumption.base.toFixed(2),
+            minus10: site.permittedConsumption.minus10.toFixed(2),
+            plus10: site.permittedConsumption.plus10.toFixed(2)
+        },
+        actual: site.actualConsumption.toFixed(2),
+        norms: site.normsCompliance ? 'Yes' : 'No'
+    }));
+
+    return {
+        ...defaultFormVBData,
+        financialYear,
+        rows,
+        summary: {
+            totalGeneration: reportData.totalGeneratedUnits.toFixed(2),
+            auxiliaryConsumption: reportData.auxiliaryConsumption.toFixed(2),
+            netGeneration: (reportData.totalGeneratedUnits - reportData.auxiliaryConsumption).toFixed(2),
+            totalConsumption: reportData.totalAllocatedUnits.toFixed(2)
+        }
+    };
+};
+
+  const renderFormVBHeader = (data) => {
+    return (
+      <TableHead>
+        <TableRow>
+          <TableCell 
+            colSpan={12} 
+            align="center" 
+            sx={{ 
+              py: 2,
+              fontSize: '1.1rem',
+              fontWeight: 'bold',
+              borderBottom: '2px solid #e0e4ec'
+            }}
+          >
+            {data.title}
+          </TableCell>
+        </TableRow>
+        <TableRow>
+          <TableCell 
+            colSpan={12} 
+            align="left" 
+            sx={{ 
+              py: 1,
+              borderBottom: '2px solid #e0e4ec'
+            }}
+          >
+            Financial Year: {data.financialYear}
+          </TableCell>
+        </TableRow>
+        <TableRow>
+          {data.mainColumns.map((column) => (
+            <TableCell
+              key={column.id}
+              align={column.align}
+              rowSpan={column.rowSpan}
+              colSpan={column.colSpan || 1}
+              sx={{
+                whiteSpace: 'pre-line',
+                minWidth: column.width,
+                p: 1,
+                fontWeight: 'bold',
+                fontSize: '0.75rem',
+                bgcolor: '#f5f5f5',
+                border: '1px solid #e0e4ec',
+                verticalAlign: 'top'
+              }}
+            >
+              {column.label}
+            </TableCell>
+          ))}
+        </TableRow>
+        <TableRow>
+          {data.mainColumns
+            .filter(column => column.children)
+            .map(column => 
+              column.children.map(subCol => (
+                <TableCell
+                  key={`${column.id}-${subCol.id}`}
+                  align={subCol.align}
+                  sx={{
+                    whiteSpace: 'pre-line',
+                    minWidth: subCol.width,
+                    p: 1,
+                    fontWeight: 'bold',
+                    fontSize: '0.75rem',
+                    bgcolor: '#f5f5f5',
+                    border: '1px solid #e0e4ec',
+                    verticalAlign: 'top'
+                  }}
+                >
+                  {subCol.label}
+                </TableCell>
+              ))
+            )}
+        </TableRow>
+      </TableHead>
+    );
+  };
+
+  const renderFormVBTable = () => {
+    const data = prepareForm5BData();
+    
+    if (!data || !data.mainColumns) {
+      return (
+        <TableBody>
+          <TableRow>
+            <TableCell colSpan={9} align="center">
+              <Alert severity="info">No data available for Form V-B</Alert>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      );
+    }
+
+    return (
+      <>
+        {renderFormVBHeader(data)}
+        <TableBody>
+          {data.rows && data.rows.length > 0 ? (
+            data.rows.map((row) => renderFormVBRow(row))
+          ) : (
+            <TableRow>
+              <TableCell colSpan={9} align="center">
+                <Alert severity="info">No consumption sites data available</Alert>
+              </TableCell>
+            </TableRow>
+          )}
+          <TableRow>
+            <TableCell colSpan={12} sx={{ borderTop: '2px solid #e0e4ec' }}>
+              <Box sx={{ mt: 2, p: 2, bgcolor: '#f5f5f5', borderRadius: 1 }}>
+                <Typography variant="subtitle2" gutterBottom>Summary</Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Typography variant="caption">Total Generation:</Typography>
+                    <Typography>{data.summary.totalGeneration}</Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Typography variant="caption">Auxiliary Consumption:</Typography>
+                    <Typography>{data.summary.auxiliaryConsumption}</Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Typography variant="caption">Net Generation:</Typography>
+                    <Typography>{data.summary.netGeneration}</Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Typography variant="caption">Total Consumption:</Typography>
+                    <Typography>{data.summary.totalConsumption}</Typography>
+                  </Grid>
+                </Grid>
+              </Box>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </>
+    );
+  };
 
   const downloadExcel = async () => {
     try {
@@ -219,19 +467,18 @@ const AllocationReport = () => {
         isForm5B ? data.rows.map(row => ({
           'Sl.No.': row.slNo,
           'Particulars': row.particulars,
-          'As per share certificates': row.sharesCertificates,
-          '% of ownership': row.ownership,
-          'With 0% variation': row.variation0,
-          '-10%': row.minus10,
-          '+10%': row.plus10,
-          'Actual Adjusted': row.actualAdjusted,
-          'Total': row.total,
+          'As per share certificates': row.shares.certificates,
+          '% of ownership': row.shares.ownership,
+          'Annual Generation': row.generation,
+          'Auxiliary Consumption': row.auxiliary,
+          'Verification Criteria': row.criteria,
+          'Permitted Consumption': row.permitted.base,
+          'Actual Consumption': row.actual,
           'Compliance': row.compliance
         })) : data,
         { header: isForm5B ? data.headers : ['Sl.No.', 'Particulars', 'Energy in Units'] }
       );
 
-      // Set column widths
       ws['!cols'] = isForm5B ? 
         [
           { wch: 8 }, { wch: 30 }, { wch: 20 }, { wch: 15 }, 
@@ -261,27 +508,21 @@ const AllocationReport = () => {
       
       let csvContent = '';
       if (isForm5B) {
-        // Headers for Form 5B
-        csvContent = data.headers.join(',') + '\n';
-        // Data rows for Form 5B
+        csvContent = data.headers.map(header => header.label).join(',') + '\n';
         csvContent += data.rows.map(row => [
           row.slNo,
-          `"${row.particulars}"`,
-          `"${row.sharesCertificates}"`,
-          `"${row.ownership}"`,
-          row.variation0,
-          row.minus10,
-          row.plus10,
-          row.actualAdjusted,
-          row.total,
+          `"${row.name}"`,
+          `"${row.shares.certificates}"`,
+          `"${row.shares.ownership}"`,
+          row.generation,
+          row.auxiliary,
+          row.criteria,
+          row.permitted.base,
+          row.actual,
           row.compliance
         ].join(',')).join('\n');
-        // Add summary
-        csvContent += `\n\nFor ${data.summary.companyName}\n`;
-        csvContent += `${data.summary.percentageOne}\n`;
-        csvContent += data.summary.percentageTwo;
+        csvContent += `\n\nFor ${data.financialYear}\n`;
       } else {
-        // Form 5A
         const headers = ['Sl.No.', 'Particulars', 'Energy in Units'];
         csvContent = headers.join(',') + '\n';
         csvContent += data.map(row => [
@@ -293,6 +534,8 @@ const AllocationReport = () => {
 
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
       const link = document.createElement('a');
       link.setAttribute('href', url);
       link.setAttribute('download', `Form_V_${isForm5B ? 'B' : 'A'}_${new Date().toISOString().split('T')[0]}.csv`);
@@ -313,46 +556,36 @@ const AllocationReport = () => {
     }
   };
 
-  const renderFormVBTable = () => {
-    const data = prepareForm5BData();
-    return (
-      <>
-        <TableHead>
-          <TableRow>
-            {data.headers.map((header, index) => (
-              <TableCell 
-                key={header}
-                sx={{ 
-                  fontWeight: 'bold', 
-                  background: '#f5f5f5',
-                  width: index === 1 ? '20%' : 'auto',
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                {header}
-              </TableCell>
-            ))}
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {data.rows.map((row) => (
-            <TableRow key={row.slNo}>
-              <TableCell>{row.slNo}</TableCell>
-              <TableCell>{row.particulars}</TableCell>
-              <TableCell>{row.sharesCertificates}</TableCell>
-              <TableCell>{row.ownership}</TableCell>
-              <TableCell align="right">{row.variation0}</TableCell>
-              <TableCell align="right">{row.minus10}</TableCell>
-              <TableCell align="right">{row.plus10}</TableCell>
-              <TableCell align="right">{row.actualAdjusted}</TableCell>
-              <TableCell align="right">{row.total}</TableCell>
-              <TableCell>{row.compliance}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </>
-    );
-  };
+  const renderFormVBRow = (row) => (
+    <TableRow key={row.slNo} hover>
+      <TableCell align="center">{row.slNo}</TableCell>
+      <TableCell>{row.name}</TableCell>
+      <TableCell align="right">{row.shares.certificates}</TableCell>
+      <TableCell align="center">{row.shares.ownership}</TableCell>
+      <TableCell align="center">{row.proRata}</TableCell>
+      <TableCell align="right">{row.generation}</TableCell>
+      <TableCell align="right">{row.auxiliary}</TableCell>
+      <TableCell align="right">{row.criteria}</TableCell>
+      <TableCell align="right">{row.permitted.withZero}</TableCell>
+      <TableCell align="right">{row.permitted.minus10}</TableCell>
+      <TableCell align="right">{row.permitted.plus10}</TableCell>
+      <TableCell align="right">{row.actual}</TableCell>
+      <TableCell align="center">
+        <Box sx={{ 
+          display: 'flex', 
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: row.norms === 'Yes' ? 'success.main' : 'error.main'
+        }}>
+          {row.norms === 'Yes' ? 
+            <CheckCircleIcon sx={{ mr: 0.5, fontSize: '1rem' }} /> : 
+            <ErrorIcon sx={{ mr: 0.5, fontSize: '1rem' }} />
+          }
+          {row.norms}
+        </Box>
+      </TableCell>
+    </TableRow>
+  );
 
   return (
     <Box sx={{ p: { xs: 2, md: 4 }, backgroundColor: '#f5f7fa', minHeight: '100vh' }}>
@@ -397,71 +630,43 @@ const AllocationReport = () => {
               {isForm5B ? 'Form 5B - Captive Consumption Details' : 'Form 5A - Alternate Details'}
             </Typography>
           </Box>
+
           <Stack 
             direction={{ xs: 'column', sm: 'row' }} 
             spacing={2} 
             alignItems="center"
-            sx={{ width: { xs: '100%', md: 'auto' } }}
           >
             <FormControlLabel
               control={
                 <Switch 
                   checked={isForm5B} 
                   onChange={() => setIsForm5B(!isForm5B)}
-                  sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: 'primary.main' } }}
                 />
               }
               label={isForm5B ? 'Form V-B' : 'Form V-A'}
             />
-            <Tooltip title="Download Excel">
-              <Button
-                variant="contained"
-                color="success"
-                startIcon={downloading.excel ? <CircularProgress size={20} /> : <ExcelIcon />}
-                onClick={() => initiateDownload('excel')}
-                disabled={downloading.excel}
-                sx={{
-                  minWidth: '160px',
-                  bgcolor: 'success.main',
-                  '&:hover': { bgcolor: 'success.dark' },
-                  transition: 'all 0.2s ease-in-out',
-                  boxShadow: 2
-                }}
-              >
-                {downloading.excel ? 'Downloading...' : 'Excel Export'}
-              </Button>
-            </Tooltip>
-            <Tooltip title="Download CSV">
-              <Button
-                variant="contained"
-                color="primary"
-                startIcon={downloading.csv ? <CircularProgress size={20} /> : <CsvIcon />}
-                onClick={() => initiateDownload('csv')}
-                disabled={downloading.csv}
-                sx={{
-                  minWidth: '160px',
-                  '&:hover': { bgcolor: 'primary.dark' },
-                  transition: 'all 0.2s ease-in-out',
-                  boxShadow: 2
-                }}
-              >
-                {downloading.csv ? 'Downloading...' : 'CSV Export'}
-              </Button>
-            </Tooltip>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={() => initiateDownload('excel')}
+              startIcon={downloading.excel ? <CircularProgress size={20} /> : <ExcelIcon />}
+              disabled={downloading.excel}
+            >
+              {downloading.excel ? 'Downloading...' : 'Excel Export'}
+            </Button>
+            <Button
+              variant="contained"
+              color="secondary"
+              onClick={() => initiateDownload('csv')}
+              startIcon={downloading.csv ? <CircularProgress size={20} /> : <CsvIcon />}
+              disabled={downloading.csv}
+            >
+              {downloading.csv ? 'Downloading...' : 'CSV Export'}
+            </Button>
             <Button
               variant="outlined"
-              sx={{
-                minWidth: '140px',
-                borderColor: 'secondary.main',
-                color: 'secondary.main',
-                '&:hover': { 
-                  bgcolor: 'secondary.light',
-                  borderColor: 'secondary.main' 
-                },
-                transition: 'all 0.2s ease-in-out'
-              }}
               onClick={fetchData}
-              startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
+              startIcon={loading ? <CircularProgress size={20} /> : <RefreshIcon />}
               disabled={loading}
             >
               {loading ? 'Refreshing...' : 'Refresh'}
@@ -469,46 +674,35 @@ const AllocationReport = () => {
           </Stack>
         </Box>
 
-        {error && (
-          <Alert 
-            severity="error" 
-            sx={{ 
-              mb: 2,
-              borderRadius: 2,
-              animation: 'fadeIn 0.3s ease-in'
-            }}
+        <FormControl sx={{ mb: 3, minWidth: 200 }}>
+          <InputLabel>Financial Year</InputLabel>
+          <Select
+            value={financialYear}
+            onChange={(e) => setFinancialYear(e.target.value)}
           >
+            {financialYears.map((year) => (
+              <MenuItem key={year} value={year}>
+                {year}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
             {error}
           </Alert>
         )}
 
-        <TableContainer component={Paper} sx={{
-          borderRadius: 2,
-          boxShadow: 'none',
-          border: '1px solid #e0e4ec',
-          '& .MuiTableCell-head': {
-            backgroundColor: '#f8fafc',
-            fontWeight: 600,
-            color: 'primary.main',
-            borderBottom: '2px solid #e2e8f0',
-            whiteSpace: 'nowrap'
-          },
-          '& .MuiTableCell-body': {
-            fontSize: '0.875rem',
-            py: 2
-          },
-          '& .MuiTableRow-root:hover': {
-            backgroundColor: '#f8fafc'
-          }
-        }}>
-          <Table stickyHeader size="small">
+        <TableContainer component={Paper}>
+          <Table size="small">
             {isForm5B ? renderFormVBTable() : (
               <>
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={{ fontWeight: 'bold', background: '#f5f5f5', width: '10%' }}>Sl.No.</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold', background: '#f5f5f5', width: '60%' }}>Particulars</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold', background: '#f5f5f5', width: '30%' }}>Energy in Units</TableCell>
+                    <TableCell>Sl.No.</TableCell>
+                    <TableCell>Particulars</TableCell>
+                    <TableCell align="right">Energy in Units</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -523,40 +717,6 @@ const AllocationReport = () => {
               </>
             )}
           </Table>
-
-          {isForm5B && (
-            <Box sx={{ 
-              p: 2, 
-              borderTop: '1px solid #e0e4ec',
-              bgcolor: '#f8fafc'
-            }}>
-              <Typography variant="subtitle1" fontWeight="bold">
-                {prepareForm5BData().summary.companyName}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {prepareForm5BData().summary.percentageOne}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {prepareForm5BData().summary.percentageTwo}
-              </Typography>
-            </Box>
-          )}
-
-          {!isForm5B && (
-            <Box sx={{ 
-              p: 2,
-              borderTop: '1px solid #e0e4ec',
-              bgcolor: reportData.percentageAdjusted >= 51 ? 'success.50' : 'error.50',
-              color: reportData.percentageAdjusted >= 51 ? 'success.dark' : 'error.dark',
-              transition: 'all 0.3s ease-in-out'
-            }}>
-              <Typography sx={{ fontSize: '0.875rem', fontWeight: 500 }}>
-                {reportData.percentageAdjusted >= 51 
-                  ? 'If Sl.No.6 is Not Less than 51%, then go to FORMAT V - B.'
-                  : 'Percentage is less than required 51% threshold'}
-              </Typography>
-            </Box>
-          )}
         </TableContainer>
       </Paper>
 
@@ -565,23 +725,37 @@ const AllocationReport = () => {
         TransitionComponent={Transition}
         keepMounted
         onClose={handleCloseDialog}
-        aria-describedby="alert-dialog-slide-description"
       >
-        <DialogTitle>{dialogConfig.title}</DialogTitle>
+        <DialogTitle>
+          {dialogConfig.title}
+        </DialogTitle>
         <DialogContent>
-          <DialogContentText id="alert-dialog-slide-description">
+          <DialogContentText>
             {dialogConfig.content}
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          {dialogConfig.type === 'download' && (
-            <Button onClick={dialogConfig.action} color="primary">
-              Confirm
-            </Button>
-          )}
-          <Button onClick={handleCloseDialog} color="secondary">
+          <Button onClick={handleCloseDialog} color="primary">
             Cancel
           </Button>
+          {dialogConfig.type === 'download' && (
+            <Button 
+              onClick={() => dialogConfig.action()} 
+              color="primary" 
+              variant="contained"
+            >
+              Download
+            </Button>
+          )}
+          {dialogConfig.type === 'error' && (
+            <Button 
+              onClick={handleCloseDialog} 
+              color="primary" 
+              variant="contained"
+            >
+              OK
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 
@@ -590,13 +764,6 @@ const AllocationReport = () => {
         autoHideDuration={6000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
         message={snackbar.message}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-        ContentProps={{
-          sx: {
-            backgroundColor: snackbar.severity === 'success' ? 'success.main' : 'error.main',
-            color: '#fff'
-          }
-        }}
       />
     </Box>
   );

@@ -90,3 +90,56 @@ export const calculateUnitsData = async () => {
     throw new Error('Failed to calculate units data');
   }
 };
+
+export const calculateUnitsDataByFinancialYear = async (selectedFinancialYear) => {
+  try {
+    // Fetch all unit data using the existing fetchAllUnitData method
+    const { productionUnits, consumptionUnits, bankingUnits } = await fetchAllUnitData();
+
+    // Validate that the fetched data is an array
+    const validProductionUnits = Array.isArray(productionUnits) ? productionUnits : [];
+    const validConsumptionUnits = Array.isArray(consumptionUnits) ? consumptionUnits : [];
+    const validBankingUnits = Array.isArray(bankingUnits) ? bankingUnits : [];
+
+    // Define the start and end dates for the selected financial year
+    const startYear = parseInt(selectedFinancialYear.split('-')[0], 10);
+    const startDate = new Date(startYear, 3, 1); // April 1st
+    const endDate = new Date(startYear + 1, 2, 31); // March 31st
+
+    // Filter units based on the financial year
+    const filterByFinancialYear = (units) => {
+      return units.filter((unit) => {
+        const unitDate = new Date(unit.date); // Assuming each unit has a 'date' field
+        return unitDate >= startDate && unitDate <= endDate;
+      });
+    };
+
+    const filteredProductionUnits = filterByFinancialYear(validProductionUnits);
+    const filteredConsumptionUnits = filterByFinancialYear(validConsumptionUnits);
+    const filteredBankingUnits = filterByFinancialYear(validBankingUnits);
+
+    // Calculate total units for production, consumption, and banking
+    const totalProductionUnits = filteredProductionUnits.reduce((sum, unit) => {
+      return sum + (unit.c1 || 0) + (unit.c2 || 0) + (unit.c3 || 0) + (unit.c4 || 0) + (unit.c5 || 0);
+    }, 0);
+
+    const totalConsumptionUnits = filteredConsumptionUnits.reduce((sum, unit) => {
+      return sum + (unit.c1 || 0) + (unit.c2 || 0) + (unit.c3 || 0) + (unit.c4 || 0) + (unit.c5 || 0);
+    }, 0);
+
+    const totalBankingUnits = filteredBankingUnits.reduce((sum, unit) => {
+      return sum + (unit.c1 || 0) + (unit.c2 || 0) + (unit.c3 || 0) + (unit.c4 || 0) + (unit.c5 || 0);
+    }, 0);
+
+    // Return the calculated data
+    return {
+      totalProductionUnits,
+      totalConsumptionUnits,
+      totalBankingUnits,
+      netUnits: totalProductionUnits - totalConsumptionUnits + totalBankingUnits,
+    };
+  } catch (error) {
+    console.error('Error calculating units data by financial year:', error);
+    throw new Error('Failed to calculate units data by financial year');
+  }
+};
