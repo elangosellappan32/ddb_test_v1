@@ -15,7 +15,6 @@ import {
   FormControlLabel,
   CircularProgress,
   Alert,
-  Tooltip,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -30,21 +29,17 @@ import {
   Grid
 } from '@mui/material';
 import { 
-  Download as DownloadIcon,
   Refresh as RefreshIcon,
   FileDownload as ExcelIcon,
-  Description as CsvIcon
+  Description as CsvIcon,
+  CheckCircle as CheckCircleIcon,
+  Error as ErrorIcon
 } from '@mui/icons-material';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import ErrorIcon from '@mui/icons-material/Error';
-import axios from 'axios';
 import * as XLSX from 'xlsx';
 import { useSnackbar } from 'notistack';
 import { fetchReportDataByFinancialYear } from '../../services/reportService';
 
 const REFRESH_INTERVAL = 30000; // Refresh every 30 seconds
-const MAX_RETRIES = 3;
-const RETRY_DELAY = 2000;
 
 const Transition = React.forwardRef(function Transition(props, ref) {
   return <Slide direction="up" ref={ref} {...props} />;
@@ -310,13 +305,7 @@ const AllocationReport = () => {
     return {
         ...defaultFormVBData,
         financialYear,
-        rows,
-        summary: {
-            totalGeneration: reportData.totalGeneratedUnits.toFixed(2),
-            auxiliaryConsumption: reportData.auxiliaryConsumption.toFixed(2),
-            netGeneration: (reportData.totalGeneratedUnits - reportData.auxiliaryConsumption).toFixed(2),
-            totalConsumption: reportData.totalAllocatedUnits.toFixed(2)
-        }
+        rows
     };
 };
 
@@ -427,31 +416,6 @@ const AllocationReport = () => {
               </TableCell>
             </TableRow>
           )}
-          <TableRow>
-            <TableCell colSpan={12} sx={{ borderTop: '2px solid #e0e4ec' }}>
-              <Box sx={{ mt: 2, p: 2, bgcolor: '#f5f5f5', borderRadius: 1 }}>
-                <Typography variant="subtitle2" gutterBottom>Summary</Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Typography variant="caption">Total Generation:</Typography>
-                    <Typography>{data.summary.totalGeneration}</Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Typography variant="caption">Auxiliary Consumption:</Typography>
-                    <Typography>{data.summary.auxiliaryConsumption}</Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Typography variant="caption">Net Generation:</Typography>
-                    <Typography>{data.summary.netGeneration}</Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Typography variant="caption">Total Consumption:</Typography>
-                    <Typography>{data.summary.totalConsumption}</Typography>
-                  </Grid>
-                </Grid>
-              </Box>
-            </TableCell>
-          </TableRow>
         </TableBody>
       </>
     );
@@ -534,8 +498,6 @@ const AllocationReport = () => {
 
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.setAttribute('href', url);
       const link = document.createElement('a');
       link.setAttribute('href', url);
       link.setAttribute('download', `Form_V_${isForm5B ? 'B' : 'A'}_${new Date().toISOString().split('T')[0]}.csv`);
