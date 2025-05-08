@@ -10,8 +10,7 @@ const api = axios.create({
   }
 });
 
-// Add response interceptor to handle common error cases
-// Propagate errors to callers (including 404) so API methods can handle them
+
 api.interceptors.response.use(
   response => response,
   error => Promise.reject(error)

@@ -173,11 +173,149 @@ const deleteAllocation = async (pk, sk) => {
     }
 };
 
+// Transform FormVB data by grouping c1-c5 and additional fields
+function transformFormVBData(data) {
+    const baseData = {
+        title: 'FORMAT V-B',
+        financialYear: data.financialYear || '',
+        siteMetrics: []
+    };
+
+    if (!data.consumptionSites || !Array.isArray(data.consumptionSites)) {
+        return baseData;
+    }
+
+    baseData.siteMetrics = data.consumptionSites.map(site => ({
+        siteName: site.name,
+        equityShares: site.shares?.certificates || 0,
+        allocationPercentage: Number(site.shares?.ownership?.replace('%', '') || 0),
+        annualGeneration: Number(site.generation || 0),
+        auxiliaryConsumption: Number(site.auxiliary || 0),
+        verificationCriteria: (Number(site.generation || 0) - Number(site.auxiliary || 0)) * 0.51,
+        permittedConsumption: {
+            base: Number(site.permitted?.withZero || 0),
+            minus10: Number(site.permitted?.minus10 || 0),
+            plus10: Number(site.permitted?.plus10 || 0)
+        },
+        actualConsumption: Number(site.actual || 0),
+        normsCompliance: site.norms === 'Yes'
+    }));
+
+    return baseData;
+}
+
+// FormVB related functions
+const getFormVBData = async (req, res, next) => {
+    try {
+        const { financialYear } = req.params;
+        if (!financialYear) {
+            return res.status(400).json({
+                success: false,
+                message: 'Financial year is required'
+            });
+        }
+
+        const allocations = await allocationDAL.getAllAllocatedUnits();
+        const consumptionSites = await consumptionSiteDAL.getAllConsumptionSites();
+        
+        const formVBData = transformFormVBData({
+            financialYear,
+            consumptionSites: consumptionSites.map(site => {
+                const siteAllocations = allocations.filter(a => a.consumptionSiteId === site.consumptionSiteId);
+                return {
+                    ...site,
+                    generation: siteAllocations.reduce((sum, a) => sum + calculateTotal(a), 0),
+                    auxiliary: site.auxiliaryConsumption || 0
+                };
+            })
+        });
+
+        res.json({
+            success: true,
+            data: formVBData
+        });
+    } catch (error) {
+        logger.error('[AllocationController] GetFormVBData Error:', error);
+        next(error);
+    }
+};
+
+const updateFormVBSite = async (req, res, next) => {
+    try {
+        const { companyId, siteId } = req.params;
+        const updates = req.body;
+
+        // Validate and normalize update data
+        const validatedUpdates = {
+            equityShares: Number(updates.equityShares || 0),
+            allocationPercentage: Number(updates.allocationPercentage || 0),
+            annualGeneration: Number(updates.annualGeneration || 0),
+            auxiliaryConsumption: Number(updates.auxiliaryConsumption || 0),
+            actualConsumption: Number(updates.actualConsumption || 0)
+        };
+
+        // Calculate derived fields
+        const verificationCriteria = (validatedUpdates.annualGeneration - validatedUpdates.auxiliaryConsumption) * 0.51;
+        validatedUpdates.verificationCriteria = verificationCriteria;
+
+        // Update permittedConsumption values
+        validatedUpdates.permittedConsumption = {
+            base: validatedUpdates.annualGeneration,
+            minus10: validatedUpdates.annualGeneration * 0.9,
+            plus10: validatedUpdates.annualGeneration * 1.1
+        };
+
+        // Check norms compliance
+        validatedUpdates.normsCompliance = validatedUpdates.actualConsumption >= verificationCriteria;
+
+        // Update consumption site
+        await consumptionSiteDAL.updateConsumptionSite(companyId, siteId, {
+            equityShares: validatedUpdates.equityShares,
+            allocationPercentage: validatedUpdates.allocationPercentage,
+            auxiliaryConsumption: validatedUpdates.auxiliaryConsumption,
+            version: (updates.version || 0) + 1,
+            updatedat: new Date().toISOString()
+        });
+
+        // Update allocation records
+        const existingAllocations = await allocationDAL.getAllocationsByConsumptionSite(companyId, siteId);
+        if (existingAllocations?.length > 0) {
+            await Promise.all(existingAllocations.map(allocation => {
+                const totalAllocation = calculateTotal(allocation);
+                const scaleFactor = validatedUpdates.annualGeneration / totalAllocation;
+                
+                const updatedAllocation = {
+                    ...allocation,
+                    c1: Number(allocation.c1 || 0) * scaleFactor,
+                    c2: Number(allocation.c2 || 0) * scaleFactor,
+                    c3: Number(allocation.c3 || 0) * scaleFactor,
+                    c4: Number(allocation.c4 || 0) * scaleFactor,
+                    c5: Number(allocation.c5 || 0) * scaleFactor,
+                    version: (allocation.version || 0) + 1,
+                    updatedat: new Date().toISOString()
+                };
+                
+                return allocationDAL.putItem(updatedAllocation);
+            }));
+        }
+
+        res.json({
+            success: true,
+            data: validatedUpdates
+        });
+    } catch (error) {
+        logger.error('[AllocationController] UpdateFormVBSite Error:', error);
+        next(error);
+    }
+};
+
 module.exports = {
     createAllocation,
     getAllocations,
     calculateTotal,
     updateAllocation,
     deleteAllocation,
-    getAllAllocations
+    getAllAllocations,
+    getFormVBData,
+    updateFormVBSite
 };

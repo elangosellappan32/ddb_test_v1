@@ -77,7 +77,7 @@ async function calculateFormVAMetrics(financialYear) {
             const siteShare = site.allocationPercentage || 0;
             
             // Use aggregateGeneration as the base for permitted consumption
-            const basePermittedConsumption = (aggregateGeneration * siteShare) / 100;
+            const basePermittedConsumption = aggregateGeneration;
             
             // Calculate variations
             const permittedConsumption = {

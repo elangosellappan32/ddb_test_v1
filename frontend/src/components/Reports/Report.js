@@ -26,7 +26,8 @@ import {
   Select,
   FormControl,
   InputLabel,
-  Grid
+  Grid,
+  TextField // Add TextField
 } from '@mui/material';
 import { 
   Refresh as RefreshIcon,
@@ -47,7 +48,18 @@ const Transition = React.forwardRef(function Transition(props, ref) {
 
 const AllocationReport = () => {
   const [isForm5B, setIsForm5B] = useState(false);
-  const [reportData, setReportData] = useState(null);
+  const [reportData, setReportData] = useState({
+    siteMetrics: [],
+    summary: {
+      totalGeneration: 0,
+      auxiliaryConsumption: 0,
+      totalCriteria: 0,
+      totalPermitted: 0,
+      totalPermittedMinus10: 0,
+      totalPermittedPlus10: 0,
+      totalConsumption: 0
+    }
+  });
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState({ excel: false, csv: false });
@@ -121,17 +133,15 @@ const AllocationReport = () => {
     };
   }, [fetchData]);
 
-  const handleRefresh = () => {
-    fetchData();
-  };
-
-  const validateData = useCallback((data) => {
-    if (!data) return false;
-    if (Array.isArray(data)) {
-      return data.length > 0 && data.some(item => item !== null && typeof item === 'object');
+  const validateNumber = (value, field) => {
+    if (!value) return 'This field is required';
+    if (isNaN(value)) return 'Must be a valid number';
+    if (field === 'ownership' || field === 'proRata') {
+      if (value < 0 || value > 100) return 'Percentage must be between 0 and 100';
     }
-    return Object.keys(data).filter(key => data[key] !== undefined && data[key] !== null).length > 0;
-  }, []);
+    if (value < 0) return 'Must be a positive number';
+    return '';
+  };
 
   const handleOpenDialog = (config) => {
     setDialogConfig(config);
@@ -277,277 +287,578 @@ const AllocationReport = () => {
     ]
   };
 
-  const prepareForm5BData = () => {
-    if (!reportData?.siteMetrics || !Array.isArray(reportData.siteMetrics)) {
-        return defaultFormVBData;
-    }
-
-    const rows = reportData.siteMetrics.map((site, index) => ({
-        slNo: index + 1,
-        name: site.siteName,
-        shares: {
-            certificates: site.equityShares,
-            ownership: `${site.allocationPercentage}%`
-        },
-        proRata: 'Minimum 51%',
-        generation: site.annualGeneration.toFixed(2),
-        auxiliary: site.auxiliaryConsumption.toFixed(2),
-        criteria: site.verificationCriteria.toFixed(2),
-        permitted: {
-            withZero: site.permittedConsumption.base.toFixed(2),
-            minus10: site.permittedConsumption.minus10.toFixed(2),
-            plus10: site.permittedConsumption.plus10.toFixed(2)
-        },
-        actual: site.actualConsumption.toFixed(2),
-        norms: site.normsCompliance ? 'Yes' : 'No'
-    }));
-
+const prepareForm5BData = () => {
+  if (!reportData?.siteMetrics?.length) {
     return {
-        ...defaultFormVBData,
-        financialYear,
-        rows
+      ...defaultFormVBData,
+      rows: [],
+      summary: {
+        totalGeneration: 0,
+        auxiliaryConsumption: 0,
+        totalCriteria: 0,
+        totalPermitted: 0,
+        totalPermittedMinus10: 0,
+        totalPermittedPlus10: 0,
+        totalConsumption: 0
+      }
     };
+  }
+
+  const commonValues = {
+    totalGeneration: reportData.totalGeneratedUnits || 0,
+    auxiliaryConsumption: reportData.auxiliaryConsumption || 0,
+    verificationCriteria: (reportData.totalGeneratedUnits - reportData.auxiliaryConsumption) * 0.51 || 0
+  };
+
+  const rows = reportData.siteMetrics.map((site, index) => ({
+    slNo: index + 1,
+    name: site.siteName || '',
+    shares: {
+      certificates: site.equityShares || '',
+      // Use the allocation percentage directly from site data
+      ownership: site.consumptionAllocation ? `${site.consumptionAllocation.toFixed(2)}%` : '0%'
+    },
+    proRata: 'Minimum 51%',
+    generation: site.annualGeneration?.toString() || '0',
+    auxiliary: commonValues.auxiliaryConsumption.toString(),
+    criteria: commonValues.verificationCriteria.toString(),
+    permitted: {
+      withZero: (site.permittedConsumption?.base || 0).toString(),
+      minus10: (site.permittedConsumption?.minus10 || 0).toString(),
+      plus10: (site.permittedConsumption?.plus10 || 0).toString()
+    },
+    actual: (site.actualConsumption || 0).toString(),
+    norms: site.normsCompliance ? 'Yes' : 'No'
+  }));
+
+  // Calculate summary values
+  const summary = {
+    totalGeneration: commonValues.totalGeneration.toFixed(2),
+    auxiliaryConsumption: commonValues.auxiliaryConsumption.toFixed(2),
+    totalCriteria: commonValues.verificationCriteria.toFixed(2),
+    totalPermitted: rows.reduce((sum, row) => sum + Number(row.permitted.withZero), 0).toFixed(2),
+    totalPermittedMinus10: rows.reduce((sum, row) => sum + Number(row.permitted.minus10), 0).toFixed(2),
+    totalPermittedPlus10: rows.reduce((sum, row) => sum + Number(row.permitted.plus10), 0).toFixed(2),
+    totalConsumption: rows.reduce((sum, row) => sum + Number(row.actual), 0).toFixed(2)
+  };
+
+  return {
+    ...defaultFormVBData,
+    financialYear,
+    rows,
+    summary
+  };
 };
 
-  const renderFormVBHeader = (data) => {
-    return (
-      <TableHead>
-        <TableRow>
-          <TableCell 
-            colSpan={12} 
-            align="center" 
-            sx={{ 
-              py: 2,
-              fontSize: '1.1rem',
-              fontWeight: 'bold',
-              borderBottom: '2px solid #e0e4ec'
-            }}
-          >
-            {data.title}
-          </TableCell>
-        </TableRow>
-        <TableRow>
-          <TableCell 
-            colSpan={12} 
-            align="left" 
-            sx={{ 
-              py: 1,
-              borderBottom: '2px solid #e0e4ec'
-            }}
-          >
-            Financial Year: {data.financialYear}
-          </TableCell>
-        </TableRow>
-        <TableRow>
-          {data.mainColumns.map((column) => (
-            <TableCell
-              key={column.id}
-              align={column.align}
-              rowSpan={column.rowSpan}
-              colSpan={column.colSpan || 1}
-              sx={{
-                whiteSpace: 'pre-line',
-                minWidth: column.width,
-                p: 1,
-                fontWeight: 'bold',
-                fontSize: '0.75rem',
-                bgcolor: '#f5f5f5',
-                border: '1px solid #e0e4ec',
-                verticalAlign: 'top'
-              }}
-            >
-              {column.label}
-            </TableCell>
-          ))}
-        </TableRow>
-        <TableRow>
-          {data.mainColumns
-            .filter(column => column.children)
-            .map(column => 
-              column.children.map(subCol => (
-                <TableCell
-                  key={`${column.id}-${subCol.id}`}
-                  align={subCol.align}
-                  sx={{
-                    whiteSpace: 'pre-line',
-                    minWidth: subCol.width,
-                    p: 1,
-                    fontWeight: 'bold',
-                    fontSize: '0.75rem',
-                    bgcolor: '#f5f5f5',
-                    border: '1px solid #e0e4ec',
-                    verticalAlign: 'top'
-                  }}
-                >
-                  {subCol.label}
-                </TableCell>
-              ))
-            )}
-        </TableRow>
-      </TableHead>
-    );
+const renderFormVBTable = () => {
+  const data = prepareForm5BData();
+  
+  const tableHeaderStyle = {
+    bgcolor: '#f5f5f5',
+    border: '1px solid #e0e4ec',
+    fontWeight: 'bold',
+    fontSize: '0.75rem',
+    whiteSpace: 'pre-line',
+    verticalAlign: 'middle',
+    textAlign: 'center'
   };
 
-  const renderFormVBTable = () => {
-    const data = prepareForm5BData();
-    
-    if (!data || !data.mainColumns) {
+  const cellStyle = {
+    borderRight: '1px solid #e0e4ec',
+    padding: '8px',
+    fontSize: '0.875rem'
+  };
+
+  const renderMainHeader = () => (
+    <TableHead>
+      <TableRow>
+        <TableCell colSpan={13} align="center" sx={{ py: 2, fontSize: '1.1rem', fontWeight: 'bold' }}>
+          FORMAT V-B
+        </TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell colSpan={13} align="left" sx={{ py: 1 }}>
+          Financial Year: {data.financialYear}
+        </TableCell>
+      </TableRow>
+      
+      {/* Main Column Headers */}
+      <TableRow>
+        <TableCell rowSpan={2} align="center" sx={tableHeaderStyle}>Sl. No.</TableCell>
+        <TableCell rowSpan={2} align="center" sx={tableHeaderStyle}>Name of share holder</TableCell>
+        <TableCell colSpan={2} align="center" sx={tableHeaderStyle}>
+          No. of equity shares of value Rs. /-
+        </TableCell>
+        <TableCell rowSpan={2} align="center" sx={tableHeaderStyle}>
+          % to be consumed on pro rata basis by each captive user
+        </TableCell>
+        <TableCell rowSpan={2} align="center" sx={tableHeaderStyle}>
+          100% annual generation in MUs (x)
+        </TableCell>
+        <TableCell rowSpan={2} align="center" sx={tableHeaderStyle}>
+          Annual Auxiliary consumption in MUs (y)
+        </TableCell>
+        <TableCell rowSpan={2} align="center" sx={tableHeaderStyle}>
+          Generation considered to verify consumption criteria in MUs (x-y)*51%
+        </TableCell>
+        <TableCell colSpan={3} align="center" sx={tableHeaderStyle}>
+          Permitted consumption as per norms in MUs
+        </TableCell>
+        <TableCell rowSpan={2} align="center" sx={tableHeaderStyle}>
+          Actual consumption in MUs
+        </TableCell>
+        <TableCell rowSpan={2} align="center" sx={tableHeaderStyle}>
+          Whether consumption norms met
+        </TableCell>
+      </TableRow>
+
+      {/* Sub Headers */}
+      <TableRow>
+        <TableCell align="center" sx={tableHeaderStyle}>
+          As per share certificates as on 31st March
+        </TableCell>
+        <TableCell align="center" sx={tableHeaderStyle}>
+          % of ownership through shares in Company/unit of CGP
+        </TableCell>
+        <TableCell align="center" sx={tableHeaderStyle}>with 0% variation</TableCell>
+        <TableCell align="center" sx={tableHeaderStyle}>-10%</TableCell>
+        <TableCell align="center" sx={tableHeaderStyle}>+10%</TableCell>
+      </TableRow>
+    </TableHead>
+  );
+
+  const renderRows = () => {
+    if (!data?.rows || !Array.isArray(data.rows) || data.rows.length === 0) {
       return (
-        <TableBody>
-          <TableRow>
-            <TableCell colSpan={9} align="center">
-              <Alert severity="info">No data available for Form V-B</Alert>
-            </TableCell>
-          </TableRow>
-        </TableBody>
+        <TableRow>
+          <TableCell colSpan={13} align="center">
+            <Alert severity="info">No consumption sites data available</Alert>
+          </TableCell>
+        </TableRow>
       );
     }
 
+    // Values that are common for all rows
+    const commonAuxiliary = data.summary?.auxiliaryConsumption || '0';
+    const commonPermitted = {
+      withZero: data.summary?.totalPermitted || '0',
+      minus10: data.summary?.totalPermittedMinus10 || '0',
+      plus10: data.summary?.totalPermittedPlus10 || '0'
+    };
+
+    return data.rows.map((row, index) => (
+      <TableRow key={row?.slNo || index} hover>
+        <TableCell align="center" sx={cellStyle}>{row?.slNo || ''}</TableCell>
+        <TableCell sx={cellStyle}>{row?.name || ''}</TableCell>
+        <TableCell align="right" sx={cellStyle}>{row?.shares?.certificates || ''}</TableCell>
+        <TableCell align="center" sx={cellStyle}>{row?.shares?.ownership || ''}</TableCell>
+        <TableCell align="center" sx={cellStyle}>{row?.proRata || ''}</TableCell>
+        <TableCell align="right" sx={cellStyle}>{row?.generation || ''}</TableCell>
+        {index === 0 ? (
+          <TableCell 
+            align="right" 
+            sx={cellStyle} 
+            rowSpan={data.rows.length}
+          >
+            {commonAuxiliary}
+          </TableCell>
+        ) : null}
+        <TableCell align="right" sx={cellStyle}>{row?.criteria || ''}</TableCell>
+        {index === 0 ? (
+          <>
+            <TableCell 
+              align="right" 
+              sx={cellStyle} 
+              rowSpan={data.rows.length}
+            >
+              {commonPermitted.withZero}
+            </TableCell>
+            <TableCell 
+              align="right" 
+              sx={cellStyle} 
+              rowSpan={data.rows.length}
+            >
+              {commonPermitted.minus10}
+            </TableCell>
+            <TableCell 
+              align="right" 
+              sx={cellStyle} 
+              rowSpan={data.rows.length}
+            >
+              {commonPermitted.plus10}
+            </TableCell>
+          </>
+        ) : null}
+        <TableCell align="right" sx={cellStyle}>{row?.actual || ''}</TableCell>
+        <TableCell align="center" sx={cellStyle}>
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: row?.norms === 'Yes' ? 'success.main' : 'error.main'
+          }}>
+            {row?.norms === 'Yes' ? 
+              <CheckCircleIcon sx={{ mr: 0.5, fontSize: '1rem' }} /> : 
+              <ErrorIcon sx={{ mr: 0.5, fontSize: '1rem' }} />
+            }
+            {row?.norms || ''}
+          </Box>
+        </TableCell>
+      </TableRow>
+    ));
+  };
+
+  const renderSummaryRow = () => {
+    if (!data.rows || data.rows.length === 0) return null;
+
+    const totalStyle = {
+      ...cellStyle,
+      fontWeight: 'bold',
+      backgroundColor: '#f8f9fa'
+    };
+
     return (
-      <>
-        {renderFormVBHeader(data)}
-        <TableBody>
-          {data.rows && data.rows.length > 0 ? (
-            data.rows.map((row) => renderFormVBRow(row))
-          ) : (
-            <TableRow>
-              <TableCell colSpan={9} align="center">
-                <Alert severity="info">No consumption sites data available</Alert>
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </>
+      <TableRow>
+        <TableCell colSpan={5} sx={totalStyle}>Total</TableCell>
+        <TableCell align="right" sx={totalStyle}>{data.summary.totalGeneration}</TableCell>
+        <TableCell align="right" sx={totalStyle}>{data.summary.auxiliaryConsumption}</TableCell>
+        <TableCell align="right" sx={totalStyle}>{data.summary.totalCriteria}</TableCell>
+        <TableCell align="right" sx={totalStyle}>{data.summary.totalPermitted}</TableCell>
+        <TableCell align="right" sx={totalStyle}>{data.summary.totalPermittedMinus10}</TableCell>
+        <TableCell align="right" sx={totalStyle}>{data.summary.totalPermittedPlus10}</TableCell>
+        <TableCell align="right" sx={totalStyle}>{data.summary.totalConsumption}</TableCell>
+        <TableCell colSpan={2}></TableCell>
+      </TableRow>
     );
   };
 
-  const downloadExcel = async () => {
-    try {
-      setDownloading(prev => ({ ...prev, excel: true }));
-      const data = isForm5B ? prepareForm5BData() : prepareForm5AData();
+  return (
+    <>
+      {renderMainHeader()}
+      <TableBody>
+        {renderRows()}
+        {renderSummaryRow()}
+      </TableBody>
+    </>
+  );
+};
+
+const downloadExcel = async () => {
+  try {
+    setDownloading(prev => ({ ...prev, excel: true }));
+    const wb = XLSX.utils.book_new();
+
+    if (isForm5B) {
+      const data = prepareForm5BData();
       
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(
-        isForm5B ? data.rows.map(row => ({
-          'Sl.No.': row.slNo,
-          'Particulars': row.particulars,
-          'As per share certificates': row.shares.certificates,
-          '% of ownership': row.shares.ownership,
-          'Annual Generation': row.generation,
-          'Auxiliary Consumption': row.auxiliary,
-          'Verification Criteria': row.criteria,
-          'Permitted Consumption': row.permitted.base,
-          'Actual Consumption': row.actual,
-          'Compliance': row.compliance
-        })) : data,
-        { header: isForm5B ? data.headers : ['Sl.No.', 'Particulars', 'Energy in Units'] }
-      );
+      // Title and financial year headers
+      const headersRow1 = [{ v: 'FORMAT V-B', t: 's' }];
+      const headersRow2 = [{ v: `Financial Year: ${data.financialYear}`, t: 's' }];
+      const emptyRow = [''];
+      
+      // Main column headers
+      const mainHeaders1 = [
+        'Sl. No.',
+        'Name of share holder',
+        'No. of equity shares of value Rs. /-',
+        '',
+        '% to be consumed on pro rata basis by each captive user',
+        '100% annual generation in MUs (x)',
+        'Annual Auxiliary consumption in MUs (y)',
+        'Generation considered to verify consumption criteria in MUs (x-y)*51%',
+        'Permitted consumption as per norms in MUs',
+        '',
+        '',
+        'Actual consumption in MUs',
+        'Whether consumption norms met'
+      ];
 
-      ws['!cols'] = isForm5B ? 
-        [
-          { wch: 8 }, { wch: 30 }, { wch: 20 }, { wch: 15 }, 
-          { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, 
-          { wch: 15 }, { wch: 15 }
-        ] : 
-        [{ wch: 8 }, { wch: 80 }, { wch: 20 }];
+      const mainHeaders2 = [
+        '',
+        '',
+        'As per share certificates as on 31st March',
+        '% of ownership through shares in Company/unit of CGP',
+        '',
+        '',
+        '',
+        '',
+        'with 0% variation',
+        '-10%',
+        '+10%',
+        '',
+        ''
+      ];
 
-      XLSX.utils.book_append_sheet(wb, ws, isForm5B ? 'Form V-B' : 'Form V-A');
-      XLSX.writeFile(wb, `Form_V_${isForm5B ? 'B' : 'A'}_${new Date().toISOString().split('T')[0]}.xlsx`);
-      showSnackbar('Excel file downloaded successfully');
-    } catch (err) {
-      handleOpenDialog({
-        title: 'Download Failed',
-        content: 'Failed to download Excel file. Please try again.',
-        type: 'error'
+      // Format data rows
+      const dataRows = data.rows.map((row, index) => [
+        row.slNo,
+        row.name,
+        row.shares.certificates,
+        row.shares.ownership,
+        'Minimum 51%',
+        row.generation,
+        index === 0 ? data.summary.auxiliaryConsumption : '',
+        row.criteria,
+        index === 0 ? data.summary.totalPermitted : '',
+        index === 0 ? data.summary.totalPermittedMinus10 : '',
+        index === 0 ? data.summary.totalPermittedPlus10 : '',
+        row.actual,
+        row.norms
+      ]);
+
+      // Summary row
+      const summaryRow = [
+        'Total', '', '', '', '',
+        data.summary.totalGeneration,
+        data.summary.auxiliaryConsumption,
+        data.summary.totalCriteria,
+        data.summary.totalPermitted,
+        data.summary.totalPermittedMinus10,
+        data.summary.totalPermittedPlus10,
+        data.summary.totalConsumption,
+        ''
+      ];
+
+      // Combine all rows
+      const allRows = [
+        headersRow1,
+        headersRow2,
+        emptyRow,
+        mainHeaders1,
+        mainHeaders2,
+        ...dataRows,
+        emptyRow,
+        summaryRow
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(allRows);
+
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 8 },   // Sl.No
+        { wch: 30 },  // Name of share holder
+        { wch: 20 },  // Share certificates
+        { wch: 20 },  // Ownership percentage
+        { wch: 20 },  // Pro rata
+        { wch: 15 },  // Annual generation
+        { wch: 15 },  // Auxiliary consumption
+        { wch: 20 },  // Verification criteria
+        { wch: 15 },  // Permitted with 0%
+        { wch: 15 },  // Permitted -10%
+        { wch: 15 },  // Permitted +10%
+        { wch: 15 },  // Actual consumption
+        { wch: 15 }   // Norms met
+      ];
+
+      // Add merged cells for headers
+      ws['!merges'] = [
+        // Title
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 12 } },
+        // Financial Year
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 12 } },
+        // Main header merges for row spans
+        { s: { r: 3, c: 0 }, e: { r: 4, c: 0 } },  // Sl.No
+        { s: { r: 3, c: 1 }, e: { r: 4, c: 1 } },  // Name of share holder
+        { s: { r: 3, c: 2 }, e: { r: 3, c: 3 } },  // Equity shares header
+        { s: { r: 3, c: 4 }, e: { r: 4, c: 4 } },  // Pro rata
+        { s: { r: 3, c: 5 }, e: { r: 4, c: 5 } },  // Annual generation
+        { s: { r: 3, c: 6 }, e: { r: 4, c: 6 } },  // Auxiliary consumption
+        { s: { r: 3, c: 7 }, e: { r: 4, c: 7 } },  // Verification criteria
+        { s: { r: 3, c: 8 }, e: { r: 3, c: 10 } }, // Permitted consumption header
+        { s: { r: 3, c: 11 }, e: { r: 4, c: 11 } }, // Actual consumption
+        { s: { r: 3, c: 12 }, e: { r: 4, c: 12 } }  // Norms met
+      ];
+
+      // Apply styles
+      Object.keys(ws).forEach(cell => {
+        if (cell[0] !== '!') {
+          ws[cell].s = {
+            alignment: {
+              vertical: 'center',
+              horizontal: cell[0] === 'A' ? 'center' :
+                         ['B', 'C', 'D'].includes(cell[0]) ? 'left' : 'right'
+            },
+            font: { 
+              sz: cell.includes('1') || cell.includes('2') ? 12 : 11,
+              bold: cell.includes('1') || cell.includes('2') || 
+                    (parseInt(cell.match(/\d+/)?.[0] || '0') <= 5)
+            }
+          };
+        }
       });
-    } finally {
-      setDownloading(prev => ({ ...prev, excel: false }));
-    }
-  };
 
-  const downloadCSV = async () => {
-    try {
-      setDownloading(prev => ({ ...prev, csv: true }));
-      const data = isForm5B ? prepareForm5BData() : prepareForm5AData();
-      
-      let csvContent = '';
-      if (isForm5B) {
-        csvContent = data.headers.map(header => header.label).join(',') + '\n';
-        csvContent += data.rows.map(row => [
+      XLSX.utils.book_append_sheet(wb, ws, 'Form V-B');
+    } else {
+      // Form V-A handling
+      const headersRow1 = [
+        { v: 'FORMAT V-A', t: 's' }
+      ];
+      const headersRow2 = [
+        { v: `Financial Year: ${financialYear}`, t: 's' }
+      ];
+      const mainHeaders = [
+        'Sl.No.',
+        'Particulars',
+        'Energy in Units'
+      ];
+
+      const formData = prepareForm5AData();
+      const formattedRows = formData.map(row => [
+        row['Sl.No.'],
+        row['Particulars'],
+        row['Energy in Units']
+      ]);
+
+      const allRows = [
+        headersRow1,
+        headersRow2,
+        [],
+        mainHeaders,
+        ...formattedRows
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(allRows);
+
+      // Set column widths to match UI
+      ws['!cols'] = [
+        { wch: 8 },  // Sl.No
+        { wch: 80 }, // Particulars
+        { wch: 20 }  // Energy in Units
+      ];
+
+      // Add merged cells and styling for title and financial year
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }, // Title
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 2 } }  // Financial Year
+      ];
+
+      // Apply styles
+      Object.keys(ws).forEach(cell => {
+        if (cell[0] !== '!') {
+          ws[cell].s = {
+            alignment: { vertical: 'center', horizontal: cell[0] === 'A' ? 'center' : 
+                        cell[0] === 'C' ? 'right' : 'left' },
+            font: { sz: 11 }
+          };
+        }
+      });
+
+      XLSX.utils.book_append_sheet(wb, ws, 'Form V-A');
+    }
+
+    const filename = `Form_V_${isForm5B ? 'B' : 'A'}_${financialYear}_${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, filename);
+    showSnackbar('Excel file downloaded successfully');
+  } catch (err) {
+    console.error('Error downloading Excel:', err);
+    handleOpenDialog({
+      title: 'Download Failed',
+      content: 'Failed to download Excel file. Please try again.',
+      type: 'error'
+    });
+  } finally {
+    setDownloading(prev => ({ ...prev, excel: false }));
+  }
+};
+
+const downloadCSV = async () => {
+  try {
+    setDownloading(prev => ({ ...prev, csv: true }));
+    const data = isForm5B ? prepareForm5BData() : prepareForm5AData();
+    
+    let csvContent = '';
+    if (isForm5B) {
+      // Add title and financial year
+      csvContent = 'FORMAT V-B\n';
+      csvContent += `Financial Year: ${financialYear}\n\n`;
+
+      // Main headers with exact column structure as UI and Excel
+      const headers = [
+        ['Sl. No.', 'Name of share holder', 'No. of equity shares of value Rs. /-', '', 
+        '% to be consumed on pro rata basis by each captive user', '100% annual generation in MUs (x)',
+        'Annual Auxiliary consumption in MUs (y)', 'Generation considered to verify consumption criteria in MUs (x-y)*51%',
+        'Permitted consumption as per norms in MUs', '', '', 'Actual consumption in MUs',
+        'Whether consumption norms met'].join(','),
+        
+        ['', '', 'As per share certificates as on 31st March', '% of ownership through shares in Company/unit of CGP',
+        '', '', '', '', 'with 0% variation', '-10%', '+10%', '', ''].join(',')
+      ].join('\n');
+
+      csvContent += headers + '\n';
+
+      // Add data rows
+      data.rows.forEach((row, index) => {
+        csvContent += [
           row.slNo,
           `"${row.name}"`,
           `"${row.shares.certificates}"`,
-          `"${row.shares.ownership}"`,
+          row.shares.ownership?.replace('%', ''),
+          'Minimum 51%',
           row.generation,
-          row.auxiliary,
+          index === 0 ? data.summary.auxiliaryConsumption : '',
           row.criteria,
-          row.permitted.base,
+          index === 0 ? data.summary.totalPermitted : '',
+          index === 0 ? data.summary.totalPermittedMinus10 : '',
+          index === 0 ? data.summary.totalPermittedPlus10 : '',
           row.actual,
-          row.compliance
-        ].join(',')).join('\n');
-        csvContent += `\n\nFor ${data.financialYear}\n`;
-      } else {
-        const headers = ['Sl.No.', 'Particulars', 'Energy in Units'];
-        csvContent = headers.join(',') + '\n';
-        csvContent += data.map(row => [
+          `"${row.norms}"`
+        ].join(',') + '\n';
+      });
+
+      // Add empty row before summary
+      csvContent += '\n';
+
+      // Add summary row
+      csvContent += [
+        'Total', '', '', '', '',
+        data.summary.totalGeneration,
+        data.summary.auxiliaryConsumption,
+        data.summary.totalCriteria,
+        data.summary.totalPermitted,
+        data.summary.totalPermittedMinus10,
+        data.summary.totalPermittedPlus10,
+        data.summary.totalConsumption,
+        ''
+      ].join(',') + '\n';
+
+    } else {
+      // Form V-A CSV structure
+      csvContent = 'FORMAT V-A\n';
+      csvContent += `Financial Year: ${financialYear}\n\n`;
+      
+      const headers = ['Sl.No.', 'Particulars', 'Energy in Units'];
+      csvContent += headers.join(',') + '\n';
+      
+      data.forEach(row => {
+        csvContent += [
           row['Sl.No.'],
           `"${row['Particulars']}"`,
           row['Energy in Units']
-        ].join(',')).join('\n');
-      }
-
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.setAttribute('href', url);
-      link.setAttribute('download', `Form_V_${isForm5B ? 'B' : 'A'}_${new Date().toISOString().split('T')[0]}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      showSnackbar('CSV file downloaded successfully');
-    } catch (err) {
-      console.error('Error downloading CSV:', err);
-      handleOpenDialog({
-        title: 'Download Failed',
-        content: 'Failed to download CSV file. Please try again.',
-        type: 'error'
+        ].join(',') + '\n';
       });
-    } finally {
-      setDownloading(prev => ({ ...prev, csv: false }));
     }
-  };
 
-  const renderFormVBRow = (row) => (
-    <TableRow key={row.slNo} hover>
-      <TableCell align="center">{row.slNo}</TableCell>
-      <TableCell>{row.name}</TableCell>
-      <TableCell align="right">{row.shares.certificates}</TableCell>
-      <TableCell align="center">{row.shares.ownership}</TableCell>
-      <TableCell align="center">{row.proRata}</TableCell>
-      <TableCell align="right">{row.generation}</TableCell>
-      <TableCell align="right">{row.auxiliary}</TableCell>
-      <TableCell align="right">{row.criteria}</TableCell>
-      <TableCell align="right">{row.permitted.withZero}</TableCell>
-      <TableCell align="right">{row.permitted.minus10}</TableCell>
-      <TableCell align="right">{row.permitted.plus10}</TableCell>
-      <TableCell align="right">{row.actual}</TableCell>
-      <TableCell align="center">
-        <Box sx={{ 
-          display: 'flex', 
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: row.norms === 'Yes' ? 'success.main' : 'error.main'
-        }}>
-          {row.norms === 'Yes' ? 
-            <CheckCircleIcon sx={{ mr: 0.5, fontSize: '1rem' }} /> : 
-            <ErrorIcon sx={{ mr: 0.5, fontSize: '1rem' }} />
-          }
-          {row.norms}
-        </Box>
-      </TableCell>
-    </TableRow>
-  );
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Form_V_${isForm5B ? 'B' : 'A'}_${financialYear}_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showSnackbar('CSV file downloaded successfully');
+  } catch (err) {
+    console.error('Error downloading CSV:', err);
+    handleOpenDialog({
+      title: 'Download Failed',
+      content: 'Failed to download CSV file. Please try again.',
+      type: 'error'
+    });
+  } finally {
+    setDownloading(prev => ({ ...prev, csv: false }));
+  }
+};
 
   return (
     <Box sx={{ p: { xs: 2, md: 4 }, backgroundColor: '#f5f7fa', minHeight: '100vh' }}>
