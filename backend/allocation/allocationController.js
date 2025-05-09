@@ -185,21 +185,28 @@ function transformFormVBData(data) {
         return baseData;
     }
 
-    baseData.siteMetrics = data.consumptionSites.map(site => ({
-        siteName: site.name,
-        equityShares: site.shares?.certificates || 0,
-        allocationPercentage: Number(site.shares?.ownership?.replace('%', '') || 0),
-        annualGeneration: Number(site.generation || 0),
-        auxiliaryConsumption: Number(site.auxiliary || 0),
-        verificationCriteria: (Number(site.generation || 0) - Number(site.auxiliary || 0)) * 0.51,
-        permittedConsumption: {
-            base: Number(site.permitted?.withZero || 0),
-            minus10: Number(site.permitted?.minus10 || 0),
-            plus10: Number(site.permitted?.plus10 || 0)
-        },
-        actualConsumption: Number(site.actual || 0),
-        normsCompliance: site.norms === 'Yes'
-    }));
+    baseData.siteMetrics = data.consumptionSites.map(site => {
+        const siteGeneration = Number(site.generation || 0);
+        const siteAuxiliary = Number(site.auxiliary || 0);
+        const siteNetGeneration = siteGeneration - siteAuxiliary;
+        const verificationCriteria = siteNetGeneration * 0.51;
+
+        return {
+            siteName: site.name,
+            equityShares: site.shares?.certificates || 0,
+            allocationPercentage: Number(site.shares?.ownership?.replace('%', '') || 0),
+            annualGeneration: siteGeneration,
+            auxiliaryConsumption: siteAuxiliary,
+            verificationCriteria: verificationCriteria,
+            permittedConsumption: {
+                base: siteNetGeneration,
+                minus10: siteNetGeneration * 0.9,
+                plus10: siteNetGeneration * 1.1
+            },
+            actualConsumption: Number(site.actual || 0),
+            normsCompliance: site.norms === 'Yes'
+        };
+    });
 
     return baseData;
 }

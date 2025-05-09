@@ -7,135 +7,69 @@ const logger = require('../utils/logger');
 
 async function calculateFormVAMetrics(financialYear) {
     try {
-        // Parse the financial year (e.g., '2024-2025')
-        const [startYearStr, endYearStr] = financialYear.split('-');
-        const startYear = parseInt(startYearStr, 10);
-        const endYear = parseInt(endYearStr, 10);
-
-        // Generate all months in the financial year (MMYYYY format)
-        const months = [];
-        // April to December of start year
-        for (let month = 4; month <= 12; month++) {
-            months.push(`${month.toString().padStart(2, '0')}${startYear}`);
-        }
-        // January to March of end year
-        for (let month = 1; month <= 3; month++) {
-            months.push(`${month.toString().padStart(2, '0')}${endYear}`);
-        }
-
-        logger.info('Processing months:', months);
-
-        // Fetch all data from database
-        const [productionData, consumptionData, bankingData, allocationData, consumptionSites] = await Promise.all([
-            productionUnitDAL.getAllProductionUnits(),
-            consumptionUnitDAL.getAllConsumptionUnits(),
-            bankingDAL.getAllBankingUnits(),
-            allocationDAL.getAllAllocatedUnits(),
+        // Get production, consumption and banking data for the financial year
+        const [startMonth, endMonth] = getFinancialYearRange(financialYear);
+        
+        const [productionData, consumptionData, bankingData, consumptionSites] = await Promise.all([
+            productionUnitDAL.getProductionUnitsForPeriod(startMonth, endMonth),
+            consumptionUnitDAL.getConsumptionUnitsForPeriod(startMonth, endMonth),
+            bankingDAL.getBankingForPeriod(startMonth, endMonth),
             consumptionSiteDAL.getAllConsumptionSites()
         ]);
 
-        // Filter data by months in the financial year
-        const filterByMonths = (data) => {
-            return data.filter(item => {
-                if (!item.sk) return false;
-                return months.includes(item.sk);
-            });
-        };
+        // Filter active data
+        const filteredProductionData = productionData.filter(unit => unit.status !== 'Inactive');
+        const filteredConsumptionData = consumptionData.filter(unit => unit.status !== 'Inactive');
+        const filteredBankingData = bankingData.filter(unit => unit.status !== 'Inactive');
 
-        const filteredProductionData = filterByMonths(productionData);
-        const filteredConsumptionData = filterByMonths(consumptionData);
-        const filteredBankingData = filterByMonths(bankingData);
-        const filteredAllocationData = filterByMonths(allocationData);
-
-        // Calculate total units for each dataset
-        const calculateTotalUnits = (data) => {
-            return data.reduce((sum, item) => {
-                const periodSum = ['c1', 'c2', 'c3', 'c4', 'c5'].reduce((periodTotal, period) => 
-                    periodTotal + (Number(item[period] || 0)), 0);
-                return sum + periodSum;
-            }, 0);
-        };
-
-        // Calculate main metrics from database data
+        // Calculate main metrics
         const totalGeneratedUnits = calculateTotalUnits(filteredProductionData);
         const auxiliaryConsumption = calculateTotalUnits(filteredConsumptionData);
         const totalBankingUnits = calculateTotalUnits(filteredBankingData);
         const aggregateGeneration = totalGeneratedUnits + totalBankingUnits;
-        const percentage51 = Math.round(aggregateGeneration * 0.51);
-        const totalAllocatedUnits = calculateTotalUnits(filteredAllocationData);
-        const percentageAdjusted = aggregateGeneration > 0 
-            ? ((totalAllocatedUnits / aggregateGeneration) * 100).toFixed(2)
-            : 0;
 
-        // Calculate site-specific metrics
+        // Calculate site-specific metrics with proper calculations
         const siteMetrics = consumptionSites.map(site => {
-            const siteAllocationData = filteredAllocationData.filter(item => 
-                item.consumptionSiteId === site.id
+            // Calculate consumption units for this site
+            const siteConsumptionUnits = filteredConsumptionData.filter(unit => 
+                unit.pk === `${site.companyId || '1'}_${site.consumptionSiteId}`
             );
+            const siteTotalConsumption = calculateTotalUnits(siteConsumptionUnits);
+
+            // Calculate site's share of generation and auxiliary consumption
+            const siteShare = Number(site.allocationPercentage || 0);
+            const siteAnnualGeneration = Math.round((siteShare / 100) * totalGeneratedUnits);
+            const siteAuxiliaryConsumption = Math.round((siteShare / 100) * auxiliaryConsumption);
             
-            const siteTotalAllocated = calculateTotalUnits(siteAllocationData);
-            const siteShare = site.allocationPercentage || 0;
-            
-            // Use aggregateGeneration as the base for permitted consumption
-            const basePermittedConsumption = aggregateGeneration;
-            
-            // Calculate variations
-            const permittedConsumption = {
-                base: basePermittedConsumption,
-                minus10: basePermittedConsumption * 0.9,  // -10% variation
-                withZero: basePermittedConsumption,       // 0% variation
-                plus10: basePermittedConsumption * 1.1    // +10% variation
-            };
+            // Calculate net generation and verification criteria
+            const siteNetGeneration = siteAnnualGeneration - siteAuxiliaryConsumption;
+            const siteVerificationCriteria = Math.round(siteNetGeneration * 0.51);
 
             return {
-                siteId: site.id,
-                siteName: site.name,
-                equityShares: site.equityShares || 0,
+                ...site,
                 allocationPercentage: siteShare,
-                totalConsumptionUnits: siteTotalAllocated,
-                annualGeneration: aggregateGeneration,
-                auxiliaryConsumption: auxiliaryConsumption,
-                verificationCriteria: percentage51,
-                permittedConsumption,
-                actualConsumption: siteTotalAllocated,
-                // Check if actual consumption is within the permitted range
-                normsCompliance: (
-                    siteTotalAllocated <= permittedConsumption.plus10 && 
-                    siteTotalAllocated >= permittedConsumption.minus10
-                )
+                annualGeneration: siteAnnualGeneration,
+                auxiliaryConsumption: siteAuxiliaryConsumption,
+                netGeneration: siteNetGeneration,
+                verificationCriteria: siteVerificationCriteria,
+                totalConsumptionUnits: siteTotalConsumption,
+                norms: siteTotalConsumption >= siteVerificationCriteria ? 'Yes' : 'No'
             };
-        });
-
-        logger.info('Form VA Calculations:', {
-            totalGeneratedUnits,
-            auxiliaryConsumption,
-            aggregateGeneration,
-            percentage51,
-            totalAllocatedUnits,
-            percentageAdjusted,
-            siteMetrics: siteMetrics.map(site => ({
-                siteName: site.siteName,
-                actualConsumption: site.actualConsumption,
-                permittedBase: site.permittedConsumption.base,
-                variations: {
-                    minus10: site.permittedConsumption.minus10,
-                    withZero: site.permittedConsumption.withZero,
-                    plus10: site.permittedConsumption.plus10
-                }
-            }))
         });
 
         return {
+            financialYear: `${financialYear}-${Number(financialYear) + 1}`,
             totalGeneratedUnits,
             auxiliaryConsumption,
             aggregateGeneration,
-            percentage51,
-            totalAllocatedUnits,
-            percentageAdjusted,
+            percentage51: Math.round(aggregateGeneration * 0.51),
+            totalAllocatedUnits: calculateTotalUnits(filteredConsumptionData),
+            percentageAdjusted: aggregateGeneration ? 
+                Math.round((calculateTotalUnits(filteredConsumptionData) / aggregateGeneration) * 100) : 0,
             siteMetrics
         };
     } catch (error) {
-        logger.error('[calculateFormVAMetrics] Error:', error);
+        logger.error('[FormVACalculation] Error calculating metrics:', error);
         throw error;
     }
 }

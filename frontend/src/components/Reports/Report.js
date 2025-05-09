@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSnackbar } from 'notistack';
 import { 
   Box, 
   Typography, 
@@ -21,13 +22,10 @@ import {
   DialogContentText,
   DialogActions,
   Slide,
-  Snackbar,
   MenuItem,
   Select,
   FormControl,
-  InputLabel,
-  Grid,
-  TextField // Add TextField
+  InputLabel
 } from '@mui/material';
 import { 
   Refresh as RefreshIcon,
@@ -37,29 +35,18 @@ import {
   Error as ErrorIcon
 } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
-import { useSnackbar } from 'notistack';
 import { fetchReportDataByFinancialYear } from '../../services/reportService';
 
-const REFRESH_INTERVAL = 30000; // Refresh every 30 seconds
+const REFRESH_INTERVAL = 60000; // Refresh every minute
 
 const Transition = React.forwardRef(function Transition(props, ref) {
   return <Slide direction="up" ref={ref} {...props} />;
 });
 
 const AllocationReport = () => {
+  const { enqueueSnackbar } = useSnackbar();
   const [isForm5B, setIsForm5B] = useState(false);
-  const [reportData, setReportData] = useState({
-    siteMetrics: [],
-    summary: {
-      totalGeneration: 0,
-      auxiliaryConsumption: 0,
-      totalCriteria: 0,
-      totalPermitted: 0,
-      totalPermittedMinus10: 0,
-      totalPermittedPlus10: 0,
-      totalConsumption: 0
-    }
-  });
+  const [reportData, setReportData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState({ excel: false, csv: false });
@@ -70,62 +57,61 @@ const AllocationReport = () => {
     type: 'download',
     action: null
   });
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [financialYear, setFinancialYear] = useState('');
   const [financialYears, setFinancialYears] = useState([]);
-  const { enqueueSnackbar } = useSnackbar();
 
+  // Initialize financial years
   useEffect(() => {
-    // Generate financial years (current year and previous 10 years)
     const currentYear = new Date().getFullYear();
-    const years = [];
-    for (let i = 0; i < 10; i++) {
-      const startYear = currentYear - i;
-      years.push(`${startYear}-${startYear + 1}`);
-    }
+    const years = Array.from({ length: 10 }, (_, i) => {
+      const year = currentYear - i;
+      return `${year}-${year + 1}`;
+    });
     setFinancialYears(years);
-    setFinancialYear(years[0]); // Set current year as default
+    setFinancialYear(years[0]);
   }, []);
 
+  // Fetch data when financial year or form type changes
   const fetchData = useCallback(async () => {
     if (!financialYear) return;
+    
     setLoading(true);
     setError(null);
+    
     try {
-      const data = await fetchReportDataByFinancialYear(financialYear);
+      const data = await fetchReportDataByFinancialYear(financialYear, isForm5B);
+      
       if (!data) {
-        setReportData(null);
-        setError('No data available for the selected financial year.');
-        return;
+        throw new Error('No data available for the selected financial year');
       }
 
       if (isForm5B && (!data.siteMetrics || data.siteMetrics.length === 0)) {
-        setReportData(null);
-        setError('No consumption site data available for Form V-B.');
-        return;
+        throw new Error('No consumption site data available for Form V-B');
       }
 
       setReportData(data);
       setError(null);
     } catch (err) {
       console.error('Error fetching report data:', err);
-      setError(err.message || 'Failed to fetch data for the selected financial year.');
+      setError(err.message || 'Failed to fetch report data');
       setReportData(null);
+      enqueueSnackbar(err.message || 'Failed to fetch report data', { variant: 'error' });
     } finally {
       setLoading(false);
     }
-  }, [financialYear, isForm5B]);
+  }, [financialYear, isForm5B, enqueueSnackbar]);
 
+  // Auto-refresh data
   useEffect(() => {
     let mounted = true;
-
-    const fetchDataSafely = async () => {
+    
+    const refreshData = async () => {
       if (!mounted) return;
       await fetchData();
     };
 
-    fetchDataSafely();
-    const intervalId = setInterval(fetchDataSafely, REFRESH_INTERVAL);
+    refreshData();
+    const intervalId = setInterval(refreshData, REFRESH_INTERVAL);
 
     return () => {
       mounted = false;
@@ -133,15 +119,12 @@ const AllocationReport = () => {
     };
   }, [fetchData]);
 
-  const validateNumber = (value, field) => {
-    if (!value) return 'This field is required';
-    if (isNaN(value)) return 'Must be a valid number';
-    if (field === 'ownership' || field === 'proRata') {
-      if (value < 0 || value > 100) return 'Percentage must be between 0 and 100';
-    }
-    if (value < 0) return 'Must be a positive number';
-    return '';
-  };
+  // Handle form type switching
+  const handleFormTypeChange = useCallback(() => {
+    setIsForm5B(prev => !prev);
+    setReportData(null);
+    setError(null);
+  }, []);
 
   const handleOpenDialog = (config) => {
     setDialogConfig(config);
@@ -162,12 +145,12 @@ const AllocationReport = () => {
       }
     } catch (err) {
       console.error(`Error downloading ${downloadType}:`, err);
-      showSnackbar(`Failed to download ${downloadType.toUpperCase()} file`, 'error');
+      enqueueSnackbar(`Failed to download ${downloadType.toUpperCase()} file`, { variant: 'error' });
     }
   };
 
   const showSnackbar = (message, severity = 'success') => {
-    setSnackbar({ open: true, message, severity });
+    enqueueSnackbar(message, { variant: severity });
   };
 
   const initiateDownload = (type) => {
@@ -304,47 +287,40 @@ const prepareForm5BData = () => {
     };
   }
 
-  const commonValues = {
-    totalGeneration: reportData.totalGeneratedUnits || 0,
-    auxiliaryConsumption: reportData.auxiliaryConsumption || 0,
-    verificationCriteria: (reportData.totalGeneratedUnits - reportData.auxiliaryConsumption) * 0.51 || 0
-  };
-
   const rows = reportData.siteMetrics.map((site, index) => ({
     slNo: index + 1,
     name: site.siteName || '',
     shares: {
       certificates: site.equityShares || '',
-      // Use the allocation percentage directly from site data
-      ownership: site.consumptionAllocation ? `${site.consumptionAllocation.toFixed(2)}%` : '0%'
+      ownership: site.allocationPercentage ? `${site.allocationPercentage.toFixed(2)}%` : '0%'
     },
     proRata: 'Minimum 51%',
-    generation: site.annualGeneration?.toString() || '0',
-    auxiliary: commonValues.auxiliaryConsumption.toString(),
-    criteria: commonValues.verificationCriteria.toString(),
-    permitted: {
-      withZero: (site.permittedConsumption?.base || 0).toString(),
-      minus10: (site.permittedConsumption?.minus10 || 0).toString(),
-      plus10: (site.permittedConsumption?.plus10 || 0).toString()
+    generation: site.annualGeneration?.toFixed(2) || '0',
+    auxiliary: site.auxiliaryConsumption?.toFixed(2) || '0',
+    criteria: site.verificationCriteria?.toFixed(2) || '0',
+    permittedConsumption: {
+      withZero: site.netGeneration?.toFixed(2) || '0',
+      minus10: (site.netGeneration * 0.9)?.toFixed(2) || '0',
+      plus10: (site.netGeneration * 1.1)?.toFixed(2) || '0'
     },
-    actual: (site.actualConsumption || 0).toString(),
-    norms: site.normsCompliance ? 'Yes' : 'No'
+    actual: site.totalConsumptionUnits?.toFixed(2) || '0',
+    norms: site.norms || 'No'
   }));
 
-  // Calculate summary values
+  // Calculate totals for summary
   const summary = {
-    totalGeneration: commonValues.totalGeneration.toFixed(2),
-    auxiliaryConsumption: commonValues.auxiliaryConsumption.toFixed(2),
-    totalCriteria: commonValues.verificationCriteria.toFixed(2),
-    totalPermitted: rows.reduce((sum, row) => sum + Number(row.permitted.withZero), 0).toFixed(2),
-    totalPermittedMinus10: rows.reduce((sum, row) => sum + Number(row.permitted.minus10), 0).toFixed(2),
-    totalPermittedPlus10: rows.reduce((sum, row) => sum + Number(row.permitted.plus10), 0).toFixed(2),
-    totalConsumption: rows.reduce((sum, row) => sum + Number(row.actual), 0).toFixed(2)
+    totalGeneration: Number(reportData.totalGeneratedUnits || 0).toFixed(2),
+    auxiliaryConsumption: Number(reportData.auxiliaryConsumption || 0).toFixed(2),
+    totalCriteria: Number(reportData.percentage51 || 0).toFixed(2),
+    totalPermitted: Number(reportData.aggregateGeneration || 0).toFixed(2),
+    totalPermittedMinus10: (Number(reportData.aggregateGeneration || 0) * 0.9).toFixed(2),
+    totalPermittedPlus10: (Number(reportData.aggregateGeneration || 0) * 1.1).toFixed(2),
+    totalConsumption: Number(reportData.totalAllocatedUnits || 0).toFixed(2)
   };
 
   return {
     ...defaultFormVBData,
-    financialYear,
+    financialYear: reportData.financialYear || '',
     rows,
     summary
   };
@@ -438,14 +414,6 @@ const renderFormVBTable = () => {
       );
     }
 
-    // Values that are common for all rows
-    const commonAuxiliary = data.summary?.auxiliaryConsumption || '0';
-    const commonPermitted = {
-      withZero: data.summary?.totalPermitted || '0',
-      minus10: data.summary?.totalPermittedMinus10 || '0',
-      plus10: data.summary?.totalPermittedPlus10 || '0'
-    };
-
     return data.rows.map((row, index) => (
       <TableRow key={row?.slNo || index} hover>
         <TableCell align="center" sx={cellStyle}>{row?.slNo || ''}</TableCell>
@@ -460,7 +428,7 @@ const renderFormVBTable = () => {
             sx={cellStyle} 
             rowSpan={data.rows.length}
           >
-            {commonAuxiliary}
+            {data.summary.auxiliaryConsumption}
           </TableCell>
         ) : null}
         <TableCell align="right" sx={cellStyle}>{row?.criteria || ''}</TableCell>
@@ -471,21 +439,21 @@ const renderFormVBTable = () => {
               sx={cellStyle} 
               rowSpan={data.rows.length}
             >
-              {commonPermitted.withZero}
+              {Number(data.summary.totalPermitted || 0).toFixed(2)}
             </TableCell>
             <TableCell 
               align="right" 
               sx={cellStyle} 
               rowSpan={data.rows.length}
             >
-              {commonPermitted.minus10}
+              {Number(data.summary.totalPermittedMinus10 || 0).toFixed(2)}
             </TableCell>
             <TableCell 
               align="right" 
               sx={cellStyle} 
               rowSpan={data.rows.length}
             >
-              {commonPermitted.plus10}
+              {Number(data.summary.totalPermittedPlus10 || 0).toFixed(2)}
             </TableCell>
           </>
         ) : null}
@@ -527,7 +495,7 @@ const renderFormVBTable = () => {
         <TableCell align="right" sx={totalStyle}>{data.summary.totalPermittedMinus10}</TableCell>
         <TableCell align="right" sx={totalStyle}>{data.summary.totalPermittedPlus10}</TableCell>
         <TableCell align="right" sx={totalStyle}>{data.summary.totalConsumption}</TableCell>
-        <TableCell colSpan={2}></TableCell>
+        <TableCell sx={totalStyle}></TableCell>
       </TableRow>
     );
   };
@@ -594,7 +562,7 @@ const downloadExcel = async () => {
         row.slNo,
         row.name,
         row.shares.certificates,
-        row.shares.ownership,
+        row.shares.ownership?.replace('%', ''),
         'Minimum 51%',
         row.generation,
         index === 0 ? data.summary.auxiliaryConsumption : '',
@@ -756,6 +724,7 @@ const downloadExcel = async () => {
       content: 'Failed to download Excel file. Please try again.',
       type: 'error'
     });
+    showSnackbar('Failed to download Excel file', { variant: 'error' });
   } finally {
     setDownloading(prev => ({ ...prev, excel: false }));
   }
@@ -855,21 +824,30 @@ const downloadCSV = async () => {
       content: 'Failed to download CSV file. Please try again.',
       type: 'error'
     });
+    showSnackbar('Failed to download CSV file', { variant: 'error' });
   } finally {
     setDownloading(prev => ({ ...prev, csv: false }));
   }
 };
 
   return (
-    <Box sx={{ p: { xs: 2, md: 4 }, backgroundColor: '#f5f7fa', minHeight: '100vh' }}>
+    <Box 
+      sx={{ 
+        p: { xs: 2, md: 4 }, 
+        backgroundColor: '#f8fafc',
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #f8fafc 0%, #eef2f7 100%)'
+      }}
+    >
       <Paper 
-        elevation={0}
+        elevation={2}
         sx={{ 
-          p: 3, 
-          mb: 3, 
-          borderRadius: 2,
-          background: 'linear-gradient(135deg, #fff 0%, #f8f9ff 100%)',
-          border: '1px solid #e0e4ec'
+          p: { xs: 2, md: 4 }, 
+          mb: 4, 
+          borderRadius: '16px',
+          background: '#ffffff',
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)',
+          border: '1px solid rgba(230, 235, 240, 0.5)'
         }}
       >
         <Box sx={{ 
@@ -877,18 +855,20 @@ const downloadCSV = async () => {
           flexDirection: { xs: 'column', md: 'row' }, 
           justifyContent: 'space-between', 
           alignItems: { xs: 'flex-start', md: 'center' },
-          gap: 2,
-          mb: 3 
+          gap: 3,
+          mb: 4 
         }}>
           <Box>
             <Typography 
               variant="h4" 
-              gutterBottom 
               sx={{ 
-                fontWeight: 700,
-                color: 'primary.main',
-                fontSize: { xs: '1.5rem', md: '2rem' },
-                mb: 1
+                fontWeight: 800,
+                fontSize: { xs: '1.75rem', md: '2.25rem' },
+                background: 'linear-gradient(135deg, #1976d2 0%, #2196f3 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                mb: 1,
+                letterSpacing: '-0.02em'
               }}
             >
               {isForm5B ? 'FORMAT V - B' : 'FORMAT V - A'}
@@ -897,10 +877,12 @@ const downloadCSV = async () => {
               variant="subtitle1" 
               sx={{ 
                 color: 'text.secondary',
-                fontSize: { xs: '0.875rem', md: '1rem' }
+                fontSize: { xs: '0.9rem', md: '1rem' },
+                fontWeight: 500,
+                opacity: 0.85
               }}
             >
-              {isForm5B ? 'Form 5B - Captive Consumption Details' : 'Form 5A - Alternate Details'}
+              {isForm5B ? 'Captive Consumption Details' : 'Alternate Details'}
             </Typography>
           </Box>
 
@@ -908,53 +890,136 @@ const downloadCSV = async () => {
             direction={{ xs: 'column', sm: 'row' }} 
             spacing={2} 
             alignItems="center"
+            sx={{
+              '& .MuiButton-root': {
+                borderRadius: '8px',
+                textTransform: 'none',
+                fontWeight: 600,
+                px: 3,
+                py: 1,
+                transition: 'all 0.2s ease-in-out',
+                '&:hover': {
+                  transform: 'translateY(-1px)',
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
+                }
+              }
+            }}
           >
             <FormControlLabel
               control={
                 <Switch 
-                  checked={isForm5B} 
-                  onChange={() => setIsForm5B(!isForm5B)}
+                  checked={isForm5B}
+                  onChange={handleFormTypeChange}
+                  sx={{
+                    '& .MuiSwitch-switchBase.Mui-checked': {
+                      color: '#1976d2'
+                    },
+                    '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                      backgroundColor: '#1976d2'
+                    }
+                  }}
                 />
               }
-              label={isForm5B ? 'Form V-B' : 'Form V-A'}
+              label={
+                <Typography sx={{ fontWeight: 500, color: 'text.primary' }}>
+                  {isForm5B ? 'Form V-B' : 'Form V-A'}
+                </Typography>
+              }
             />
             <Button
               variant="contained"
-              color="primary"
               onClick={() => initiateDownload('excel')}
-              startIcon={downloading.excel ? <CircularProgress size={20} /> : <ExcelIcon />}
+              startIcon={downloading.excel ? 
+                <CircularProgress size={20} sx={{ color: '#fff' }} /> : 
+                <ExcelIcon />
+              }
               disabled={downloading.excel}
+              sx={{
+                background: 'linear-gradient(135deg, #2e7d32 0%, #4caf50 100%)',
+                '&:hover': {
+                  background: 'linear-gradient(135deg, #1b5e20 0%, #388e3c 100%)'
+                }
+              }}
             >
-              {downloading.excel ? 'Downloading...' : 'Excel Export'}
+              {downloading.excel ? 'Downloading...' : 'Export to Excel'}
             </Button>
             <Button
               variant="contained"
-              color="secondary"
               onClick={() => initiateDownload('csv')}
-              startIcon={downloading.csv ? <CircularProgress size={20} /> : <CsvIcon />}
+              startIcon={downloading.csv ? 
+                <CircularProgress size={20} sx={{ color: '#fff' }} /> : 
+                <CsvIcon />
+              }
               disabled={downloading.csv}
+              sx={{
+                background: 'linear-gradient(135deg, #0288d1 0%, #03a9f4 100%)',
+                '&:hover': {
+                  background: 'linear-gradient(135deg, #01579b 0%, #0288d1 100%)'
+                }
+              }}
             >
-              {downloading.csv ? 'Downloading...' : 'CSV Export'}
+              {downloading.csv ? 'Downloading...' : 'Export to CSV'}
             </Button>
             <Button
               variant="outlined"
               onClick={fetchData}
-              startIcon={loading ? <CircularProgress size={20} /> : <RefreshIcon />}
+              startIcon={loading ? 
+                <CircularProgress size={20} sx={{ color: 'primary.main' }} /> : 
+                <RefreshIcon />
+              }
               disabled={loading}
+              sx={{
+                borderWidth: '2px',
+                '&:hover': {
+                  borderWidth: '2px'
+                }
+              }}
             >
-              {loading ? 'Refreshing...' : 'Refresh'}
+              {loading ? 'Refreshing...' : 'Refresh Data'}
             </Button>
           </Stack>
         </Box>
 
-        <FormControl sx={{ mb: 3, minWidth: 200 }}>
-          <InputLabel>Financial Year</InputLabel>
+        <FormControl 
+          sx={{ 
+            mb: 4,
+            minWidth: 240,
+            '& .MuiOutlinedInput-root': {
+              borderRadius: '8px',
+              '&:hover .MuiOutlinedInput-notchedOutline': {
+                borderColor: 'primary.main',
+                borderWidth: '2px'
+              }
+            }
+          }}
+        >
+          <InputLabel sx={{ fontWeight: 500 }}>Financial Year</InputLabel>
           <Select
             value={financialYear}
             onChange={(e) => setFinancialYear(e.target.value)}
+            sx={{
+              '& .MuiSelect-select': {
+                py: 1.5
+              }
+            }}
           >
             {financialYears.map((year) => (
-              <MenuItem key={year} value={year}>
+              <MenuItem 
+                key={year} 
+                value={year}
+                sx={{
+                  py: 1,
+                  '&:hover': {
+                    backgroundColor: 'action.hover'
+                  },
+                  '&.Mui-selected': {
+                    backgroundColor: 'primary.lighter',
+                    '&:hover': {
+                      backgroundColor: 'primary.light'
+                    }
+                  }
+                }}
+              >
                 {year}
               </MenuItem>
             ))}
@@ -962,13 +1027,54 @@ const downloadCSV = async () => {
         </FormControl>
 
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert 
+            severity="error" 
+            sx={{ 
+              mb: 3,
+              borderRadius: '8px',
+              '& .MuiAlert-icon': {
+                fontSize: '1.5rem'
+              }
+            }}
+          >
             {error}
           </Alert>
         )}
 
-        <TableContainer component={Paper}>
-          <Table size="small">
+        <TableContainer 
+          component={Paper}
+          sx={{
+            borderRadius: '12px',
+            boxShadow: '0 2px 12px rgba(0, 0, 0, 0.05)',
+            border: '1px solid rgba(230, 235, 240, 0.8)',
+            overflow: 'hidden',
+            '& .MuiTable-root': {
+              borderCollapse: 'separate',
+              borderSpacing: 0
+            }
+          }}
+        >
+          <Table 
+            size="small"
+            sx={{
+              '& .MuiTableCell-root': {
+                borderColor: 'rgba(230, 235, 240, 0.8)',
+                py: 2,
+                px: 2,
+                fontSize: '0.875rem',
+                '&.MuiTableCell-head': {
+                  fontWeight: 600,
+                  backgroundColor: '#f8fafc',
+                  borderBottom: '2px solid rgba(230, 235, 240, 0.8)'
+                }
+              },
+              '& .MuiTableRow-root': {
+                '&:hover': {
+                  backgroundColor: 'rgba(0, 0, 0, 0.01)'
+                }
+              }
+            }}
+          >
             {isForm5B ? renderFormVBTable() : (
               <>
                 <TableHead>
@@ -998,24 +1104,48 @@ const downloadCSV = async () => {
         TransitionComponent={Transition}
         keepMounted
         onClose={handleCloseDialog}
+        PaperProps={{
+          sx: {
+            borderRadius: '12px',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+            p: 1
+          }
+        }}
       >
-        <DialogTitle>
+        <DialogTitle sx={{ 
+          py: 2,
+          px: 3,
+          fontSize: '1.25rem',
+          fontWeight: 600
+        }}>
           {dialogConfig.title}
         </DialogTitle>
-        <DialogContent>
-          <DialogContentText>
+        <DialogContent sx={{ py: 2, px: 3 }}>
+          <DialogContentText sx={{ color: 'text.secondary' }}>
             {dialogConfig.content}
           </DialogContentText>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseDialog} color="primary">
+        <DialogActions sx={{ p: 2 }}>
+          <Button 
+            onClick={handleCloseDialog} 
+            sx={{ 
+              fontWeight: 500,
+              textTransform: 'none',
+              px: 3
+            }}
+          >
             Cancel
           </Button>
           {dialogConfig.type === 'download' && (
             <Button 
               onClick={() => dialogConfig.action()} 
-              color="primary" 
               variant="contained"
+              sx={{ 
+                fontWeight: 600,
+                textTransform: 'none',
+                px: 3,
+                borderRadius: '8px'
+              }}
             >
               Download
             </Button>
@@ -1023,21 +1153,20 @@ const downloadCSV = async () => {
           {dialogConfig.type === 'error' && (
             <Button 
               onClick={handleCloseDialog} 
-              color="primary" 
               variant="contained"
+              color="error"
+              sx={{ 
+                fontWeight: 600,
+                textTransform: 'none',
+                px: 3,
+                borderRadius: '8px'
+              }}
             >
               OK
             </Button>
           )}
         </DialogActions>
       </Dialog>
-
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={6000}
-        onClose={() => setSnackbar({ ...snackbar, open: false })}
-        message={snackbar.message}
-      />
     </Box>
   );
 };
