@@ -175,7 +175,18 @@ const getAllConsumptionSites = async () => {
         const { Items } = await docClient.send(new ScanCommand({
             TableName
         }));
-        return Items || [];
+        
+        return (Items || []).map(item => ({
+            ...item,
+            siteName: item.name, // Map name to siteName for consistency
+            type: item.type?.toLowerCase() || 'unknown',
+            status: item.status?.toLowerCase() || 'active',
+            version: Number(item.version || 1),
+            annualConsumption: Number(item.annualConsumption || 0),
+            timetolive: Number(item.timetolive || 0),
+            createdat: item.createdat || new Date().toISOString(),
+            updatedat: item.updatedat || new Date().toISOString()
+        }));
     } catch (error) {
         logger.error('[ConsumptionSiteDAL] GetAll Error:', error);
         throw error;

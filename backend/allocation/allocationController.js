@@ -188,11 +188,13 @@ function transformFormVBData(data) {
     baseData.siteMetrics = data.consumptionSites.map(site => {
         const siteGeneration = Number(site.generation || 0);
         const siteAuxiliary = Number(site.auxiliary || 0);
-        const siteNetGeneration = siteGeneration - siteAuxiliary;
-        const verificationCriteria = siteNetGeneration * 0.51;
-
+        const siteNetGeneration = siteGeneration - siteAuxiliary;        const verificationCriteria = siteNetGeneration * 0.51;
+        
+        // Ensure siteName is not null or undefined
+        const siteName = site.siteName || site.name || 'Unnamed Site';
+        
         return {
-            siteName: site.name,
+            siteName: siteName,
             equityShares: site.shares?.certificates || 0,
             allocationPercentage: Number(site.shares?.ownership?.replace('%', '') || 0),
             annualGeneration: siteGeneration,

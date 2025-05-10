@@ -164,7 +164,7 @@ const AllocationReport = () => {
       { 'Sl.No.': 3, 'Particulars': 'Net units available for captive consumption (Aggregate generation for captive use)', 'Energy in Units': reportData.aggregateGeneration || 0 },
       { 'Sl.No.': 4, 'Particulars': '51% of aggregate generation available for captive consumption in units', 'Energy in Units': reportData.percentage51 || 0 },
       { 'Sl.No.': 5, 'Particulars': 'Actual Adjusted / Consumed units by the captive users', 'Energy in Units': reportData.totalAllocatedUnits || 0 },
-      { 'Sl.No.': 6, 'Particulars': 'Percentage of actual adjusted / consumed units by the captive users with respect to aggregate generation for captive use', 'Energy in Units': `${(Number(reportData.percentageAdjusted || 0)).toFixed(2)}%` }
+      { 'Sl.No.': 6, 'Particulars': 'Percentage of actual adjusted / consumed units by the captive users with respect to aggregate generation for captive use', 'Energy in Units': `${reportData.percentageAdjusted || 0}%` }
     ];
   };
 
@@ -251,6 +251,7 @@ const AllocationReport = () => {
       }
     ]
   };
+
   const prepareForm5BData = () => {
     if (!reportData?.siteMetrics?.length) {
       return {
@@ -268,39 +269,25 @@ const AllocationReport = () => {
       };
     }
 
-    const formatValue = (value, isPercent = false) => {
-      const num = Number(value || 0);
-      return isPercent ? `${num.toFixed(2)}%` : num.toFixed(2);
-    };
-
-    const rows = reportData.siteMetrics.map((site, index) => {
-      const shares = {
-        certificates: site.equityShares || '0',
-        ownership: formatValue(site.allocationPercentage, true)
-      };
-
-      const generation = formatValue(site.annualGeneration);
-      const auxiliary = site.auxiliaryConsumption ? formatValue(site.auxiliaryConsumption) : '';
-      
-      // Calculate verification criteria and permitted consumption
-      const verificationCriteria = formatValue(site.verificationCriteria);
-      const permittedConsumption = {
-        withZero: formatValue(site.permittedConsumption?.withZero || 0),
-        minus10: formatValue(site.permittedConsumption?.minus10 || 0),
-        plus10: formatValue(site.permittedConsumption?.plus10 || 0)
-      };      return {
-        slNo: index + 1,
-        name: site.siteName || site.name || 'Unnamed Site',
-        shares,
-        proRata: 'Minimum 51%',
-        generation,
-        auxiliary,
-        criteria: verificationCriteria,
-        permittedConsumption,
-        actual: formatValue(site.actualConsumption),
-        norms: site.normsCompliance ? 'Yes' : 'No'
-      };
-    });
+    const rows = reportData.siteMetrics.map((site, index) => ({
+      slNo: index + 1,
+      name: site.siteName || '',
+      shares: {
+        certificates: site.equityShares || '',
+        ownership: site.allocationPercentage ? `${site.allocationPercentage.toFixed(2)}%` : '0%'
+      },
+      proRata: 'Minimum 51%',
+      generation: site.annualGeneration?.toFixed(2) || '0',
+      auxiliary: site.auxiliaryConsumption?.toFixed(2) || '0',
+      criteria: site.verificationCriteria?.toFixed(2) || '0',
+      permittedConsumption: {
+        withZero: site.netGeneration?.toFixed(2) || '0',
+        minus10: (site.netGeneration * 0.9)?.toFixed(2) || '0',
+        plus10: (site.netGeneration * 1.1)?.toFixed(2) || '0'
+      },
+      actual: site.totalConsumptionUnits?.toFixed(2) || '0',
+      norms: site.norms || 'No'
+    }));
 
     // Calculate totals for summary
     const summary = {
@@ -557,50 +544,39 @@ const AllocationReport = () => {
           >
             {isForm5B ? (
               <>
-                <TableHead>                  <TableRow sx={{ '& th': { fontWeight: 'bold', whiteSpace: 'pre-line' } }}>
+                <TableHead>
+                  <TableRow>
                     <TableCell>Sl.No.</TableCell>
-                    <TableCell>Name of share holder</TableCell>
-                    <TableCell colSpan={2} align="center">No. of equity shares of value Rs. /-</TableCell>
-                    <TableCell>% to be consumed on pro rata basis by each captive user</TableCell>
-                    <TableCell>100% annual generation in MUs (x)</TableCell>
-                    <TableCell>Annual Auxiliary consumption in MUs (y)</TableCell>
-                    <TableCell>Generation considered to verify consumption criteria in MUs (x-y)*51%</TableCell>
-                    <TableCell colSpan={3} align="center">Permitted consumption as per norms in MUs</TableCell>
-                    <TableCell>Actual consumption in MUs</TableCell>
-                    <TableCell>Whether consumption norms met</TableCell>
-                  </TableRow>
-                  <TableRow sx={{ '& th': { whiteSpace: 'pre-line', fontWeight: 'normal' } }}>
-                    <TableCell></TableCell>
-                    <TableCell></TableCell>
-                    <TableCell>As per share certificates as on 31st March</TableCell>
-                    <TableCell>% of ownership through shares in Company/unit of CGP</TableCell>
-                    <TableCell></TableCell>
-                    <TableCell></TableCell>
-                    <TableCell></TableCell>
-                    <TableCell></TableCell>
-                    <TableCell>with 0% variation</TableCell>
-                    <TableCell>-10%</TableCell>
-                    <TableCell>+10%</TableCell>
-                    <TableCell></TableCell>
-                    <TableCell></TableCell>
+                    <TableCell>Name of Share Holder</TableCell>
+                    <TableCell>Share Certificates</TableCell>
+                    <TableCell>Ownership Percentage</TableCell>
+                    <TableCell>Pro Rata Consumption</TableCell>
+                    <TableCell>Annual Generation</TableCell>
+                    <TableCell>Auxiliary Consumption</TableCell>
+                    <TableCell>Verification Criteria</TableCell>
+                    <TableCell>Permitted (0%)</TableCell>
+                    <TableCell>Permitted (-10%)</TableCell>
+                    <TableCell>Permitted (+10%)</TableCell>
+                    <TableCell>Actual Consumption</TableCell>
+                    <TableCell>Norms Met</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {prepareForm5BData()?.rows.map((row) => (
                     <TableRow key={row.slNo}>
-                      <TableCell align="center">{row.slNo}</TableCell>
+                      <TableCell>{row.slNo}</TableCell>
                       <TableCell>{row.name}</TableCell>
                       <TableCell>{row.shares.certificates}</TableCell>
-                      <TableCell align="center">{row.shares.ownership}</TableCell>
-                      <TableCell align="center">{row.proRata}</TableCell>
-                      <TableCell align="right">{row.generation}</TableCell>
-                      <TableCell align="right">{row.auxiliary}</TableCell>
-                      <TableCell align="right">{row.criteria}</TableCell>
-                      <TableCell align="right">{row.permittedConsumption.withZero}</TableCell>
-                      <TableCell align="right">{row.permittedConsumption.minus10}</TableCell>
-                      <TableCell align="right">{row.permittedConsumption.plus10}</TableCell>
-                      <TableCell align="right">{row.actual}</TableCell>
-                      <TableCell align="center">
+                      <TableCell>{row.shares.ownership}</TableCell>
+                      <TableCell>{row.proRata}</TableCell>
+                      <TableCell>{row.generation}</TableCell>
+                      <TableCell>{row.auxiliary}</TableCell>
+                      <TableCell>{row.criteria}</TableCell>
+                      <TableCell>{row.permittedConsumption.withZero}</TableCell>
+                      <TableCell>{row.permittedConsumption.minus10}</TableCell>
+                      <TableCell>{row.permittedConsumption.plus10}</TableCell>
+                      <TableCell>{row.actual}</TableCell>
+                      <TableCell>
                         <Box sx={{ 
                           display: 'flex', 
                           alignItems: 'center',

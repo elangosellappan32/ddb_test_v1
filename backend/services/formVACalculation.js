@@ -45,7 +45,9 @@ async function calculateFormVAMetrics(financialYear) {
         const filteredProductionData = filterByMonths(productionData);
         const filteredConsumptionData = filterByMonths(consumptionData);
         const filteredBankingData = filterByMonths(bankingData);
-        const filteredAllocationData = filterByMonths(allocationData);        // Calculate total units for each dataset
+        const filteredAllocationData = filterByMonths(allocationData);
+
+        // Calculate total units for each dataset
         const calculateTotalUnits = (data) => {
             return data.reduce((sum, item) => {
                 const periodSum = ['c1', 'c2', 'c3', 'c4', 'c5'].reduce((periodTotal, period) => 
@@ -54,24 +56,8 @@ async function calculateFormVAMetrics(financialYear) {
             }, 0);
         };
 
-        // Group production data by production site ID
-        const productionByProdSite = filteredProductionData.reduce((acc, item) => {
-            const [companyId, productionSiteId] = (item.pk || '').split('_');
-            if (!acc[productionSiteId]) {
-                acc[productionSiteId] = {
-                    units: [],
-                    totalGeneration: 0
-                };
-            }
-            acc[productionSiteId].units.push(item);
-            acc[productionSiteId].totalGeneration += ['c1', 'c2', 'c3', 'c4', 'c5']
-                .reduce((sum, period) => sum + (Number(item[period] || 0)), 0);
-            return acc;
-        }, {});
-
         // Calculate main metrics from database data
-        const totalGeneratedUnits = Object.values(productionByProdSite)
-            .reduce((sum, site) => sum + site.totalGeneration, 0);
+        const totalGeneratedUnits = calculateTotalUnits(filteredProductionData);
         const auxiliaryConsumption = calculateTotalUnits(filteredConsumptionData);
         const totalBankingUnits = calculateTotalUnits(filteredBankingData);
         const aggregateGeneration = totalGeneratedUnits + totalBankingUnits;
