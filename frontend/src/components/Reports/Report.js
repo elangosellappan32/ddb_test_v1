@@ -273,6 +273,39 @@ const AllocationReport = () => {
       return isPercent ? `${num.toFixed(2)}%` : num.toFixed(2);
     };
 
+    // Calculate total generation (production units + banking units)
+    const totalGeneration = Number(reportData.totalGeneratedUnits || 0) + Number(reportData.totalBankingUnits || 0);
+
+    // Calculate verification criteria details
+    const verificationCriteriaDetails = reportData.siteMetrics.length > 0
+      ? {
+          auxiliaryConsumption: {
+            value: `${formatValue(reportData.auxiliaryConsumption || 0)} `,
+            align: 'center',
+            rawValue: Number(reportData.auxiliaryConsumption || 0)
+          },
+          verificationCriteria: {
+            value: `${formatValue((totalGeneration - (reportData.auxiliaryConsumption || 0)) * 0.51)} `,
+            align: 'center',
+            rawValue: (totalGeneration - (reportData.auxiliaryConsumption || 0)) * 0.51
+          }
+        }
+      : {
+          auxiliaryConsumption: { value: '', align: 'center', rawValue: 0 },
+          verificationCriteria: { value: '', align: 'center', rawValue: 0 }
+        };
+
+    // Extract permitted consumption details for the middle row
+    const middleRowPermittedConsumption = reportData.siteMetrics.length > 0 
+      ? { 
+          value: `${formatValue(totalGeneration)} MUs`, 
+          align: 'center',
+          base: formatValue(totalGeneration),
+          minus10: formatValue(totalGeneration * 0.9),
+          plus10: formatValue(totalGeneration * 1.1)
+        }
+      : { value: '', align: 'center', base: '', minus10: '', plus10: '' };
+
     const rows = reportData.siteMetrics.map((site, index) => {
       const shares = {
         certificates: site.equityShares || '0',
@@ -280,36 +313,71 @@ const AllocationReport = () => {
       };
 
       const generation = formatValue(site.annualGeneration);
-      const auxiliary = site.auxiliaryConsumption ? formatValue(site.auxiliaryConsumption) : '';
       
-      // Calculate verification criteria and permitted consumption
-      const verificationCriteria = formatValue(site.verificationCriteria);
+      // Calculate verification criteria for each row
+      const siteAuxiliary = Number(site.auxiliaryConsumption || 0);
+      const siteGeneration = Number(site.annualGeneration || 0);
+      const verificationCriteria = formatValue((siteGeneration - siteAuxiliary) * 0.51);
+
+      // Form V-A calculation
+      const formVACalculation = {
+        totalGeneration: formatValue(siteGeneration),
+        auxiliaryConsumption: formatValue(siteAuxiliary),
+        netGeneration: formatValue(siteGeneration - siteAuxiliary),
+        verificationCriteria: verificationCriteria,
+        percentageVerification: formatValue(((siteGeneration - siteAuxiliary) / siteGeneration) * 100, true)
+      };
+
       const permittedConsumption = {
         withZero: formatValue(site.permittedConsumption?.withZero || 0),
         minus10: formatValue(site.permittedConsumption?.minus10 || 0),
         plus10: formatValue(site.permittedConsumption?.plus10 || 0)
-      };      return {
+      };
+
+      return {
         slNo: index + 1,
         name: site.siteName || site.name || 'Unnamed Site',
         shares,
         proRata: 'Minimum 51%',
         generation,
-        auxiliary,
-        criteria: verificationCriteria,
-        permittedConsumption,
+        // Show auxiliary consumption in the middle row
+        auxiliary: Math.floor(reportData.siteMetrics.length / 2) === index 
+          ? `${formatValue(reportData.auxiliaryConsumption || 0)} ` 
+          : '',
+        auxiliaryAlign: Math.floor(reportData.siteMetrics.length / 2) === index 
+          ? 'center' 
+          : 'left',
+        // Show verification criteria for each row
+        criteria: `${verificationCriteria} `,
+        criteriaAlign: Math.floor(reportData.siteMetrics.length / 2) === index 
+          ? 'center' 
+          : 'left',
+        // Show permitted consumption in the middle row
+        permittedConsumption: Math.floor(reportData.siteMetrics.length / 2) === index 
+          ? {
+              withZero: middleRowPermittedConsumption.base,
+              minus10: middleRowPermittedConsumption.minus10,
+              plus10: middleRowPermittedConsumption.plus10
+            }
+          : permittedConsumption,
+        permittedConsumptionAlign: Math.floor(reportData.siteMetrics.length / 2) === index 
+          ? 'center' 
+          : 'left',
         actual: formatValue(site.actualConsumption),
-        norms: site.normsCompliance ? 'Yes' : 'No'
+        norms: site.normsCompliance ? 'Yes' : 'No',
+        // Add Form V-A calculation details
+        formVACalculation
       };
     });
 
     // Calculate totals for summary
     const summary = {
-      totalGeneration: Number(reportData.totalGeneratedUnits || 0).toFixed(2),
+      totalGeneration: formatValue(totalGeneration),
       auxiliaryConsumption: Number(reportData.auxiliaryConsumption || 0).toFixed(2),
       totalCriteria: Number(reportData.percentage51 || 0).toFixed(2),
-      totalPermitted: Number(reportData.aggregateGeneration || 0).toFixed(2),
-      totalPermittedMinus10: (Number(reportData.aggregateGeneration || 0) * 0.9).toFixed(2),
-      totalPermittedPlus10: (Number(reportData.aggregateGeneration || 0) * 1.1).toFixed(2),
+      totalPermitted: formatValue(totalGeneration),
+      totalPermittedMinus10: formatValue(totalGeneration * 0.9),
+      totalPermittedPlus10: formatValue(totalGeneration * 1.1),
       totalConsumption: Number(reportData.totalAllocatedUnits || 0).toFixed(2)
     };
 

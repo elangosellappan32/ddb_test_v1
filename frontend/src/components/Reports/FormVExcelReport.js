@@ -17,203 +17,191 @@ const FormVExcelReport = ({
       setDownloading(prev => ({ ...prev, excel: true }));
       const wb = XLSX.utils.book_new();
 
-      // Fetch data directly from API based on form type
-      const apiData = isForm5B 
-        ? await fetchFormVBData(financialYear)
-        : await fetchFormVAData(financialYear);
+      // Fetch data for both FormVA and FormVB
+      const formVAResponse = await fetchFormVAData(financialYear);
+      const formVBResponse = await fetchFormVBData(financialYear);
 
-      if (!apiData || (isForm5B && !apiData.data) || (!isForm5B && !apiData)) {
+      if (!formVAResponse || !formVBResponse || !formVBResponse.data) {
         throw new Error('No data available for the selected financial year');
       }
-
-      const data = isForm5B ? apiData.data : apiData;
 
       // Helper function for safer number formatting
       const formatValue = (value, isPercentage = false) => {
         const num = Number(value || 0);
         return isPercentage ? `${num.toFixed(2)}%` : num.toFixed(2);
       };
-      
-      if (isForm5B) {
-        // Title and financial year headers
-        const headersRow1 = [{ v: 'FORMAT V-B', t: 's' }];
-        const headersRow2 = [{ v: `Financial Year: ${financialYear}`, t: 's' }];
-        const emptyRow = [''];
 
-        // Ensure we have consumptionSites array
-        if (!data.siteMetrics || !Array.isArray(data.siteMetrics)) {
-          throw new Error('Invalid data format: Missing consumption sites');
-        }
-        
-        // Main column headers
-        const mainHeaders1 = [
-          'Sl. No.',
-          'Name of share holder',
-          'No. of equity shares of value Rs. /-',
-          '',
-          '% to be consumed on pro rata basis by each captive user',
-          '100% annual generation in MUs (x)',
-          'Annual Auxiliary consumption in MUs (y)',
-          'Generation considered to verify consumption criteria in MUs (x-y)*51%',
-          'Permitted consumption as per norms in MUs',
-          '',
-          '',
-          'Actual consumption in MUs',
-          'Whether consumption norms met'
-        ];
-  
-        const mainHeaders2 = [
-          '',
-          '',
-          'As per share certificates as on 31st March',
-          '% of ownership through shares in Company/unit of CGP',
-          '',
-          '',
-          '',
-          '',
-          'with 0% variation',
-          '-10%',
-          '+10%',
-          '',
-          ''
-        ];
+      // Log the full FormVA response for debugging
+      console.log('Full FormVA Response:', JSON.stringify(formVAResponse, null, 2));
 
-        // Format data rows
-        const dataRows = data.siteMetrics.map((site, index) => [          index + 1,
-          site.siteName || site.name || 'Unnamed Site',
-          site.equityShares || '',
-          formatValue(site.allocationPercentage, true),
-          'Minimum 51%',
-          formatValue(site.annualGeneration),
-          index === 0 ? formatValue(site.auxiliaryConsumption) : '',
-          formatValue(site.verificationCriteria),
-          index === 0 ? formatValue(site.permittedConsumption?.withZero) : '',
-          index === 0 ? formatValue(site.permittedConsumption?.minus10) : '',
-          index === 0 ? formatValue(site.permittedConsumption?.plus10) : '',
-          formatValue(site.actualConsumption),
-          site.normsCompliance ? 'Yes' : 'No'
-        ]);
-  
-        // Summary row
-        const summaryRow = [
-          'Total', '', '', '', '',
-          formatValue(data.totalGeneratedUnits),
-          formatValue(data.auxiliaryConsumption),
-          formatValue(data.percentage51),
-          formatValue(data.aggregateGeneration),
-          formatValue(data.aggregateGeneration * 0.9),
-          formatValue(data.aggregateGeneration * 1.1),
-          formatValue(data.totalAllocatedUnits),
-          ''
-        ];
-  
-        // Combine all rows
-        const allRows = [
-          headersRow1,
-          headersRow2,
-          emptyRow,
-          mainHeaders1,
-          mainHeaders2,
-          ...dataRows,
-          emptyRow,
-          summaryRow
-        ];
-  
-        const ws = XLSX.utils.aoa_to_sheet(allRows);
-  
-        // Format cells and apply styles
-        const merges = [
-          { s: { r: 0, c: 0 }, e: { r: 0, c: 12 } }, // Title
-          { s: { r: 1, c: 0 }, e: { r: 1, c: 12 } }, // Financial Year
-          { s: { r: 3, c: 2 }, e: { r: 3, c: 3 } }, // No. of equity shares header
-          { s: { r: 3, c: 8 }, e: { r: 3, c: 10 } }  // Permitted consumption header
-        ];
-  
-        ws['!merges'] = merges;
-  
-        // Set column widths
-        ws['!cols'] = [
-          { wch: 8 },   // Sl. No.
-          { wch: 30 },  // Name
-          { wch: 15 },  // Shares
-          { wch: 15 },  // Ownership %
-          { wch: 15 },  // Pro rata
-          { wch: 15 },  // Generation
-          { wch: 15 },  // Auxiliary
-          { wch: 15 },  // Verification
-          { wch: 15 },  // Permitted 0%
-          { wch: 15 },  // Permitted -10%
-          { wch: 15 },  // Permitted +10%
-          { wch: 15 },  // Actual
-          { wch: 15 }   // Norms met
-        ];
-
-        XLSX.utils.book_append_sheet(wb, ws, 'Form V-B');
+      // Determine FormVA data structure
+      let formVAData;
+      if (formVAResponse.data) {
+        formVAData = formVAResponse.data;
+      } else if (Array.isArray(formVAResponse)) {
+        formVAData = formVAResponse;
       } else {
-        // Form V-A handling
-        const headersRow1 = [{ v: 'FORMAT V-A', t: 's' }];
-        const headersRow2 = [{ v: `Financial Year: ${financialYear}`, t: 's' }];
-        const mainHeaders = ['Sl.No.', 'Particulars', 'Energy in Units'];
-        
-        const formattedRows = [
-          { 'Sl.No.': 1, 'Particulars': 'Total Generated units of a generating plant / Station identified for captive use', 'Energy in Units': formatValue(data.totalGeneratedUnits) },
-          { 'Sl.No.': 2, 'Particulars': 'Less : Auxiliary Consumption in the above in units', 'Energy in Units': formatValue(data.auxiliaryConsumption) },
-          { 'Sl.No.': 3, 'Particulars': 'Net units available for captive consumption (Aggregate generation for captive use)', 'Energy in Units': formatValue(data.aggregateGeneration) },
-          { 'Sl.No.': 4, 'Particulars': '51% of aggregate generation available for captive consumption in units', 'Energy in Units': formatValue(data.percentage51) },
-          { 'Sl.No.': 5, 'Particulars': 'Actual Adjusted / Consumed units by the captive users', 'Energy in Units': formatValue(data.totalAllocatedUnits) },
-          { 'Sl.No.': 6, 'Particulars': 'Percentage of actual adjusted / consumed units by the captive users with respect to aggregate generation for captive use', 'Energy in Units': formatValue(data.percentageAdjusted, true) }
-        ];
-
-        const rows = formattedRows.map(row => [
-          row['Sl.No.'],
-          row['Particulars'],
-          row['Energy in Units']
-        ]);
-
-        const allRows = [
-          headersRow1,
-          headersRow2,
-          [],
-          mainHeaders,
-          ...rows
-        ];
-  
-        const ws = XLSX.utils.aoa_to_sheet(allRows);
-  
-        // Format cells and apply styles
-        const merges = [
-          { s: { r: 0, c: 0 }, e: { r: 0, c: 2 } },  // Title
-          { s: { r: 1, c: 0 }, e: { r: 1, c: 2 } }   // Financial Year
-        ];
-  
-        ws['!merges'] = merges;
-  
-        // Set column widths
-        ws['!cols'] = [
-          { wch: 8 },    // Sl.No.
-          { wch: 100 },  // Particulars
-          { wch: 20 }    // Energy in Units
-        ];
-
-        XLSX.utils.book_append_sheet(wb, ws, 'Form V-A');
+        formVAData = [formVAResponse];
       }
-  
-      const filename = `Form_V_${isForm5B ? 'B' : 'A'}_${financialYear}_${new Date().toISOString().split('T')[0]}.xlsx`;
-      XLSX.writeFile(wb, filename);
-      showSnackbar('Excel file downloaded successfully');
-    } catch (err) {
-      console.error('Error downloading Excel:', err);
-      handleOpenDialog({
-        title: 'Download Failed',
-        content: `Failed to download Excel file: ${err.message}`,
-        type: 'error'
+
+      // Prepare Form V-A data to match UI structure
+      const prepareFormVAData = () => {
+        if (!formVAData || formVAData.length === 0) {
+          return [
+            { 'Sl.No.': 1, 'Particulars': 'Total Generated units of a generating plant / Station identified for captive use', 'Energy in Units': 0 },
+            { 'Sl.No.': 2, 'Particulars': 'Less : Auxiliary Consumption in the above in units', 'Energy in Units': 0 },
+            { 'Sl.No.': 3, 'Particulars': 'Net units available for captive consumption (Aggregate generation for captive use)', 'Energy in Units': 0 },
+            { 'Sl.No.': 4, 'Particulars': '51% of aggregate generation available for captive consumption in units', 'Energy in Units': 0 },
+            { 'Sl.No.': 5, 'Particulars': 'Actual Adjusted / Consumed units by the captive users', 'Energy in Units': 0 },
+            { 'Sl.No.': 6, 'Particulars': 'Percentage of actual adjusted / consumed units by the captive users with respect to aggregate generation for captive use', 'Energy in Units': '0%' }
+          ];
+        }
+
+        // Assuming first item in formVAData contains the summary
+        const firstItem = formVAData[0];
+
+        return [
+          { 'Sl.No.': 1, 'Particulars': 'Total Generated units of a generating plant / Station identified for captive use', 'Energy in Units': firstItem.totalGeneratedUnits || 0 },
+          { 'Sl.No.': 2, 'Particulars': 'Less : Auxiliary Consumption in the above in units', 'Energy in Units': firstItem.auxiliaryConsumption || 0 },
+          { 'Sl.No.': 3, 'Particulars': 'Net units available for captive consumption (Aggregate generation for captive use)', 'Energy in Units': firstItem.aggregateGeneration || 0 },
+          { 'Sl.No.': 4, 'Particulars': '51% of aggregate generation available for captive consumption in units', 'Energy in Units': firstItem.percentage51 || 0 },
+          { 'Sl.No.': 5, 'Particulars': 'Actual Adjusted / Consumed units by the captive users', 'Energy in Units': firstItem.totalAllocatedUnits || 0 },
+          { 'Sl.No.': 6, 'Particulars': 'Percentage of actual adjusted / consumed units by the captive users with respect to aggregate generation for captive use', 'Energy in Units': `${(Number(firstItem.percentageAdjusted || 0)).toFixed(2)}%` }
+        ];
+      };
+
+      // Prepare Form V-A data rows
+      const formVADataRows = prepareFormVAData();
+
+      // Create worksheet
+      const formVAWorksheet = XLSX.utils.json_to_sheet(formVADataRows, { header: ['Sl.No.', 'Particulars', 'Energy in Units'] });
+
+      // Add title to worksheet
+      formVAWorksheet['!ref'] = XLSX.utils.encode_range({
+        s: { c: 0, r: 0 },
+        e: { c: 2, r: formVADataRows.length + 1 }
       });
-      showSnackbar('Failed to download Excel file', { variant: 'error' });
+      formVAWorksheet['A1'] = { v: `FORMAT V-A`, t: 's' };
+      formVAWorksheet['A2'] = { v: `Financial Year: ${financialYear}`, t: 's' };
+      XLSX.utils.book_append_sheet(wb, formVAWorksheet, 'FormVA');
+
+      // FormVB Sheet
+      const formVBData = formVBResponse.data;
+      // Prepare Form V-B headers to match complex UI structure
+      const mainHeaders1 = [
+        { label: 'Sl. No.', rowSpan: 3 },
+        { label: 'Name of share holder', rowSpan: 3 },
+        { label: 'No. of equity shares of value Rs. /-', colSpan: 2 },
+        { label: '', rowSpan: 3 },
+        { label: '% to be consumed on pro rata basis by each captive user', rowSpan: 3 },
+        { label: '100% annual generation in MUs (x)', rowSpan: 3 },
+        { label: 'Annual Auxiliary consumption in MUs (y)', colSpan: 2 },
+        { label: 'Generation considered to verify consumption criteria in MUs (x-y)*51%', rowSpan: 3 },
+        { label: 'Permitted consumption as per norms in MUs', colSpan: 3 },
+        { label: 'Actual consumption in MUs', rowSpan: 3 },
+        { label: 'Whether consumption norms met', rowSpan: 3 }
+      ];
+
+      const mainHeaders2 = [
+        '',
+        '',
+        { label: 'As per share certificates as on 31st March' },
+        { label: '% of ownership through shares in Company/unit of CGP' },
+        '',
+        '',
+        '',
+        '',
+        'with 0% variation',
+        '-10%',
+        '+10%',
+        '',
+        ''
+      ];
+
+      const dataRows = formVBData.siteMetrics.map((site, index) => [
+        index + 1,
+        site.siteName || site.name || 'Unnamed Site',
+        site.equityShares || '',
+        '',
+        formatValue(site.allocationPercentage, true),
+        formatValue(site.annualGeneration),
+        formatValue(formVBData.totalGeneratedUnits),
+        index === 0 ? formatValue(site.auxiliaryConsumption) : '',
+        formatValue(site.verificationCriteria),
+        index === 0 ? formatValue(site.permittedConsumption?.withZero) : '',
+        index === 0 ? formatValue(site.permittedConsumption?.minus10) : '',
+        index === 0 ? formatValue(site.permittedConsumption?.plus10) : '',
+        formatValue(site.actualConsumption),
+        site.normsCompliance ? 'Yes' : 'No'
+      ]);
+
+      // Modify summary row to be more comprehensive
+      const summaryRow = [
+        'Total', '', '', '', '', '',
+        formatValue(formVBData.totalGeneratedUnits),
+        formatValue(formVBData.auxiliaryConsumption),
+        formatValue(formVBData.totalPermittedConsumption?.withZero || 0),
+        formatValue(formVBData.totalPermittedConsumption?.minus10 || 0),
+        formatValue(formVBData.totalPermittedConsumption?.plus10 || 0),
+        formatValue(formVBData.totalActualConsumption || 0),
+        'N/A'
+      ];
+
+      // Prepare the full worksheet data with all headers and rows
+      const formVBWorksheetData = [
+        [`FORMAT V-B`, `Financial Year: ${financialYear}`],
+        [],
+        mainHeaders1.map(header => header.label || header),
+        mainHeaders2.map(header => header.label || header),
+        ...dataRows,
+        summaryRow
+      ];
+
+      // Create the worksheet
+      const formVBWorksheet = XLSX.utils.aoa_to_sheet(formVBWorksheetData);
+      
+      // Adjust column widths to match UI
+      formVBWorksheet['!cols'] = [
+        { width: 8 },   // Sl. No.
+        { width: 25 },  // Name of share holder
+        { width: 15 },  // Equity Shares 1
+        { width: 15 },  // Equity Shares 2
+        { width: 20 },  // % Consumed
+        { width: 20 },  // Annual Generation
+        { width: 15 },  // Total Generated Units
+        { width: 15 },  // Auxiliary Consumption
+        { width: 25 },  // Verification Criteria
+        { width: 15 },  // Permitted Consumption 0%
+        { width: 15 },  // Permitted Consumption -10%
+        { width: 15 },  // Permitted Consumption +10%
+        { width: 20 },  // Actual Consumption
+        { width: 20 }   // Norms Met
+      ];
+      
+      // Merge cells for multi-level headers
+      formVBWorksheet['!merges'] = [
+        // No. of equity shares
+        { s: { r: 1, c: 2 }, e: { r: 1, c: 3 } },
+        // Annual Auxiliary consumption
+        { s: { r: 1, c: 5 }, e: { r: 1, c: 6 } },
+        // Permitted consumption
+        { s: { r: 1, c: 7 }, e: { r: 1, c: 9 } }
+      ];
+      
+      // Add the worksheet to the workbook
+      XLSX.utils.book_append_sheet(wb, formVBWorksheet, 'FormVB');
+
+      // Write and download the workbook
+      XLSX.writeFile(wb, `FormV_Report_${financialYear}.xlsx`);
+      showSnackbar('Excel report downloaded successfully', 'success');
+    } catch (error) {
+      console.error('Excel download error:', error);
+      showSnackbar(error.message || 'Failed to download Excel report', 'error');
+      handleOpenDialog(error.message || 'Download failed');
     } finally {
       setDownloading(prev => ({ ...prev, excel: false }));
     }
-  };
-
+  }
   return (
     <Button
       variant="contained"
