@@ -18,6 +18,7 @@ const healthRoutes = require('./routes/healthRoutes');
 const roleRoutes = require('./routes/roleRoutes');
 const bankingRoutes = require('./banking/bankingRoutes');
 const lapseRoutes = require('./lapse/lapseRoutes');
+const captiveRoutes = require('./captive/captiveRoutes');
 
 const app = express();
 
@@ -45,6 +46,7 @@ app.get('/health', (req, res) => {
 });
 
 // API Routes
+console.log('Mounting API routes...');
 app.use('/api/auth', authRoutes);
 app.use('/api/production-site', productionSiteRoutes);
 app.use('/api/production-unit', productionUnitRoutes);
@@ -56,6 +58,9 @@ app.use('/api/health', healthRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/banking', bankingRoutes);
 app.use('/api/lapse', lapseRoutes);
+console.log('Mounting captive routes...');
+app.use('/api/captive', captiveRoutes);
+console.log('All routes mounted');
 
 // Error handling middleware
 app.use((err, req, res, next) => {

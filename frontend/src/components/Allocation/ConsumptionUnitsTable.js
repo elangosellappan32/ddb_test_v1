@@ -25,7 +25,7 @@ import api from '../../services/apiUtils';
 import { API_CONFIG } from '../../config/api.config';
 import { useSnackbar } from 'notistack';
 
-const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onAllocationSaved }) => {
+const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onAllocationSaved, shareholdings = [] }) => {
   const [allocationDialog, setAllocationDialog] = useState(false);
   const [splitPercentages, setSplitPercentages] = useState([]);
   const [totalUnits] = useState(100);
@@ -37,9 +37,41 @@ const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onAllocationSave
   const PEAK_PERIODS = ['c2', 'c3'];
   const NON_PEAK_PERIODS = ['c1', 'c4', 'c5'];
   const ALL_PERIODS = ['c1', 'c2', 'c3', 'c4', 'c5'];  // Ordered from c1 to c5
+  
+  // Get unique shareholder companies from shareholdings
+  const shareholderCompanies = [...new Set(
+    shareholdings.map(sh => sh.shareholderCompanyId || sh.shareholderCompanyName)
+  )];
+  
+  // Calculate total shareholding percentage for normalization
+  const totalPercentage = shareholdings.reduce(
+    (sum, sh) => sum + (Number(sh.shareholdingPercentage) || 0), 0
+  );
+  
+  // Normalize shareholding percentages to ensure they sum to 100%
+  const normalizedShareholdings = shareholdings.map(sh => ({
+    ...sh,
+    normalizedPercentage: totalPercentage > 0 
+      ? (Number(sh.shareholdingPercentage) || 0) / totalPercentage * 100 
+      : 0
+  }));
+  
+  // Function to get shareholding percentage for a company
+  const getShareholdingPercentage = (companyId) => {
+    const shareholding = normalizedShareholdings.find(
+      sh => (sh.shareholderCompanyId || sh.shareholderCompanyName) === companyId
+    );
+    return shareholding ? shareholding.normalizedPercentage : 0;
+  };
 
   const calculateTotal = (row, periods = ALL_PERIODS) => {
     return periods.reduce((sum, key) => sum + (Number(row[key]) || 0), 0);
+  };
+  
+  // Calculate allocated units based on shareholding percentage
+  const calculateAllocatedUnits = (totalUnits, companyId) => {
+    const percentage = getShareholdingPercentage(companyId);
+    return (totalUnits * percentage / 100).toFixed(2);
   };
 
   const calculatePeakTotal = (row) => calculateTotal(row, PEAK_PERIODS);
@@ -223,55 +255,57 @@ const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onAllocationSave
   }, []);
 
   return (
-    <>
-      <TableContainer component={Paper} sx={{ mb: 4 }}>
-        <Box sx={{ p: 2, borderBottom: '1px solid rgba(224, 224, 224, 1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <TrendingDown color="primary" />
-          </Box>
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button
-              variant="outlined"
-              color="primary"
-              onClick={handleAllocationClick}
-              startIcon={<EditIcon />}
-            >
-              Edit Allocation
-            </Button>
-          </Box>
+    <Paper elevation={3} sx={{ p: 2, mb: 4 }}>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+        <Box>
+          <Typography variant="h6">Consumption Units Allocation</Typography>
+          <Typography variant="body2" color="textSecondary">
+            {shareholderCompanies.length > 0
+              ? `Allocated based on shareholding percentages`
+              : 'No shareholding data available for allocation'}
+          </Typography>
         </Box>
-        <Table>
+        <Box>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleAllocationClick}
+            startIcon={<TrendingDown />}
+            disabled={isLoading || shareholderCompanies.length === 0}
+          >
+            Allocate Units
+          </Button>
+        </Box>
+      </Box>
+      <TableContainer>
+        <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Month</TableCell>
-              <TableCell>Site Name</TableCell>
-              {['c1', 'c2', 'c3', 'c4', 'c5'].map(period => (
-                <TableCell key={period} align="right">
-                  <Tooltip title={PEAK_PERIODS.includes(period) ? "Peak Period" : "Non-Peak Period"}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-                      {period.toUpperCase()}
-                      <InfoIcon 
-                        sx={{ 
-                          ml: 0.5, 
-                          fontSize: '1rem', 
-                          color: PEAK_PERIODS.includes(period) ? 'warning.main' : 'primary.main' 
-                        }} 
-                      />
-                    </Box>
-                  </Tooltip>
+              <TableCell rowSpan={2} align="center">Site Name</TableCell>
+              <TableCell colSpan={5} align="center">Time Slots</TableCell>
+              <TableCell rowSpan={2} align="center">Total Units</TableCell>
+              {shareholderCompanies.length > 0 && (
+                <>
+                  <TableCell colSpan={shareholderCompanies.length} align="center">
+                    Allocated Units by Shareholder (kWh)
+                  </TableCell>
+                  <TableCell rowSpan={2} align="center">Total Allocated</TableCell>
+                </>
+              )}
+            </TableRow>
+            <TableRow>
+              <TableCell align="center">C1<br/>(Off-Peak)</TableCell>
+              <TableCell align="center">C2<br/>(Peak)</TableCell>
+              <TableCell align="center">C3<br/>(Peak)</TableCell>
+              <TableCell align="center">C4<br/>(Off-Peak)</TableCell>
+              <TableCell align="center">C5<br/>(Off-Peak)</TableCell>
+              {shareholderCompanies.map(companyId => (
+                <TableCell key={companyId} align="center">
+                  {companyId}
+                  <br/>
+                  <small>({getShareholdingPercentage(companyId).toFixed(2)}%)</small>
                 </TableCell>
               ))}
-              <TableCell align="right">Peak Total</TableCell>
-              <TableCell align="right">Non-Peak Total</TableCell>
-              <TableCell align="right">Total Units</TableCell>
-              <TableCell align="right">
-                <Tooltip title="Percentage of units to be allocated from available production units">
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-                    Allocation %
-                    <InfoIcon sx={{ ml: 0.5, fontSize: '1rem', color: 'primary.main' }} />
-                  </Box>
-                </Tooltip>
-              </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -421,7 +455,7 @@ const ConsumptionUnitsTable = ({ consumptionData, selectedYear, onAllocationSave
           </Button>
         </DialogActions>
       </Dialog>
-    </>
+    </Paper>
   );
 };
 

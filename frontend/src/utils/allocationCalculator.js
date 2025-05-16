@@ -3,313 +3,238 @@ const ALL_PERIODS = ['c1', 'c2', 'c3', 'c4', 'c5'];
 const PEAK_PERIODS = ['c2', 'c3'];
 const NON_PEAK_PERIODS = ['c1', 'c4', 'c5'];
 
-export function calculateAllocations({ productionUnits, consumptionUnits, bankingUnits, manualAllocations = {} }) {
-    console.group('🔄 Running Allocation Calculation');
-    
-    // Deep copy units with remaining and handle banking
-    const prodUnits = (productionUnits || []).map(u => ({
-        productionSiteId: u.productionSiteId || u.id,
-        productionSite: u.productionSite || u.siteName,
-        siteName: u.siteName,
-        month: u.month,
-        type: (u.type || '').toUpperCase(),
-        bankingEnabled: u.banking === 1,
-        remaining: ALL_PERIODS.reduce((acc, period) => ({
-            ...acc,
-            [period]: Number(u[period] || 0)
-        }), {})
-    }));
+/**
+ * Creates a deep copy of a unit with remaining values
+ */
+function createUnitWithRemaining(unit, isProduction = false) {
+    const remaining = ALL_PERIODS.reduce((acc, period) => ({
+        ...acc,
+        [period]: Number(unit[period] || 0)
+    }), {});
 
-    const consUnits = (consumptionUnits || []).map(u => ({
-        consumptionSiteId: u.consumptionSiteId || u.id,
-        consumptionSite: u.consumptionSite || u.siteName,
-        siteName: u.siteName,
-        month: u.month,
-        remaining: ALL_PERIODS.reduce((acc, period) => ({
-            ...acc,
-            [period]: Number(u[period] || 0)
-        }), {})
-    }));
-
-    const solarUnits = prodUnits.filter(u => u.type === 'SOLAR');
-    const windUnits = prodUnits.filter(u => u.type === 'WIND' && !u.bankingEnabled);
-    const bankingWindUnits = prodUnits.filter(u => u.type === 'WIND' && u.bankingEnabled);
-
-    const allocations = [];
-    const bankingAllocations = [];
-    const lapseAllocations = [];
-
-    // --- Capture initial banking/lapse tables before manual allocations ---
-    const initialBankingAllocations = [];
-    const initialLapseAllocations = [];
-    // We'll simulate what the tables would be without manual allocations
-    [solarUnits, windUnits, bankingWindUnits].forEach((group) => {
-        group.forEach(prod => {
-            if (Object.values(prod.remaining).some(val => val > 0)) {
-                if (prod.bankingEnabled) {
-                    initialBankingAllocations.push({
-                        productionSiteId: prod.productionSiteId,
-                        productionSite: prod.productionSite || prod.siteName,
-                        siteType: prod.type,
-                        siteName: prod.siteName || prod.productionSite,
-                        month: prod.month,
-                        type: 'BANKING',
-                        bankingEnabled: true,
-                        allocated: { ...prod.remaining }
-                    });
-                } else {
-                    initialLapseAllocations.push({
-                        productionSiteId: prod.productionSiteId,
-                        productionSite: prod.productionSite || prod.siteName,
-                        siteType: prod.type,
-                        siteName: prod.siteName || prod.productionSite,
-                        month: prod.month,
-                        type: 'LAPSE',
-                        allocated: { ...prod.remaining }
-                    });
-                }
-            }
-        });
-    });
-    // --- End initial capture ---
-    
-    // Process manual allocations first
-    if (manualAllocations && Object.keys(manualAllocations).length > 0) {
-        Object.entries(manualAllocations).forEach(([key, value]) => {
-            const [prodId, consId, period] = key.split('_');
-            const prodUnit = prodUnits.find(u => u.productionSiteId === prodId);
-            if (!prodUnit) return;
-            prodUnit.remaining[period] = Number(value);
-        });
-    }
-
-    // Helper to check if a unit has any remaining allocation in any period
-    const hasRemainingAllocation = (unit) => 
-        Object.values(unit.remaining).some(val => val > 0);
-
-    // Helper to check if consumption site has remaining needs
-    const hasRemainingNeeds = (unit) =>
-        Object.values(unit.remaining).some(val => val > 0);
-
-    // Process all production unit groups
-    [solarUnits, windUnits, bankingWindUnits].forEach((group, index) => {
-        console.group(`Processing ${index === 0 ? 'Solar' : index === 1 ? 'Wind' : 'Banking Wind'} Units`);
-        
-        group.forEach(prod => {
-            consUnits.forEach(cons => {
-                if (!hasRemainingNeeds(cons)) return;
-                if (prod.month && cons.month && prod.month !== cons.month) return;
-
-                // Find or create allocation for this combination
-                let allocation = allocations.find(a =>
-                    a.productionSiteId === prod.productionSiteId &&
-                    a.consumptionSiteId === cons.consumptionSiteId
-                );
-                if (!allocation) {
-                    allocation = {
-                        productionSiteId: prod.productionSiteId,
-                        productionSite: prod.productionSite,
-                        siteType: prod.type,
-                        siteName: prod.siteName,
-                        consumptionSiteId: cons.consumptionSiteId,
-                        consumptionSite: cons.consumptionSite,
-                        month: cons.month,
-                        allocated: {}
-                    };
-                    allocations.push(allocation);
-                }
-
-                ALL_PERIODS.forEach(period => {
-                    if (cons.remaining[period] > 0 && prod.remaining[period] > 0) {
-                        const allocated = Math.min(prod.remaining[period], cons.remaining[period]);
-                        if (allocated > 0) {
-                            allocation.allocated[period] = (allocation.allocated[period] || 0) + allocated;
-                            prod.remaining[period] -= allocated;
-                            cons.remaining[period] -= allocated;
-                        }
-                    }
-                });
-            });
-
-            // Cross-allocation from peak period (c3) to other periods
-            if (prod.remaining.c3 > 0) {
-                consUnits.forEach(consCross => {
-                    if (!hasRemainingNeeds(consCross)) return;
-                    if (prod.month && consCross.month && prod.month !== consCross.month) return;
-                    ALL_PERIODS.forEach(periodCross => {
-                        if (periodCross === 'c3') return;
-                        const needed = Number(consCross.remaining[periodCross] || 0);
-                        if (needed > 0 && prod.remaining.c3 > 0) {
-                            // Find or create allocation for this combination
-                            let allocation = allocations.find(a =>
-                                a.productionSiteId === prod.productionSiteId &&
-                                a.consumptionSiteId === consCross.consumptionSiteId
-                            );
-                            if (!allocation) {
-                                allocation = {
-                                    productionSiteId: prod.productionSiteId,
-                                    productionSite: prod.productionSite,
-                                    siteType: prod.type,
-                                    siteName: prod.siteName,
-                                    consumptionSiteId: consCross.consumptionSiteId,
-                                    consumptionSite: consCross.consumptionSite,
-                                    month: consCross.month,
-                                    allocated: {}
-                                };
-                                allocations.push(allocation);
-                            }
-                            const allocAmt = Math.min(prod.remaining.c3, needed);
-                            allocation.allocated[periodCross] = (allocation.allocated[periodCross] || 0) + allocAmt;
-                            prod.remaining.c3 -= allocAmt;
-                            consCross.remaining[periodCross] -= allocAmt;
-                        }
-                    });
-                });
-            }
-
-            // After direct allocation, handle remaining units
-            if (hasRemainingAllocation(prod)) {
-                // Create or update banking/lapse allocation for each period separately
-                ALL_PERIODS.forEach(period => {
-                    const remaining = prod.remaining[period];
-                    if (remaining > 0) {
-                        if (prod.bankingEnabled) {
-                            // Find or create banking allocation for this site
-                            let bankingAlloc = bankingAllocations.find(b => b.productionSiteId === prod.productionSiteId);
-                            if (!bankingAlloc) {
-                                bankingAlloc = {
-                                    productionSiteId: prod.productionSiteId,
-                                    productionSite: prod.productionSite || prod.siteName,
-                                    siteType: prod.type,
-                                    siteName: prod.siteName || prod.productionSite,
-                                    month: prod.month,
-                                    type: 'BANKING',
-                                    bankingEnabled: true,
-                                    allocated: {}
-                                };
-                                bankingAllocations.push(bankingAlloc);
-                            }
-                            bankingAlloc.allocated[period] = (bankingAlloc.allocated[period] || 0) + remaining;
-                        } else {
-                            // Find or create lapse allocation for this site
-                            let lapseAlloc = lapseAllocations.find(l => l.productionSiteId === prod.productionSiteId);
-                            if (!lapseAlloc) {
-                                lapseAlloc = {
-                                    productionSiteId: prod.productionSiteId,
-                                    productionSite: prod.productionSite || prod.siteName,
-                                    siteType: prod.type,
-                                    siteName: prod.siteName || prod.productionSite,
-                                    month: prod.month,
-                                    type: 'LAPSE',
-                                    allocated: {}
-                                };
-                                lapseAllocations.push(lapseAlloc);
-                            }
-                            lapseAlloc.allocated[period] = (lapseAlloc.allocated[period] || 0) + remaining;
-                        }
-                        prod.remaining[period] = 0;
-                    }
-                });
-            }
-        });
-    });
-
-    // Try to use banked units for remaining consumption needs
-    if (bankingAllocations.length > 0) {
-        consUnits.forEach(cons => {
-            if (!hasRemainingNeeds(cons)) return;
-            
-            bankingAllocations.forEach(bank => {
-                ALL_PERIODS.forEach(period => {
-                    const needed = Number(cons.remaining[period] || 0);
-                    const bankAvailable = Number(bank.allocated[period] || 0);
-                    
-                    if (bankAvailable > 0 && needed > 0) {
-                        const allocated = Math.min(bankAvailable, needed);
-                        if (allocated > 0) {
-                            // Create negative banking entry for used units
-                            const bankingUsedAlloc = {
-                                productionSiteId: bank.productionSiteId,
-                                productionSite: bank.productionSite,
-                                siteType: 'BANKING',
-                                siteName: bank.siteName,
-                                month: cons.month,
-                                type: 'BANKING',
-                                bankingEnabled: true,
-                                allocated: { [period]: -allocated }
-                            };
-                            bankingAllocations.push(bankingUsedAlloc);
-
-                            // Create allocation from banking to consumption
-                            allocations.push({
-                                productionSiteId: bank.productionSiteId,
-                                productionSite: bank.productionSite,
-                                siteType: 'BANKING',
-                                siteName: bank.siteName,
-                                consumptionSiteId: cons.consumptionSiteId,
-                                consumptionSite: cons.consumptionSite,
-                                month: cons.month,
-                                type: 'ALLOCATION',
-                                allocated: { [period]: allocated }
-                            });
-
-                            bank.allocated[period] -= allocated;
-                            cons.remaining[period] -= allocated;
-                        }
-                    }
-                });
-            });
-        });
-    }
-
-    // After all allocations, set banking/lapse for all periods to the true remaining units
-    prodUnits.forEach(prod => {
-        ALL_PERIODS.forEach(period => {
-            const remaining = prod.remaining[period];
-            if (remaining > 0) {
-                if (prod.bankingEnabled) {
-                    let bankingAlloc = bankingAllocations.find(b => b.productionSiteId === prod.productionSiteId);
-                    if (!bankingAlloc) {
-                        bankingAlloc = {
-                            productionSiteId: prod.productionSiteId,
-                            productionSite: prod.productionSite || prod.siteName,
-                            siteType: prod.type,
-                            siteName: prod.siteName || prod.productionSite,
-                            month: prod.month,
-                            type: 'BANKING',
-                            bankingEnabled: true,
-                            allocated: {}
-                        };
-                        bankingAllocations.push(bankingAlloc);
-                    }
-                    bankingAlloc.allocated[period] = (bankingAlloc.allocated[period] || 0) + remaining;
-                } else {
-                    let lapseAlloc = lapseAllocations.find(l => l.productionSiteId === prod.productionSiteId);
-                    if (!lapseAlloc) {
-                        lapseAlloc = {
-                            productionSiteId: prod.productionSiteId,
-                            productionSite: prod.productionSite || prod.siteName,
-                            siteType: prod.type,
-                            siteName: prod.siteName || prod.productionSite,
-                            month: prod.month,
-                            type: 'LAPSE',
-                            allocated: {}
-                        };
-                        lapseAllocations.push(lapseAlloc);
-                    }
-                    lapseAlloc.allocated[period] = (lapseAlloc.allocated[period] || 0) + remaining;
-                }
-            }
-        });
-    });
-
-    return { 
-        allocations, 
-        bankingAllocations, 
-        lapseAllocations, 
-        initialBankingAllocations, 
-        initialLapseAllocations 
+    return {
+        ...unit,
+        productionSiteId: isProduction ? (unit.productionSiteId || unit.id) : undefined,
+        consumptionSiteId: !isProduction ? (unit.consumptionSiteId || unit.id) : undefined,
+        siteName: unit.siteName || (isProduction ? unit.productionSite : unit.consumptionSite),
+        type: isProduction ? (unit.type || '').toUpperCase() : undefined,
+        bankingEnabled: isProduction ? (unit.banking === 1) : undefined,
+        remaining
     };
 }
 
-export { ALL_PERIODS, PEAK_PERIODS, NON_PEAK_PERIODS };
+/**
+ * Checks if a unit has any remaining allocation in any period
+ */
+function hasRemainingAllocation(unit) {
+    return Object.values(unit.remaining).some(val => val > 0);
+}
+
+/**
+ * Applies shareholding percentage to an allocation amount
+ */
+function applyShareholding(amount, companyId, shareholdingPercentages) {
+    const percentage = companyId ? (shareholdingPercentages[companyId] || 100) : 100;
+    return Math.floor(amount * (percentage / 100));
+}
+
+/**
+ * Creates a new allocation record
+ */
+function createAllocation(prod, cons, allocated = {}) {
+    return {
+        productionSiteId: prod.productionSiteId,
+        productionSite: prod.productionSite || prod.siteName,
+        siteType: prod.type,
+        siteName: prod.siteName,
+        consumptionSiteId: cons.consumptionSiteId,
+        consumptionSite: cons.consumptionSite || cons.siteName,
+        month: cons.month,
+        allocated: { ...allocated }
+    };
+}
+
+/**
+ * Calculates allocations based on production, consumption, and shareholding percentages
+ * @param {Object} params - The allocation parameters
+ * @param {Array} params.productionUnits - Array of production units
+ * @param {Array} params.consumptionUnits - Array of consumption units
+ * @param {Array} params.bankingUnits - Array of banking units
+ * @param {Object} params.manualAllocations - Manual allocation overrides
+ * @param {Array} params.shareholdings - Array of shareholding records from captive table
+ * @returns {Object} Allocation results
+ */
+export function calculateAllocations({ 
+    productionUnits = [], 
+    consumptionUnits = [], 
+    bankingUnits = [], 
+    manualAllocations = {},
+    shareholdings = []
+}) {
+    // Create a map of companyId to shareholding percentage
+    const shareholdingPercentages = shareholdings.reduce((acc, curr) => {
+        acc[curr.shareholderCompanyId] = curr.shareholdingPercentage;
+        return acc;
+    }, {});
+    console.group('🔄 Running Allocation Calculation');
+    
+    try {
+        // Initialize units with remaining values
+        const prodUnits = productionUnits.map(u => createUnitWithRemaining(u, true));
+        const consUnits = consumptionUnits.map(u => createUnitWithRemaining(u, false));
+        
+        // Categorize production units
+        const solarUnits = prodUnits.filter(u => u.type === 'SOLAR');
+        const windUnits = prodUnits.filter(u => u.type === 'WIND' && !u.bankingEnabled);
+        const bankingWindUnits = prodUnits.filter(u => u.type === 'WIND' && u.bankingEnabled);
+        
+        const allocations = [];
+        const bankingAllocations = [];
+        const lapseAllocations = [];
+        
+        // Process manual allocations first
+        Object.entries(manualAllocations).forEach(([key, value]) => {
+            const [prodId, consId, period] = key.split('_');
+            const prodUnit = prodUnits.find(u => u.productionSiteId === prodId);
+            if (prodUnit) {
+                prodUnit.remaining[period] = Number(value) || 0;
+            }
+        });
+        
+        // Process allocations for each production unit group
+        [solarUnits, windUnits, bankingWindUnits].forEach((group) => {
+            if (!group || !group.length) return;
+            
+            group.forEach(prod => {
+                const companyId = prod.companyId;
+                
+                // Find matching consumption units (same month or no month specified)
+                consUnits
+                    .filter(cons => !prod.month || !cons.month || prod.month === cons.month)
+                    .forEach(cons => {
+                        if (!hasRemainingAllocation(cons)) return;
+                        
+                        // Find or create allocation record
+                        let allocation = allocations.find(a => 
+                            a.productionSiteId === prod.productionSiteId &&
+                            a.consumptionSiteId === cons.consumptionSiteId
+                        );
+                        
+                        if (!allocation) {
+                            allocation = createAllocation(prod, cons);
+                            allocations.push(allocation);
+                        }
+                        
+                        // Process allocation for each period
+                        ALL_PERIODS.forEach(period => {
+                            const maxAllocation = Math.min(
+                                cons.remaining[period] || 0,
+                                prod.remaining[period] || 0
+                            );
+                            
+                            if (maxAllocation > 0) {
+                                const allocated = applyShareholding(
+                                    maxAllocation, 
+                                    companyId, 
+                                    shareholdingPercentages
+                                );
+                                
+                                if (allocated > 0) {
+                                    allocation.allocated[period] = (allocation.allocated[period] || 0) + allocated;
+                                    allocation.shareholdingPercentage = shareholdingPercentages[companyId] || 100;
+                                    prod.remaining[period] -= allocated;
+                                    cons.remaining[period] = (cons.remaining[period] || 0) - allocated;
+                                }
+                            }
+                        });
+                    });
+                
+                // Handle remaining unallocated production
+                if (hasRemainingAllocation(prod)) {
+                    if (prod.bankingEnabled) {
+                        bankingAllocations.push({
+                            ...createAllocation(prod, {
+                                consumptionSiteId: 'BANK',
+                                consumptionSite: 'Banking',
+                                siteName: 'Banking',
+                                month: prod.month
+                            }),
+                            type: 'BANKING',
+                            allocated: { ...prod.remaining }
+                        });
+                    } else {
+                        lapseAllocations.push({
+                            ...createAllocation(prod, {
+                                consumptionSiteId: 'LAPSE',
+                                consumptionSite: 'Lapsed',
+                                siteName: 'Lapsed',
+                                month: prod.month
+                            }),
+                            type: 'LAPSE',
+                            allocated: { ...prod.remaining }
+                        });
+                    }
+                }
+            });
+        });
+        
+        // Process banking allocations for remaining consumption needs
+        if (bankingAllocations.length > 0) {
+            consUnits.forEach(cons => {
+                if (!hasRemainingAllocation(cons)) return;
+                
+                bankingAllocations.forEach(bank => {
+                    const bankCompanyId = bank.companyId;
+                    const bankShareholdingPercentage = bankCompanyId ? (shareholdingPercentages[bankCompanyId] || 100) : 100;
+                    
+                    ALL_PERIODS.forEach(period => {
+                        const needed = Number(cons.remaining[period] || 0);
+                        const available = Number(bank.allocated[period] || 0);
+                        
+                        if (available > 0 && needed > 0) {
+                            const maxAllocation = Math.min(available, needed);
+                            const allocated = applyShareholding(
+                                maxAllocation,
+                                bankCompanyId,
+                                shareholdingPercentages
+                            );
+                            
+                            if (allocated > 0) {
+                                // Create or update allocation record
+                                let allocation = allocations.find(a => 
+                                    a.productionSiteId === bank.productionSiteId &&
+                                    a.consumptionSiteId === cons.consumptionSiteId
+                                );
+                                
+                                if (!allocation) {
+                                    allocation = createAllocation(bank, cons);
+                                    allocations.push(allocation);
+                                }
+                                
+                                allocation.allocated[period] = (allocation.allocated[period] || 0) + allocated;
+                                bank.allocated[period] -= allocated;
+                                cons.remaining[period] -= allocated;
+                            }
+                        }
+                    });
+                });
+            });
+        }
+        
+        console.groupEnd();
+        return {
+            allocations,
+            bankingAllocations: bankingAllocations.filter(bank => 
+                Object.values(bank.allocated).some(v => v > 0)
+            ),
+            lapseAllocations: lapseAllocations.filter(lapse => 
+                Object.values(lapse.allocated).some(v => v > 0)
+            ),
+            remainingProduction: prodUnits.filter(hasRemainingAllocation),
+            remainingConsumption: consUnits.filter(hasRemainingAllocation)
+        };
+    } catch (error) {
+        console.error('Error in calculateAllocations:', error);
+        throw error;
+    }
+}

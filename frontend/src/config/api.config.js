@@ -7,6 +7,8 @@ export const API_CONFIG = {
     RETRY_DELAY: 1000,
     TABLES: {
         ROLE: 'RoleTable',
+        COMPANY: 'CompanyTable',
+        CAPTATIVE: 'CaptativeTable',
         PRODUCTION_SITE: 'ProductionSiteTable',
         PRODUCTION_UNIT: 'ProductionUnitTable',
         PRODUCTION_CHARGE: 'ProductionChargeTable',
@@ -110,6 +112,23 @@ export const API_CONFIG = {
             UPDATE: (pk, sk) => `/lapse/${pk}/${sk}`,
             DELETE: (pk, sk) => `/lapse/${pk}/${sk}`,
             GET_BY_MONTH: (month) => `/lapse/month/${month}`
+        },
+        COMPANY: {
+            BASE: '/company',
+            GET_ALL: '/company',
+            GET_ONE: (companyId) => `/company/${companyId}`,
+            CREATE: '/company',
+            UPDATE: (companyId) => `/company/${companyId}`,
+            DELETE: (companyId) => `/company/${companyId}`
+        },
+        CAPTATIVE: {
+            BASE: '/captative',
+            GET_ALL: (companyId) => `/company/${companyId}/captative`,
+            GET_ONE: (companyId, captativeId) => `/company/${companyId}/captative/${captativeId}`,
+            CREATE: (companyId) => `/company/${companyId}/captative`,
+            UPDATE: (companyId, captativeId) => `/company/${companyId}/captative/${captativeId}`,
+            DELETE: (companyId, captativeId) => `/company/${companyId}/captative/${captativeId}`,
+            GET_BY_PERIOD: (companyId, period) => `/company/${companyId}/captative/period/${period}`
         }
     }
 };
@@ -141,7 +160,13 @@ export const API_MESSAGES = {
         UNIT_DELETED: 'Production unit deleted successfully',
         CHARGE_CREATED: 'Production charge created successfully',
         CHARGE_UPDATED: 'Production charge updated successfully',
-        CHARGE_DELETED: 'Production charge deleted successfully'
+        CHARGE_DELETED: 'Production charge deleted successfully',
+        COMPANY_CREATED: 'Company created successfully',
+        COMPANY_UPDATED: 'Company updated successfully',
+        COMPANY_DELETED: 'Company deleted successfully',
+        CAPTATIVE_CREATED: 'Captative created successfully',
+        CAPTATIVE_UPDATED: 'Captative updated successfully',
+        CAPTATIVE_DELETED: 'Captative deleted successfully'
     }
 };
 

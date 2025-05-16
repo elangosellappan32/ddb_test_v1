@@ -7,7 +7,9 @@ const TableNames = {
     USERS: 'RoleTable',
     BANKING: 'BankingTable',
     ALLOCATION: 'AllocationTable',
-    LAPSE: 'LapseTable'
+    LAPSE: 'LapseTable',
+    COMPANY: 'CompanyTable',
+    CAPTIVE: 'CaptiveTable'
 };
 
 module.exports = TableNames;

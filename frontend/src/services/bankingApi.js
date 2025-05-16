@@ -80,16 +80,25 @@ const bankingApi = {
     }
   },
 
-  fetchByPeriod: async (pk, period) => {
+  fetchByPeriod: async (period, companyId) => {
     try {
-      console.log('[BankingAPI] Fetching banking by period:', { pk, period });
-      const response = await api.get(API_CONFIG.ENDPOINTS.BANKING.GET_BY_PERIOD(pk, period));
+      const formattedPeriod = formatDateToMMYYYY(period);
+      let url = `${API_CONFIG.BASE_URL}/banking?period=${formattedPeriod}`;
+      
+      if (companyId) {
+        url += `&companyId=${companyId}`;
+      }
+      
+      const response = await api.get(url);
+      
+      // Transform the response to match the expected format
+      const data = response.data?.data || [];
       return {
-        data: Array.isArray(response.data?.data) 
-          ? response.data.data.map(formatBankingData) 
-          : []
+        data: data.map(item => formatBankingData(item)),
+        error: null
       };
     } catch (error) {
+      console.error('[BankingAPI] Error fetching by period:', error);
       throw handleApiError(error);
     }
   },

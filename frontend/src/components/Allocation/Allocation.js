@@ -12,12 +12,21 @@ import {
   DialogTitle,
   DialogContent,
   DialogContentText,
-  DialogActions
+  DialogActions,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Grid
 } from '@mui/material';
 import {
   Assignment as AssignmentIcon,
   Refresh as RefreshIcon,
   Autorenew as AutorenewIcon,
+  Business as BusinessIcon
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import productionUnitApi from '../../services/productionUnitapi';
@@ -26,6 +35,8 @@ import productionSiteApi from '../../services/productionSiteapi';
 import consumptionSiteApi from '../../services/consumptionSiteApi';
 import bankingApi from '../../services/bankingApi';
 import allocationApi from '../../services/allocationApi';
+import captiveApi from '../../services/captiveApi';
+import companyApi from '../../services/companyApi';
 import ProductionUnitsTable from './ProductionUnitsTable';
 import BankingUnitsTable from './BankingUnitsTable';
 import ConsumptionUnitsTable from './ConsumptionUnitsTable';
@@ -49,17 +60,91 @@ const Allocation = () => {
   const [lapseAllocations, setLapseAllocations] = useState([]);
   const [originalBankingAllocations, setOriginalBankingAllocations] = useState([]);
   const [originalLapseAllocations, setOriginalLapseAllocations] = useState([]);
-  const [yearRange] = useState({
-    start: new Date().getFullYear() - 2,
-    end: new Date().getFullYear() + 2
-  });
+  const [shareholdings, setShareholdings] = useState([]);
+  const [loadingShareholdings, setLoadingShareholdings] = useState(false);
+  const [manualAllocations, setManualAllocations] = useState({});
   const [showAllocations, setShowAllocations] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
-  const [dialogData, setDialogData] = useState({ allocation: null, type: '' });
+  const [dialogData, setDialogData] = useState({ type: '', data: null });
 
-  // Update allocation calculation and table state
-  const [manualAllocations, setManualAllocations] = useState({});
+  // Default company ID - can be set from environment or config
+  const defaultCompanyId = process.env.REACT_APP_DEFAULT_COMPANY_ID || '1';
+  
+  // Year range for the year dropdown (1950 to current year)
+  const yearRange = {
+    start: 1950,
+    end: new Date().getFullYear()
+  };
+
+  // Fetch shareholdings for a company
+  const fetchShareholdings = useCallback(async (companyId) => {
+    if (!companyId) {
+      console.error('No company ID provided to fetchShareholdings');
+      return [];
+    }
+    
+    try {
+      console.log(`[fetchShareholdings] Fetching shareholdings for generator company ID: ${companyId}`);
+      const response = await captiveApi.getByGeneratorCompanyId(companyId);
+      
+      // Handle different response formats
+      let shareholdings = [];
+      if (Array.isArray(response)) {
+        shareholdings = response;
+      } else if (response && response.data) {
+        shareholdings = Array.isArray(response.data) ? response.data : [response.data];
+      }
+      
+      console.log('[fetchShareholdings] Raw response:', response);
+      console.log(`[fetchShareholdings] Processed ${shareholdings.length} shareholdings`);
+      
+      // Filter out invalid entries
+      const validShareholdings = shareholdings.filter(item => 
+        item && 
+        item.shareholderCompanyId && 
+        (item.shareholdingPercentage > 0 || item.percentage > 0)
+      );
+      
+      console.log(`[fetchShareholdings] Found ${validShareholdings.length} valid shareholdings`);
+      
+      if (validShareholdings.length === 0) {
+        console.warn('[fetchShareholdings] No valid shareholding data found for company:', companyId);
+        enqueueSnackbar('No shareholding data available for this company', { 
+          variant: 'warning',
+          autoHideDuration: 5000,
+          persist: false
+        });
+      }
+      
+      // Normalize the response format
+      return validShareholdings.map(item => ({
+        ...item,
+        shareholdingPercentage: item.shareholdingPercentage || item.percentage || 0,
+        shareholderCompanyId: item.shareholderCompanyId || item.shareholderCompanyId || 'unknown',
+        generatorCompanyId: item.generatorCompanyId || companyId
+      }));
+      
+    } catch (error) {
+      console.error('[fetchShareholdings] Error:', {
+        error,
+        message: error.message,
+        response: error.response?.data,
+        config: error.config
+      });
+      
+      enqueueSnackbar(
+        error.response?.data?.message || 'Failed to load shareholdings. Please check the console for details.', 
+        { 
+          variant: 'error',
+          autoHideDuration: 7000,
+          persist: false
+        }
+      );
+      
+      return [];
+    }
+  }, [enqueueSnackbar]);
 
   const handleManualAllocationChange = (prodId, consId, period, value) => {
     const key = `${prodId}_${consId}_${period}`;
@@ -74,7 +159,8 @@ const Allocation = () => {
       productionUnits: productionData,
       consumptionUnits: consumptionData,
       bankingUnits: bankingData,
-      manualAllocations: updatedManualAllocations
+      manualAllocations: updatedManualAllocations,
+      shareholdings
     });
 
     // Save original banking/lapse allocations if not already set
@@ -125,8 +211,11 @@ const Allocation = () => {
       productionUnits: productionData,
       consumptionUnits: consumptionData,
       bankingUnits: bankingData,
-      manualAllocations
+      manualAllocations,
+      shareholdings
     });
+    
+    console.log('Shareholdings used in calculation:', shareholdings);
 
     // Log banking allocations
     console.group('🏦 Banking Allocations');
@@ -164,14 +253,74 @@ const Allocation = () => {
   }, [productionData, consumptionData, bankingData, manualAllocations, enqueueSnackbar]);
 
   const updateAllocationData = useCallback(() => {
-    if (!showAllocations) return;
+    if (!showAllocations) {
+      console.log('Allocations not shown, skipping update');
+      return;
+    }
     
-    // Recalculate allocations
-    runAllocationCalculation();
-  }, [showAllocations, runAllocationCalculation]);
+    if (productionData.length === 0 || consumptionData.length === 0) {
+      console.log('Insufficient data for allocation calculation', {
+        productionData: productionData.length,
+        consumptionData: consumptionData.length,
+        shareholdings: shareholdings.length
+      });
+      return;
+    }
+    
+    console.log('Updating allocation data with:', {
+      productionSites: productionData.length,
+      consumptionSites: consumptionData.length,
+      shareholdings: shareholdings.length,
+      hasBankingData: bankingData.length > 0
+    });
+    
+    try {
+      // Recalculate allocations with current data
+      const { allocations, bankingAllocations, lapseAllocations } = calculateAllocations({
+        productionUnits: productionData,
+        consumptionUnits: consumptionData,
+        bankingUnits: bankingData,
+        manualAllocations,
+        shareholdings
+      });
+      
+      console.log('Allocation calculation results:', {
+        allocations: allocations.length,
+        bankingAllocations: bankingAllocations.length,
+        lapseAllocations: lapseAllocations.length
+      });
+      
+      // Update state with new allocations
+      setAllocations(allocations);
+      setBankingAllocations(bankingAllocations);
+      setLapseAllocations(lapseAllocations);
+      
+      // Save original banking/lapse allocations if not already set
+      if (originalBankingAllocations.length === 0 && bankingAllocations.length > 0) {
+        setOriginalBankingAllocations(bankingAllocations.map(b => ({ ...b })));
+      }
+      if (originalLapseAllocations.length === 0 && lapseAllocations.length > 0) {
+        setOriginalLapseAllocations(lapseAllocations.map(l => ({ ...l })));
+      }
+      
+    } catch (error) {
+      console.error('Error in updateAllocationData:', error);
+      enqueueSnackbar('Failed to update allocations. Please try again.', { variant: 'error' });
+    }
+  }, [
+    showAllocations, 
+    productionData, 
+    consumptionData, 
+    bankingData, 
+    manualAllocations, 
+    shareholdings, 
+    originalBankingAllocations.length, 
+    originalLapseAllocations.length, 
+    enqueueSnackbar
+  ]);
 
   const prepareAllocationPayload = (allocation, type, selectedMonth, selectedYear) => {
-    const companyId = localStorage.getItem('companyId') || '1';
+    const companyId = defaultCompanyId;
     const monthYear = allocation.month && allocation.month.length === 6 ? allocation.month : formatAllocationMonth(selectedMonth, selectedYear);
     let payload = { ...allocation };
     payload.companyId = companyId;
@@ -208,13 +357,13 @@ const Allocation = () => {
 
   // Fix edit dialog selection: match by productionSiteId and consumptionSiteId (if present)
   const handleEditAllocation = useCallback((allocation, type) => {
-    setDialogData({ allocation, type });
+    setDialogData({ type, data: allocation });
     setConfirmDialogOpen(true);
   }, []);
 
   // Local UI edit: update allocations/bankingAllocations/lapseAllocations only; persistence on 'Save Changes'
   const handleEditAllocationConfirmed = useCallback(() => {
-    const { allocation, type } = dialogData;
+    const { type, data: allocation } = dialogData;
     setConfirmDialogOpen(false);
 
     if (type === 'allocation') {
@@ -319,184 +468,457 @@ const Allocation = () => {
   };
 
   const fetchAllData = useCallback(async () => {
+
     try {
       setLoading(true);
       setError(null);
-
+      
+      console.log('Fetching data for month:', selectedMonth, 'year:', selectedYear);
+      
       const formattedMonth = `${selectedMonth.toString().padStart(2, '0')}${selectedYear}`;
       const financialYear = getFinancialYear(selectedMonth, selectedYear);
       const financialYearMonths = getFinancialYearMonths(financialYear);
 
-      const [prodSitesResp, consSitesResp, bankingResp] = await Promise.all([
-        productionSiteApi.fetchAll(),
-        consumptionSiteApi.fetchAll(),
-        bankingApi.fetchAll(formattedMonth)  // Use formattedMonth here
-      ]);
+      console.log('Fetching data with params:', {
+        companyId: defaultCompanyId,
+        month: selectedMonth,
+        year: selectedYear,
+        formattedMonth,
+        financialYear,
+        financialYearMonths
+      });
 
-      const prodSites = prodSitesResp.data || [];
-      const consSites = consSitesResp.data || [];
+      const [prodSitesResp, consSitesResp, bankingResp] = await Promise.all([
+        productionSiteApi.fetchAll(defaultCompanyId).catch(err => {
+          console.error('Error fetching production sites:', err);
+          enqueueSnackbar('Failed to load production sites', { variant: 'error' });
+          return { data: [] };
+        }),
+        consumptionSiteApi.fetchAll(defaultCompanyId).catch(err => {
+          console.error('Error fetching consumption sites:', err);
+          enqueueSnackbar('Failed to load consumption sites', { variant: 'error' });
+          return { data: [] };
+        }),
+        bankingApi.fetchByPeriod(formattedMonth, defaultCompanyId).catch(err => {
+          console.error('Error fetching banking data:', err);
+          enqueueSnackbar('Failed to load banking data', { variant: 'error' });
+          return { data: [] };
+        })
+      ]);
+      
+      console.log('API responses:', {
+        productionSites: prodSitesResp?.data?.length || 0,
+        consumptionSites: consSitesResp?.data?.length || 0,
+        bankingData: bankingResp?.data?.length || 0
+      });
+
+      const prodSites = Array.isArray(prodSitesResp?.data) ? prodSitesResp.data : [];
+      const consSites = Array.isArray(consSitesResp?.data) ? consSitesResp.data : [];
+      const bankingData = Array.isArray(bankingResp?.data) ? bankingResp.data : [];
+      
+      console.log('Processing data:', {
+        productionSites: prodSites.length,
+        consumptionSites: consSites.length,
+        bankingRecords: bankingData.length
+      });
       
       // Create a map of sites for easier lookup
       const siteNameMap = prodSites.reduce((map, site) => {
-        const pk = `${Number(site.companyId) || 1}_${Number(site.productionSiteId)}`;
-        map[pk] = {
-          name: site.name,
-          banking: Number(site.banking) || 0,
-          status: site.status || 'Active',
-          productionSiteId: site.productionSiteId,
-          type: site.type
-        };
+        try {
+          if (!site || !site.productionSiteId) return map;
+          
+          const pk = `${Number(site.companyId) || 1}_${Number(site.productionSiteId)}`;
+          map[pk] = {
+            name: site.name || 'Unnamed Site',
+            banking: Number(site.banking) || 0,
+            status: site.status || 'Active',
+            productionSiteId: site.productionSiteId,
+            type: site.type || 'UNKNOWN',
+            companyId: site.companyId
+          };
+        } catch (error) {
+          console.error('Error processing production site:', { site, error });
+        }
         return map;
       }, {});
 
+      console.log('Created site name map with', Object.keys(siteNameMap).length, 'sites');
+
       // Process banking data for the entire financial year
-      const allBankingData = (bankingResp.data || [])
-        .filter(unit => financialYearMonths.includes(unit.sk))
+      const allBankingData = bankingData
+        .filter(unit => {
+          const isValid = unit && unit.sk && financialYearMonths.includes(unit.sk);
+          if (!isValid && unit) {
+            console.log('Filtered out banking unit (invalid or wrong period):', {
+              sk: unit.sk,
+              financialYearMonths,
+              unit
+            });
+          }
+          return isValid;
+        })
         .map(unit => {
-          const siteInfo = siteNameMap[unit.pk] || { name: 'Unknown Site', banking: 0, status: 'Unknown' };
+          try {
+            const siteInfo = siteNameMap[unit.pk] || { 
+              name: 'Unknown Site', 
+              banking: 0, 
+              status: 'Unknown',
+              productionSiteId: unit.pk?.split('_')?.[1] || 'unknown',
+              type: 'UNKNOWN'
+            };
+            
+            const processedUnit = {
+              ...unit,
+              siteName: siteInfo.name,
+              banking: siteInfo.banking,
+              status: siteInfo.status,
+              productionSiteId: siteInfo.productionSiteId,
+              type: siteInfo.type,
+              c1: Number(unit.c1) || 0,
+              c2: Number(unit.c2) || 0,
+              c3: Number(unit.c3) || 0,
+              c4: Number(unit.c4) || 0,
+              c5: Number(unit.c5) || 0
+            };
+            
+            return processedUnit;
+          } catch (error) {
+            console.error('Error processing banking unit:', { unit, error });
+            return null;
+          }
+        })
+        .filter(Boolean); // Remove any null entries from failed processing
+        
+      console.log('Processed banking data:', allBankingData.length, 'valid records');
+
+      // Aggregate banking data by site for the entire financial year
+      const aggregatedBanking = Object.values(
+        allBankingData.reduce((acc, curr) => {
+          try {
+            if (!curr || !curr.pk) return acc;
+            
+            const key = curr.pk;
+            if (!acc[key]) {
+              acc[key] = {
+                ...curr,
+                c1: 0,
+                c2: 0,
+                c3: 0,
+                c4: 0,
+                c5: 0,
+                financialYear: `${financialYear}-${financialYear + 1}`
+              };
+            }
+            
+            acc[key].c1 += Number(curr.c1) || 0;
+            acc[key].c2 += Number(curr.c2) || 0;
+            acc[key].c3 += Number(curr.c3) || 0;
+            acc[key].c4 += Number(curr.c4) || 0;
+            acc[key].c5 += Number(curr.c5) || 0;
+            
+          } catch (error) {
+            console.error('Error aggregating banking data:', { error, curr });
+          }
+          return acc;
+        }, {})
+      );
+
+      console.log('Aggregated banking data:', aggregatedBanking.length, 'records');
+
+      // Fetch production units for specific month
+      const productionUnits = [];
+      const productionUnitsErrors = [];
+      
+      await Promise.all(
+        prodSites.map(async (site) => {
+          if (!site || !site.productionSiteId) return;
+          
+          try {
+            const companyId = Number(site.companyId) || 1;
+            const productionSiteId = Number(site.productionSiteId);
+            
+            console.log(`Fetching production units for site ${productionSiteId} (company ${companyId})`);
+            
+            const unitsResp = await productionUnitApi.fetchAll(companyId, productionSiteId);
+            const sk = `${selectedMonth.toString().padStart(2, '0')}${selectedYear}`;
+            
+            const siteUnits = (unitsResp?.data || [])
+              .filter(unit => unit && unit.sk === sk)
+              .map(unit => {
+                try {
+                  return {
+                    ...unit,
+                    siteName: site.name || 'Unnamed Site',
+                    status: site.status || 'Active',
+                    bankingStatus: allBankingData.some(
+                      banking => banking.productionSiteId === site.productionSiteId && 
+                                banking.banking === 1
+                    ) ? 'Available' : 'Not Available',
+                    banking: Number(site.banking) || 0,
+                    productionSiteId: site.productionSiteId,
+                    type: site.type || 'UNKNOWN',
+                    c1: Number(unit.c1) || 0,
+                    c2: Number(unit.c2) || 0,
+                    c3: Number(unit.c3) || 0,
+                    c4: Number(unit.c4) || 0,
+                    c5: Number(unit.c5) || 0
+                  };
+                } catch (unitError) {
+                  console.error('Error processing production unit:', { unit, error: unitError });
+                  return null;
+                }
+              })
+              .filter(Boolean);
+              
+            if (siteUnits.length > 0) {
+              productionUnits.push(...siteUnits);
+            } else {
+              console.log(`No production units found for site ${productionSiteId} in ${sk}`);
+            }
+            
+          } catch (error) {
+            const errorMsg = `Error fetching production units for site ${site?.productionSiteId}: ${error.message || error}`;
+            console.error(errorMsg, { site, error });
+            productionUnitsErrors.push(errorMsg);
+          }
+        })
+      );
+
+      if (productionUnitsErrors.length > 0) {
+        console.warn('Some production units could not be loaded:', productionUnitsErrors);
+        if (productionUnitsErrors.length > 3) {
+          enqueueSnackbar(
+            `Failed to load production units for ${productionUnitsErrors.length} sites. Check console for details.`,
+            { variant: 'warning' }
+          );
+        } else {
+          productionUnitsErrors.forEach(error => {
+            enqueueSnackbar(error, { variant: 'error' });
+          });
+        }
+      }
+
+      console.log('Fetched production units:', productionUnits.length);
+
+      // Process consumption units for specific month
+      const consumptionUnits = [];
+      const consumptionUnitsErrors = [];
+      
+      await Promise.all(
+        consSites.map(async (site) => {
+          if (!site || !site.consumptionSiteId) return;
+          
+          try {
+            const companyId = Number(site.companyId) || 1;
+            const consumptionSiteId = Number(site.consumptionSiteId);
+            
+            console.log(`Fetching consumption units for site ${consumptionSiteId} (company ${companyId})`);
+            
+            const unitsResp = await consumptionUnitApi.fetchAll(companyId, consumptionSiteId);
+            const sk = `${selectedMonth.toString().padStart(2, '0')}${selectedYear}`;
+            
+            const siteUnits = (unitsResp?.data || [])
+              .filter(unit => unit && unit.sk === sk)
+              .map(unit => {
+                try {
+                  return {
+                    ...unit,
+                    siteName: site.name || 'Unnamed Site',
+                    status: site.status || 'Active',
+                    consumptionSiteId: site.consumptionSiteId,
+                    type: site.type || 'UNKNOWN',
+                    c1: Number(unit.c1) || 0,
+                    c2: Number(unit.c2) || 0,
+                    c3: Number(unit.c3) || 0,
+                    c4: Number(unit.c4) || 0,
+                    c5: Number(unit.c5) || 0
+                  };
+                } catch (unitError) {
+                  console.error('Error processing consumption unit:', { unit, error: unitError });
+                  return null;
+                }
+              })
+              .filter(Boolean);
+              
+            if (siteUnits.length > 0) {
+              consumptionUnits.push(...siteUnits);
+            } else {
+              console.log(`No consumption units found for site ${consumptionSiteId} in ${sk}`);
+            }
+            
+          } catch (error) {
+            const errorMsg = `Error fetching consumption units for site ${site?.consumptionSiteId}: ${error.message || error}`;
+            console.error(errorMsg, { site, error });
+            consumptionUnitsErrors.push(errorMsg);
+          }
+        })
+      );
+
+      if (consumptionUnitsErrors.length > 0) {
+        console.warn('Some consumption units could not be loaded:', consumptionUnitsErrors);
+        if (consumptionUnitsErrors.length > 3) {
+          enqueueSnackbar(
+            `Failed to load consumption units for ${consumptionUnitsErrors.length} sites. Check console for details.`,
+            { variant: 'warning' }
+          );
+        } else {
+          consumptionUnitsErrors.forEach(error => {
+            enqueueSnackbar(error, { variant: 'error' });
+          });
+        }
+      }
+
+      console.log('Fetched consumption units:', consumptionUnits.length);
+
+      // Update production units with proper pk and sk for banking/lapse
+      const updatedProductionUnits = productionUnits.map(unit => {
+        try {
+          if (!unit) return null;
+          const companyId = defaultCompanyId;
+          const formattedMonth = `${selectedMonth.toString().padStart(2, '0')}${selectedYear}`; // mmyyyy format
+          
           return {
             ...unit,
-            siteName: siteInfo.name,
-            banking: siteInfo.banking,
-            status: siteInfo.status,
-            productionSiteId: siteInfo.productionSiteId,
-            type: siteInfo.type,
+            // Generate pk for banking/lapse (companyId_productionSiteId)
+            pk: `${companyId}_${unit.productionSiteId}`,
+            // Generate sk in mmyyyy format
+            sk: formattedMonth,
+            // Ensure all required fields have default values
+            siteName: unit.siteName || 'Unnamed Site',
+            status: unit.status || 'Active',
+            type: unit.type || 'UNKNOWN',
             c1: Number(unit.c1) || 0,
             c2: Number(unit.c2) || 0,
             c3: Number(unit.c3) || 0,
             c4: Number(unit.c4) || 0,
             c5: Number(unit.c5) || 0
           };
-        });
-
-      // Aggregate banking data by site for the entire financial year
-      const aggregatedBanking = allBankingData.reduce((acc, curr) => {
-        const key = curr.pk;
-        if (!acc[key]) {
-          acc[key] = {
-            ...curr,
-            c1: 0,
-            c2: 0,
-            c3: 0,
-            c4: 0,
-            c5: 0,
-            financialYear: `${financialYear}-${financialYear + 1}`
-          };
+        } catch (error) {
+          console.error('Error processing production unit for banking/lapse:', { unit, error });
+          return null;
         }
-        acc[key].c1 += Number(curr.c1) || 0;
-        acc[key].c2 += Number(curr.c2) || 0;
-        acc[key].c3 += Number(curr.c3) || 0;
-        acc[key].c4 += Number(curr.c4) || 0;
-        acc[key].c5 += Number(curr.c5) || 0;
-        return acc;
-      }, {});
+      }).filter(Boolean); // Remove any null entries
+      
+      console.log('Processed production units for banking/lapse:', updatedProductionUnits.length);
 
-      // Fetch production units for specific month
-      const productionUnits = (await Promise.all(
-        prodSites.map(async (site) => {
-          try {
-            const unitsResp = await productionUnitApi.fetchAll(
-              Number(site.companyId) || 1,
-              Number(site.productionSiteId)
-            );
-            
-            const sk = `${selectedMonth.toString().padStart(2, '0')}${selectedYear}`;
-            return (unitsResp.data || [])
-              .filter(unit => unit.sk === sk)
-              .map(unit => ({
-                ...unit,
-                siteName: site.name,
-                status: site.status || 'Active',
-                bankingStatus: allBankingData.some(
-                  banking => banking.productionSiteId === site.productionSiteId && 
-                            banking.banking === 1
-                ) ? 'Available' : 'Not Available',
-                banking: Number(site.banking) || 0,
-                productionSiteId: site.productionSiteId,
-                type: site.type,
-                c1: Number(unit.c1) || 0,
-                c2: Number(unit.c2) || 0,
-                c3: Number(unit.c3) || 0,
-                c4: Number(unit.c4) || 0,
-                c5: Number(unit.c5) || 0
-              }));
-          } catch (err) {
-            console.error('Error fetching production units:', err);
-            return [];
-          }
-        })
-      )).flat();
-
-      // Fetch consumption units for specific month
-      const consumptionUnits = (await Promise.all(
-        consSites.map(async (site) => {
-          try {
-            const unitsResp = await consumptionUnitApi.fetchAll(
-              Number(site.companyId) || 1,
-              Number(site.consumptionSiteId)
-            );
-            
-            const formattedMonth = `${selectedMonth.toString().padStart(2, '0')}${selectedYear}`; // mmyyyy format
-            return (unitsResp.data || [])
-              .filter(unit => unit.sk === formattedMonth)
-              .map(unit => {
-                const companyId = Number(site.companyId) || 1;
-                return {
-                  ...unit,
-                  siteName: site.name,
-                  consumptionSiteId: site.consumptionSiteId,
-                  type: site.type,
-                  // Generate pk for allocation (productionSiteId_consumptionSiteId)
-                  pk: `${companyId}_${unit.productionSiteId}_${site.consumptionSiteId}`,
-                  // Generate sk in mmyyyy format
-                  sk: formattedMonth,
-                  c1: Number(unit.c1) || 0,
-                  c2: Number(unit.c2) || 0,
-                  c3: Number(unit.c3) || 0,
-                  c4: Number(unit.c4) || 0,
-                  c5: Number(unit.c5) || 0
-                };
-              });
-          } catch (err) {
-            console.error('Error fetching consumption units:', err);
-            return [];
-          }
-        })
-      )).flat();
-
-      // Update production units with proper pk and sk for banking/lapse
-      const updatedProductionUnits = productionUnits.map(unit => {
-        const companyId = localStorage.getItem('companyId') || '1';
-        const formattedMonth = `${selectedMonth.toString().padStart(2, '0')}${selectedYear}`; // mmyyyy format
-        return {
-          ...unit,
-          // Generate pk for banking/lapse (companyId_productionSiteId)
-          pk: `${companyId}_${unit.productionSiteId}`,
-          // Generate sk in mmyyyy format
-          sk: formattedMonth
-        };
+      // Final data processing and state updates
+      console.log('Updating component state with new data', {
+        productionUnits: updatedProductionUnits.length,
+        consumptionUnits: consumptionUnits.length,
+        bankingData: allBankingData.length,
+        aggregatedBanking: Object.keys(aggregatedBanking).length
       });
 
       setProductionData(updatedProductionUnits);
       setConsumptionData(consumptionUnits);
       setBankingData(allBankingData);
       setAggregatedBankingData(Object.values(aggregatedBanking));
-
-    } catch (err) {
-      console.error('Error fetching data:', err);
+      
+      // Clear any previous errors
+      setError(null);
+      
+      enqueueSnackbar('Data loaded successfully', { variant: 'success' });
+      
+    } catch (error) {
+      const errorMsg = `Error fetching data: ${error.message || error}`;
+      console.error(errorMsg, error);
       setError({
-        message: err.message || 'Failed to load data',
-        details: err.details || []
+        message: 'Failed to load data',
+        details: error.message || 'An unknown error occurred',
+        timestamp: new Date().toISOString()
       });
-      enqueueSnackbar(err.message || 'Failed to load data', { variant: 'error' });
+      
+      enqueueSnackbar('Failed to load data. Please try again.', { variant: 'error' });
+      
+      // Reset data states to prevent showing stale data
+      setProductionData([]);
+      setConsumptionData([]);
+      setBankingData([]);
+      setAggregatedBankingData([]);
     } finally {
       setLoading(false);
     }
   }, [enqueueSnackbar, selectedMonth, selectedYear]);
 
+  // Fetch shareholdings on component mount
+  useEffect(() => {
+    const loadShareholdings = async () => {
+      if (!defaultCompanyId) {
+        console.error('[loadShareholdings] No default company ID set');
+        enqueueSnackbar('No default company configured', { 
+          variant: 'error',
+          autoHideDuration: 5000 
+        });
+        return;
+      }
+
+      try {
+        setLoadingShareholdings(true);
+        console.log(`[loadShareholdings] Loading shareholdings for company: ${defaultCompanyId}`);
+        
+        const shareholdingsData = await fetchShareholdings(defaultCompanyId);
+        console.log(`[loadShareholdings] Received ${shareholdingsData?.length || 0} shareholdings`);
+        
+        if (shareholdingsData && shareholdingsData.length > 0) {
+          setShareholdings(shareholdingsData);
+          console.log('[loadShareholdings] Updated shareholdings state:', shareholdingsData);
+        } else {
+          console.warn('[loadShareholdings] No shareholding data available');
+          setShareholdings([]);
+          enqueueSnackbar('No shareholding data available for this company', { 
+            variant: 'warning',
+            autoHideDuration: 5000,
+            persist: false
+          });
+        }
+      } catch (error) {
+        console.error('[loadShareholdings] Error:', {
+          error,
+          message: error.message,
+          stack: error.stack
+        });
+        
+        enqueueSnackbar(
+          'Failed to load shareholding data. Please check the console for details.', 
+          { 
+            variant: 'error',
+            autoHideDuration: 7000,
+            persist: false
+          }
+        );
+      } finally {
+        setLoadingShareholdings(false);
+      }
+    };
+    
+    loadShareholdings();
+  }, [defaultCompanyId, enqueueSnackbar, fetchShareholdings]);
+
+  // Update allocations when shareholdings or data changes
+  useEffect(() => {
+    const hasRequiredData = productionData.length > 0 && consumptionData.length > 0;
+    
+    if (!hasRequiredData) {
+      console.log('Waiting for production and consumption data...');
+      return;
+    }
+
+    if (shareholdings.length === 0) {
+      console.warn('No shareholdings available for allocation');
+      enqueueSnackbar('No shareholding data available for allocation', { 
+        variant: 'warning',
+        autoHideDuration: 5000 
+      });
+    } else {
+      console.log('Updating allocation data with shareholdings:', shareholdings.length);
+      updateAllocationData();
+    }
+  }, [shareholdings, productionData, consumptionData, updateAllocationData, enqueueSnackbar]);
+
+  // Fetch data when selectedYear or selectedMonth changes
   useEffect(() => {
     fetchAllData();
-  }, [fetchAllData]);
+  }, [selectedYear, selectedMonth, fetchAllData]);
 
   const handleMonthChange = (event) => {
     setSelectedMonth(Number(event.target.value));
@@ -582,9 +1004,11 @@ const Allocation = () => {
           <Typography variant="h4">Allocation Management</Typography>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Typography variant="subtitle1" sx={{ mr: 1 }}>
-            Financial Year: {financialYear}-{financialYear + 1}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mr: 2 }}>
+            <Typography variant="subtitle1" sx={{ whiteSpace: 'nowrap' }}>
+              FY: {financialYear}-{financialYear + 1}
+            </Typography>
+          </Box>
           <TextField
             select
             size="small"
@@ -657,6 +1081,7 @@ const Allocation = () => {
       <ConsumptionUnitsTable 
         consumptionData={consumptionData}
         selectedYear={financialYear}
+        shareholdings={shareholdings}
       />
 
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 4, mt: 2 }}>
