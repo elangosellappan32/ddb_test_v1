@@ -192,13 +192,13 @@ const AllocationReport = () => {
         align: 'center',
         colSpan: 2,
         children: [
-          { id: 'certificates', label: 'As per share\ncertificates\nas on 31st\nMarch', align: 'right', width: 120 },
-          { id: 'ownership', label: '% of ownership\nthrough shares in\nCompany/\nunit of CGP', align: 'center', width: 120 }
+          { id: 'certificates', label: 'As per share certificates as on 31st March', align: 'right', width: 120 },
+          { id: 'ownership', label: '% of ownership through shares in Company/unit of CGP', align: 'center', width: 120 }
         ]
       },
       { 
         id: 'proRata', 
-        label: '% to be\nconsumed on\npro rata basis\nby each\ncaptive\nuser', 
+        label: '% to be consumed on pro rata basis by each captive user', 
         align: 'center',
         width: 100,
         rowSpan: 2
@@ -212,32 +212,32 @@ const AllocationReport = () => {
       },
       { 
         id: 'auxiliary', 
-        label: 'Annual\nAuxiliary\nconsumption\nin MUs\n(y)', 
+        label: 'Annual Auxiliary consumption in MUs (y)', 
         width: 100, 
         align: 'right',
         rowSpan: 2
       },
       { 
         id: 'criteria', 
-        label: 'Generation\nconsidered to\nverify\nconsumption\ncriteria in MUs\n(x-y)*51%', 
+        label: 'Generation considered to verify consumption criteria in MUs (x-y)*51%', 
         width: 120, 
         align: 'right',
         rowSpan: 2
       },
       {
         id: 'permittedGroup',
-        label: 'Permitted consumption as per\nnorms in MUs',
+        label: 'Permitted consumption as per norms in MUs',
         align: 'center',
         colSpan: 3,
         children: [
-          { id: 'withZero', label: 'with 0%\nvariation', align: 'right', width: 100 },
-          { id: 'minus10', label: '-10\n%', align: 'right', width: 80 },
-          { id: 'plus10', label: '+10\n%', align: 'right', width: 80 }
+          { id: 'withZero', label: 'With 0%', align: 'right', width: 100 },
+          { id: 'minus10', label: '-10%', align: 'right', width: 80 },
+          { id: 'plus10', label: '+10%', align: 'right', width: 80 }
         ]
       },
       { 
         id: 'actual', 
-        label: 'Actual\nconsumption\nin MUs', 
+        label: 'Actual consumption in MUs', 
         width: 100, 
         align: 'right',
         rowSpan: 2
