@@ -1,378 +1,199 @@
-const PERIODS = require('../constants/periods');
-const logger = require('../utils/logger');
+// Allocation Calculator
+// Allocates solar first, then wind, then banking units (for windmills with banking enabled)
+// Follows all period, banking, and lapse rules
 
-class AllocationCalculatorService {
-    constructor() {
-        this.PEAK_PERIODS = PERIODS.PEAK;
-        this.NON_PEAK_PERIODS = PERIODS.NON_PEAK;
-        this.ALL_PERIODS = PERIODS.ALL;
+const PEAK_PERIODS = ['c2', 'c3'];
+const NON_PEAK_PERIODS = ['c1', 'c4', 'c5'];
+const ALL_PERIODS = [...NON_PEAK_PERIODS, ...PEAK_PERIODS];
+
+/**
+ * Advanced Allocation Calculator
+ * Allocates units from ProductionUnitsTable and BankingUnitsTable to ConsumptionUnitsTable based on percentage and period rules.
+ * - Peak units (c2, c3) can be used for non-peak (c1, c4, c5), but not vice versa.
+ * - Non-peak units cannot be shared to other non-peak or peak periods (e.g., c1→c3/c4 not allowed, c1→c1 allowed).
+ * - Solar cannot bank; only windmills with banking enabled can bank unused units; others lapse.
+ * - Allocation is driven by consumption unit percentage.
+ * - Allocation is done: Solar (non-banking) → Wind (non-banking) → Banking wind → Banking units.
+ * - No units are double-counted. All data is suitable for Allocation Details Table.
+ *
+ * @param {Object[]} productionUnits
+ * @param {Object[]} consumptionUnits
+ * @param {Object[]} bankingUnits
+ * @returns {Object} { allocations, bankingAllocations, lapseAllocations }
+ */
+export function calculateAllocations({ productionUnits, consumptionUnits, bankingUnits }) {
+  const PEAK_PERIODS = ['c2', 'c3'];
+  const NON_PEAK_PERIODS = ['c1', 'c4', 'c5'];
+  const ALL_PERIODS = [...NON_PEAK_PERIODS, ...PEAK_PERIODS];
+
+  // Deep copy units with remaining
+  const prodUnits = (productionUnits || []).map(u => ({
+    productionSiteId: u.productionSiteId || u.id,
+    productionSite: u.productionSite || u.siteName,
+    siteName: u.siteName,
+    month: u.month,
+    type: (u.type || '').toUpperCase(),
+    // Determine banking support from 'banking' flag
+    bankingEnabled: Number(u.banking) === 1,
+    remaining: { c1: +u.c1 || 0, c2: +u.c2 || 0, c3: +u.c3 || 0, c4: +u.c4 || 0, c5: +u.c5 || 0 }
+  }));
+  const consUnits = (consumptionUnits || []).map(u => ({
+    consumptionSiteId: u.consumptionSiteId || u.id,
+    consumptionSite: u.consumptionSite || u.siteName,
+    siteName: u.siteName,
+    month: u.month,
+    remaining: { c1: +u.c1 || 0, c2: +u.c2 || 0, c3: +u.c3 || 0, c4: +u.c4 || 0, c5: +u.c5 || 0 }
+  }));
+  const bankUnits = (bankingUnits || []).map(u => ({
+    productionSiteId: u.productionSiteId || u.id,
+    productionSite: u.productionSite || u.siteName,
+    siteName: u.siteName,
+    month: u.month,
+    remaining: { c1: +u.c1 || 0, c2: +u.c2 || 0, c3: +u.c3 || 0, c4: +u.c4 || 0, c5: +u.c5 || 0 }
+  }));
+
+  // Classify production sources
+  const solarUnits = prodUnits.filter(u => u.type === 'SOLAR');
+  const windUnits = prodUnits.filter(u => u.type === 'WIND' && !u.bankingEnabled);
+  const bankingWindUnits = prodUnits.filter(u => u.type === 'WIND' && u.bankingEnabled);
+
+  const allocations = [];
+  const bankingAllocations = [];
+  const lapseAllocations = [];
+
+  // Sort consumption sites by allocation priority (first selected site first)
+  const sortedConsUnits = [...consUnits].sort((a, b) => {
+    // If both have month, compare months first
+    if (a.month && b.month) {
+      const monthA = parseInt(a.month.substring(0, 2));
+      const monthB = parseInt(b.month.substring(0, 2));
+      const yearA = parseInt(a.month.substring(2));
+      const yearB = parseInt(b.month.substring(2));
+      if (yearA !== yearB) return yearA - yearB;
+      if (monthA !== monthB) return monthA - monthB;
     }
+    // Otherwise, sort by site name (first selected site first)
+    return a.siteName.localeCompare(b.siteName);
+  });
 
-    calculateAllocation(productionSites, bankingUnits, consumptionSites) {
-        try {
-            const allocations = [];
-            const bankingAllocations = [];
-            const lapseAllocations = [];
-            const companyId = '1';
-
-            // Calculate initial consumption needs
-            const consumptionNeeds = this.calculateConsumptionNeeds(consumptionSites);
-            const sitePercentages = this.prepareSitePercentages(consumptionSites);
-
-            // 1. First process solar sites (no banking allowed)
-            const solarSites = productionSites.filter(site => site.type?.toLowerCase() === 'solar');
-            this.processSolarSites(solarSites, consumptionNeeds, sitePercentages, allocations, lapseAllocations, companyId);
-
-            // 2. Process wind sites with banking enabled
-            const bankingWindSites = productionSites.filter(site => 
-                site.type?.toLowerCase() === 'wind' && site.banking === 1
-            );
-            
-            // Handle banking sites
-            for (const site of bankingWindSites) {
-                const availableUnits = this.getAvailableUnits(site);
-                if (this.hasAnyUnits(availableUnits)) {
-                    // Find existing banking for this site
-                    const existingBanking = bankingUnits?.find(b => b.productionSiteId === site.productionSiteId);
-                    
-                    // First try to use units for direct allocation
-                    const consumptionAllocs = this.allocateToConsumptionSites(
-                        site, availableUnits, consumptionSites, sitePercentages, consumptionNeeds, companyId
-                    );
-
-                    if (consumptionAllocs.length > 0) {
-                        allocations.push(...consumptionAllocs);
-                        this.updateConsumptionNeeds(consumptionNeeds, consumptionAllocs);
-                    }
-
-                    // Bank remaining units
-                    const remainingUnits = this.getRemainingUnits(availableUnits);
-                    if (this.hasAnyUnits(remainingUnits)) {
-                        const bankingAlloc = this.createBankingAllocation(
-                            site, 
-                            remainingUnits,
-                            existingBanking,
-                            companyId
-                        );
-                        bankingAllocations.push(bankingAlloc);
-                    }
-                }
-            }
-
-            // 3. Process regular wind sites (no banking)
-            const nonBankingWindSites = productionSites.filter(site => 
-                site.type?.toLowerCase() === 'wind' && site.banking !== 1
-            );
-            this.processNonBankingSites(nonBankingWindSites, consumptionNeeds, sitePercentages, allocations, lapseAllocations, companyId);
-
-            // 4. Use banked units for remaining needs
-            if (this.hasRemainingNeeds(consumptionNeeds) && bankingAllocations.length > 0) {
-                this.processBankedUnits(bankingAllocations, consumptionNeeds, sitePercentages, consumptionSites, allocations, companyId);
-            }
-
-            return {
-                allocations,
-                bankingAllocations,
-                lapseAllocations
-            };
-        } catch (error) {
-            logger.error('Allocation Calculator Error:', error);
-            throw error;
-        }
-    }
-
-    createBankingAllocation(site, units, existingBanking, companyId = '1') {
-        const normalizedUnits = this.normalizeAllocatedValues(units);
-        const previousBalance = existingBanking || {};
-        
-        // Calculate net banking
-        const bankingUnits = {};
-        this.ALL_PERIODS.forEach(period => {
-            const currentUnits = Number(normalizedUnits[period] || 0);
-            const existingUnits = Number(previousBalance[period] || 0);
-            bankingUnits[period] = currentUnits + existingUnits; // Accumulate banking
-        });
-
-        return {
-            productionSiteId: site.productionSiteId,
-            productionSiteName: site.siteName,
-            pk: `${companyId}_${site.productionSiteId}`,
-            allocated: bankingUnits,
-            previousBalance: previousBalance,
-            type: 'BANKING',
-            bankingEnabled: true
-        };
-    }
-
-    normalizeAllocatedValues(allocated = {}) {
-        return this.ALL_PERIODS.reduce((acc, period) => {
-            acc[period] = Math.round(Number(allocated[period] || 0));
-            return acc;
-        }, {});
-    }
-
-    calculateConsumptionNeeds(consumptionSites) {
-        const needs = {};
-        for (const site of consumptionSites) {
-            needs[site.consumptionSiteId] = {
-                siteName: site.siteName,
-                peak: {},
-                nonPeak: {},
-                total: {
-                    peak: 0,
-                    nonPeak: 0
-                }
-            };
-
-            // Calculate peak period needs
-            for (const period of this.PEAK_PERIODS) {
-                const amount = Math.round(Number(site[period] || 0));
-                needs[site.consumptionSiteId].peak[period] = amount;
-                needs[site.consumptionSiteId].total.peak += amount;
-            }
-
-            // Calculate non-peak period needs
-            for (const period of this.NON_PEAK_PERIODS) {
-                const amount = Math.round(Number(site[period] || 0));
-                needs[site.consumptionSiteId].nonPeak[period] = amount;
-                needs[site.consumptionSiteId].total.nonPeak += amount;
-            }
-        }
-        return needs;
-    }
-
-    updateConsumptionNeeds(needs, allocations) {
-        for (const allocation of allocations) {
-            const siteNeeds = needs[allocation.consumptionSiteId];
-            if (siteNeeds) {
-                for (const period of this.ALL_PERIODS) {
-                    const allocated = Math.round(Number(allocation.allocated[period] || 0));
-                    if (this.PEAK_PERIODS.includes(period)) {
-                        siteNeeds.peak[period] = Math.max(0, siteNeeds.peak[period] - allocated);
-                        siteNeeds.total.peak = Math.max(0, siteNeeds.total.peak - allocated);
-                    } else {
-                        siteNeeds.nonPeak[period] = Math.max(0, siteNeeds.nonPeak[period] - allocated);
-                        siteNeeds.total.nonPeak = Math.max(0, siteNeeds.total.nonPeak - allocated);
-                    }
-                }
-            }
-        }
-    }
-
-    allocateToConsumptionSites(productionSite, availableUnits, consumptionSites, sitePercentages, consumptionNeeds, companyId = '1') {
-        const allocations = [];
-        const units = { ...availableUnits };
-
-        // Sort consumption sites by their allocation percentage and remaining needs
-        const sortedSites = [...consumptionSites].sort((a, b) => {
-            const aNeeds = consumptionNeeds[a.consumptionSiteId];
-            const bNeeds = consumptionNeeds[b.consumptionSiteId];
-            const aPercentage = sitePercentages[a.siteName]?.percentage || 0;
-            const bPercentage = sitePercentages[b.siteName]?.percentage || 0;
-            
-            // Prioritize sites with higher remaining needs and allocation percentage
-            const aTotalNeeds = (aNeeds?.total.peak || 0) + (aNeeds?.total.nonPeak || 0);
-            const bTotalNeeds = (bNeeds?.total.peak || 0) + (bNeeds?.total.nonPeak || 0);
-            
-            if (aTotalNeeds === 0 && bTotalNeeds === 0) return bPercentage - aPercentage;
-            if (aTotalNeeds === 0) return 1;
-            if (bTotalNeeds === 0) return -1;
-            
-            return bTotalNeeds * bPercentage - aTotalNeeds * aPercentage;
-        });
-
-        for (const consumptionSite of sortedSites) {
-            const siteNeeds = consumptionNeeds[consumptionSite.consumptionSiteId];
-            if (!siteNeeds || (siteNeeds.total.peak === 0 && siteNeeds.total.nonPeak === 0)) {
-                continue;
-            }
-
-            const allocation = this.calculateSingleAllocation(
-                productionSite,
-                consumptionSite,
-                units,
-                sitePercentages[consumptionSite.siteName]?.percentage || 0,
-                siteNeeds,
-                companyId
-            );
-
-            if (allocation) {
-                allocations.push(allocation);
-                // Update remaining units
-                for (const period of this.ALL_PERIODS) {
-                    units[period] = Math.round(Number(units[period] || 0)) - 
-                                  Math.round(Number(allocation.allocated[period] || 0));
-                }
-            }
-        }
-
-        return allocations;
-    }
-
-    calculateSingleAllocation(productionSite, consumptionSite, availableUnits, allocationPercentage, siteNeeds, companyId = '1') {
+  // Allocate to consumption demands with priority
+  [solarUnits, windUnits, bankingWindUnits, bankUnits].forEach(group => {
+    group.forEach(prod => {
+      // First allocate to the first selected site
+      const firstSite = sortedConsUnits[0];
+      if (firstSite && (!prod.month || prod.month === firstSite.month)) {
         const allocation = {
-            productionSiteId: productionSite.productionSiteId,
-            consumptionSiteId: consumptionSite.consumptionSiteId,
-            pk: this.generatePK(companyId, productionSite.productionSiteId, consumptionSite.consumptionSiteId),
-            allocated: {}
+          productionSiteId: prod.productionSiteId,
+          productionSite: prod.productionSite,
+          siteType: prod.type,
+          siteName: prod.siteName,
+          consumptionSiteId: firstSite.consumptionSiteId,
+          consumptionSite: firstSite.consumptionSite,
+          month: firstSite.month,
+          allocated: {}
         };
-
-        let hasAllocation = false;
-
-        // First try to satisfy peak period needs
-        for (const period of this.PEAK_PERIODS) {
-            const available = Math.round(Number(availableUnits[period] || 0));
-            const required = Math.round(Number(siteNeeds.peak[period] || 0));
-
-            if (available > 0 && required > 0) {
-                const allocated = Math.min(available, required);
-                if (allocated > 0) {
-                    allocation.allocated[period] = allocated;
-                    hasAllocation = true;
-                }
+        let anyAlloc = false;
+        ALL_PERIODS.forEach(period => {
+          let alloc = 0;
+          const demand = firstSite.remaining[period];
+          if (demand > 0) {
+            if (NON_PEAK_PERIODS.includes(period)) {
+              const same = Math.min(prod.remaining[period], demand);
+              alloc += same;
+              prod.remaining[period] -= same;
+              firstSite.remaining[period] -= same;
+              if (firstSite.remaining[period] > 0) {
+                PEAK_PERIODS.forEach(peak => {
+                  if (firstSite.remaining[period] <= 0) return;
+                  const palloc = Math.min(prod.remaining[peak], firstSite.remaining[period]);
+                  alloc += palloc;
+                  prod.remaining[peak] -= palloc;
+                  firstSite.remaining[period] -= palloc;
+                });
+              }
+            } else {
+              const same = Math.min(prod.remaining[period], demand);
+              alloc += same;
+              prod.remaining[period] -= same;
+              firstSite.remaining[period] -= same;
             }
-        }
+          }
+          allocation.allocated[period] = alloc;
+          if (alloc > 0) anyAlloc = true;
+        });
+        if (anyAlloc) allocations.push(allocation);
+      }
 
-        // Then try to use remaining peak units for non-peak needs (peak can be used for non-peak)
-        const remainingPeakUnits = {};
-        for (const period of this.PEAK_PERIODS) {
-            remainingPeakUnits[period] = Math.round(Number(availableUnits[period] || 0)) - 
-                                       Math.round(Number(allocation.allocated[period] || 0));
-        }
-
-        for (const period of this.NON_PEAK_PERIODS) {
-            const required = Math.round(Number(siteNeeds.nonPeak[period] || 0));
-            if (required > 0) {
-                // First try to use non-peak units
-                let allocated = 0;
-                const availableNonPeak = Math.round(Number(availableUnits[period] || 0));
-                
-                if (availableNonPeak > 0) {
-                    allocated = Math.min(availableNonPeak, required);
-                    if (allocated > 0) {
-                        allocation.allocated[period] = allocated;
-                        hasAllocation = true;
-                    }
-                }
-
-                // If still need more, try to use remaining peak units
-                const remainingNeed = required - allocated;
-                if (remainingNeed > 0) {
-                    for (const peakPeriod of this.PEAK_PERIODS) {
-                        const availablePeak = remainingPeakUnits[peakPeriod];
-                        if (availablePeak > 0) {
-                            const peakAllocation = Math.min(availablePeak, remainingNeed);
-                            if (peakAllocation > 0) {
-                                allocation.allocated[period] = (allocation.allocated[period] || 0) + peakAllocation;
-                                remainingPeakUnits[peakPeriod] -= peakAllocation;
-                                hasAllocation = true;
-                                break;
-                            }
-                        }
-                    }
-                }
+      // Then allocate remaining units to other sites
+      sortedConsUnits.slice(1).forEach(cons => {
+        if (prod.month && cons.month && prod.month !== cons.month) return;
+        const allocation = {
+          productionSiteId: prod.productionSiteId,
+          productionSite: prod.productionSite,
+          siteType: prod.type,
+          siteName: prod.siteName,
+          consumptionSiteId: cons.consumptionSiteId,
+          consumptionSite: cons.consumptionSite,
+          month: cons.month,
+          allocated: {}
+        };
+        let anyAlloc = false;
+        ALL_PERIODS.forEach(period => {
+          let alloc = 0;
+          const demand = cons.remaining[period];
+          if (demand > 0) {
+            if (NON_PEAK_PERIODS.includes(period)) {
+              const same = Math.min(prod.remaining[period], demand);
+              alloc += same;
+              prod.remaining[period] -= same;
+              cons.remaining[period] -= same;
+              if (cons.remaining[period] > 0) {
+                PEAK_PERIODS.forEach(peak => {
+                  if (cons.remaining[period] <= 0) return;
+                  const palloc = Math.min(prod.remaining[peak], cons.remaining[period]);
+                  alloc += palloc;
+                  prod.remaining[peak] -= palloc;
+                  cons.remaining[period] -= palloc;
+                });
+              }
+            } else {
+              const same = Math.min(prod.remaining[period], demand);
+              alloc += same;
+              prod.remaining[period] -= same;
+              cons.remaining[period] -= same;
             }
-        }
+          }
+          allocation.allocated[period] = alloc;
+          if (alloc > 0) anyAlloc = true;
+        });
+        if (anyAlloc) allocations.push(allocation);
+      });
+    });
+  });
 
-        return hasAllocation ? allocation : null;
-    }
+  // Handle leftover: banking then lapse
+  [...bankingWindUnits, ...bankUnits].forEach(prod => {
+    const total = ALL_PERIODS.reduce((s, p) => s + prod.remaining[p], 0);
+    if (total > 0) bankingAllocations.push({
+      productionSiteId: prod.productionSiteId,
+      productionSite: prod.productionSite,
+      siteType: prod.type,
+      siteName: prod.siteName,
+      month: prod.month,
+      allocated: { ...prod.remaining }
+    });
+  });
+  [...solarUnits, ...windUnits].forEach(prod => {
+    const total = ALL_PERIODS.reduce((s, p) => s + prod.remaining[p], 0);
+    if (total > 0) lapseAllocations.push({
+      productionSiteId: prod.productionSiteId,
+      productionSite: prod.productionSite,
+      siteType: prod.type,
+      siteName: prod.siteName,
+      month: prod.month,
+      allocated: { ...prod.remaining }
+    });
+  });
 
-    generatePK(companyId, productionSiteId, consumptionSiteId) {
-        return `${companyId}_${productionSiteId}_${consumptionSiteId}`;
-    }
-
-    prepareSitePercentages(consumptionSites) {
-        const total = consumptionSites.reduce((sum, site) => sum + calculateTotal(site), 0);
-        return consumptionSites.reduce((acc, site) => {
-            acc[site.siteName] = {
-                percentage: total > 0 ? (calculateTotal(site) / total) * 100 : 0
-            };
-            return acc;
-        }, {});
-    }
-
-    hasRemainingNeeds(needs) {
-        return Object.values(needs).some(siteNeeds => 
-            siteNeeds.total.peak > 0 || siteNeeds.total.nonPeak > 0
-        );
-    }
-
-    getAvailableUnits(site) {
-        return this.ALL_PERIODS.reduce((acc, period) => {
-            acc[period] = Math.round(Number(site[period] || 0));
-            return acc;
-        }, {});
-    }
-
-    hasAnyUnits(units) {
-        return this.ALL_PERIODS.some(period => Math.round(Number(units[period] || 0)) > 0);
-    }
-
-    getRemainingUnits(units) {
-        return this.ALL_PERIODS.reduce((acc, period) => {
-            acc[period] = Math.round(Number(units[period] || 0));
-            return acc;
-        }, {});
-    }
-
-    processSolarSites(solarSites, consumptionNeeds, sitePercentages, allocations, lapseAllocations, companyId) {
-        for (const site of solarSites) {
-            const availableUnits = this.getAvailableUnits(site);
-            if (this.hasAnyUnits(availableUnits)) {
-                const consumptionAllocs = this.allocateToConsumptionSites(
-                    site, availableUnits, consumptionSites, sitePercentages, consumptionNeeds, companyId
-                );
-
-                allocations.push(...consumptionAllocs);
-                this.updateConsumptionNeeds(consumptionNeeds, consumptionAllocs);
-
-                const remainingUnits = this.getRemainingUnits(availableUnits);
-                if (this.hasAnyUnits(remainingUnits)) {
-                    lapseAllocations.push(this.createLapseAllocation(site, remainingUnits, companyId));
-                }
-            }
-        }
-    }
-
-    processNonBankingSites(nonBankingWindSites, consumptionNeeds, sitePercentages, allocations, lapseAllocations, companyId) {
-        for (const site of nonBankingWindSites) {
-            const availableUnits = this.getAvailableUnits(site);
-            if (this.hasAnyUnits(availableUnits)) {
-                const consumptionAllocs = this.allocateToConsumptionSites(
-                    site, availableUnits, consumptionSites, sitePercentages, consumptionNeeds, companyId
-                );
-
-                allocations.push(...consumptionAllocs);
-                this.updateConsumptionNeeds(consumptionNeeds, consumptionAllocs);
-
-                const remainingUnits = this.getRemainingUnits(availableUnits);
-                if (this.hasAnyUnits(remainingUnits)) {
-                    lapseAllocations.push(this.createLapseAllocation(site, remainingUnits, companyId));
-                }
-            }
-        }
-    }
-
-    processBankedUnits(bankingAllocations, consumptionNeeds, sitePercentages, consumptionSites, allocations, companyId) {
-        for (const bankingAllocation of bankingAllocations) {
-            const availableUnits = this.normalizeAllocatedValues(bankingAllocation.allocated);
-            if (this.hasAnyUnits(availableUnits)) {
-                const consumptionAllocs = this.allocateToConsumptionSites(
-                    { productionSiteId: bankingAllocation.productionSiteId, siteName: bankingAllocation.siteName },
-                    availableUnits,
-                    consumptionSites,
-                    sitePercentages,
-                    consumptionNeeds,
-                    companyId
-                );
-
-                if (consumptionAllocs.length > 0) {
-                    allocations.push(...consumptionAllocs);
-                    this.updateConsumptionNeeds(consumptionNeeds, consumptionAllocs);
-                }
-            }
-        }
-    }
+  return { allocations, bankingAllocations, lapseAllocations };
 }
-
-module.exports = new AllocationCalculatorService();
