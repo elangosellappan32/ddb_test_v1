@@ -15,4 +15,10 @@ router.get('/shareholder/:shareholderCompanyId', captiveController.getCaptiveEnt
 // Get specific Captive entry
 router.get('/:generatorCompanyId/:shareholderCompanyId', captiveController.getCaptiveEntry);
 
+// Update existing Captive entry
+router.put('/:generatorCompanyId/:shareholderCompanyId', captiveController.updateCaptiveEntry);
+
+// Create new Captive entry
+router.post('/', captiveController.createCaptiveEntry);
+
 module.exports = router;

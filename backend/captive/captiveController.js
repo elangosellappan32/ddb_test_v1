@@ -64,3 +64,69 @@ exports.getAllCaptives = async (req, res) => {
         });
     }
 };
+
+// Update Captive entry
+exports.updateCaptiveEntry = async (req, res) => {
+    try {
+        const { generatorCompanyId, shareholderCompanyId } = req.params;
+        const { effectiveFrom, shareholdingPercentage, consumptionSiteId } = req.body;
+
+        // Update the entry
+        const updatedEntry = await captiveDAL.updateCaptive(
+            Number(generatorCompanyId),
+            Number(shareholderCompanyId),
+            effectiveFrom,
+            shareholdingPercentage,
+            consumptionSiteId
+        );
+
+        if (!updatedEntry) {
+            return res.status(404).json({
+                success: false,
+                message: 'Captive entry not found'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Captive entry updated successfully',
+            data: updatedEntry
+        });
+    } catch (error) {
+        logger.error('Controller error in updateCaptiveEntry:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error updating Captive entry',
+            error: error.message
+        });
+    }
+};
+
+// Create new Captive entry
+exports.createCaptiveEntry = async (req, res) => {
+    try {
+        const { generatorCompanyId, shareholderCompanyId, effectiveFrom, shareholdingPercentage, consumptionSiteId } = req.body;
+
+        // Create the entry
+        const newEntry = await captiveDAL.createCaptive(
+            Number(generatorCompanyId),
+            Number(shareholderCompanyId),
+            effectiveFrom,
+            shareholdingPercentage,
+            consumptionSiteId
+        );
+
+        res.status(201).json({
+            success: true,
+            message: 'Captive entry created successfully',
+            data: newEntry
+        });
+    } catch (error) {
+        logger.error('Controller error in createCaptiveEntry:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error creating Captive entry',
+            error: error.message
+        });
+    }
+};

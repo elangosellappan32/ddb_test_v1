@@ -25,6 +25,17 @@ export const API_CONFIG = {
             VERIFY: '/auth/verify',
             GET_CURRENT_USER: '/auth/me'
         },
+        CAPTIVE: {
+            BASE: '/captive',
+            GET_ALL: '/captive/all',
+            GET_BY_GENERATOR_SHAREHOLDER: (generatorCompanyId, shareholderCompanyId) => 
+                `/captive/${generatorCompanyId}/${shareholderCompanyId}`,
+            CREATE: '/captive',
+            UPDATE: (generatorCompanyId, shareholderCompanyId) => 
+                `/captive/${generatorCompanyId}/${shareholderCompanyId}`,
+            DELETE: (generatorCompanyId, shareholderCompanyId) => 
+                `/captive/${generatorCompanyId}/${shareholderCompanyId}`
+        },
         ROLES: {
             BASE: '/roles',
             GET_ALL: '/roles/all',
