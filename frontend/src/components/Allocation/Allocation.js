@@ -1012,6 +1012,7 @@ const Allocation = () => {
           <TextField
             select
             size="small"
+            id="month-selector"
             label="Month"
             value={selectedMonth}
             onChange={handleMonthChange}
