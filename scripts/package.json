@@ -2,7 +2,8 @@
   "name": "db-init-scripts",
   "version": "1.0.0",
   "dependencies": {
-    "aws-sdk": "^2.1001.0",
+    "@aws-sdk/client-dynamodb": "^3.478.0",
+    "@aws-sdk/lib-dynamodb": "^3.478.0",
     "bcryptjs": "^2.4.3",
     "db-init-scripts": "file:"
   }

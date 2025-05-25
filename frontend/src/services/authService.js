@@ -1,30 +1,32 @@
 import api from './apiUtils';
+import { API_MESSAGES } from '../config/api.config';
+import { hasPermission } from '../utils/permissions';
 
 const TOKEN_KEY = 'auth_token';
 const USER_KEY = 'auth_user';
 
-// Role permissions mapping
-const ROLE_PERMISSIONS = {
-    admin: ['CREATE', 'READ', 'UPDATE', 'DELETE'],
-    user: ['CREATE', 'READ', 'UPDATE'],
-    viewer: ['READ']
-};
-
 const authService = {
     login: async (username, password) => {
         try {
+            console.info('Attempting login...');
             const response = await api.post('/auth/login', { 
                 username, 
                 password 
             });
 
             if (response.data?.success) {
+                const { token, user } = response.data;
                 const userData = {
-                    ...response.data.user,
-                    permissions: response.data.user.permissions || {}
+                    username: user.username,
+                    email: user.email,
+                    roleId: user.roleId,
+                    roleName: user.roleName,
+                    role: user.roleName?.toLowerCase(),
+                    permissions: user.permissions,
+                    metadata: user.metadata
                 };
 
-                localStorage.setItem(TOKEN_KEY, response.data.token);
+                localStorage.setItem(TOKEN_KEY, token);
                 localStorage.setItem(USER_KEY, JSON.stringify(userData));
                 
                 return {
@@ -33,10 +35,13 @@ const authService = {
                 };
             }
 
-            throw new Error(response.data?.message || 'Login failed');
+            throw new Error(response.data?.message || API_MESSAGES.AUTH.LOGIN_FAILED);
         } catch (error) {
             console.error('Login error:', error);
-            throw new Error(error.response?.data?.message || 'Invalid credentials');
+            if (error.response?.status === 404) {
+                throw new Error('Login service is temporarily unavailable. Please try again later.');
+            }
+            throw new Error(error.response?.data?.message || API_MESSAGES.AUTH.LOGIN_FAILED);
         }
     },
 
@@ -59,9 +64,34 @@ const authService = {
 
     isAuthenticated: () => !!localStorage.getItem(TOKEN_KEY),
 
-    hasPermission: (permission) => {
+    isAdmin: () => {
         const user = authService.getCurrentUser();
-        return user?.permissions?.includes(permission) || false;
+        return user?.role?.toUpperCase() === 'ADMIN';
+    },
+
+    hasRole: (role) => {
+        const user = authService.getCurrentUser();
+        return user?.role?.toUpperCase() === role.toUpperCase();
+    },
+
+    hasPermission: (resource, action) => {
+        const user = authService.getCurrentUser();
+        if (!user || !user.role) {
+            return false;
+        }
+        return hasPermission(user, resource, action);
+    },
+
+    // Useful helper methods for checking specific permissions
+    canCreate: (resource) => authService.hasPermission(resource, 'CREATE'),
+    canRead: (resource) => authService.hasPermission(resource, 'READ'),
+    canUpdate: (resource) => authService.hasPermission(resource, 'UPDATE'),
+    canDelete: (resource) => authService.hasPermission(resource, 'DELETE'),
+    
+    // Method to check if user has any of the given permissions
+    hasAnyPermission: (resource, actions) => {
+        const user = authService.getCurrentUser();
+        return actions.some(action => hasPermission(user, resource, action));
     }
 };
 

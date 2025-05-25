@@ -19,42 +19,13 @@ const docClient = DynamoDBDocumentClient.from(client);
 const timestamp = new Date().toISOString();
 
 const createRoleTable = async () => {
-    try {
-        // Check if table already exists
-        await client.send(new DescribeTableCommand({ TableName: 'RoleTable' }));
-        console.log('RoleTable already exists, skipping creation');
-        return;
-    } catch (error) {
-        if (error.name !== 'ResourceNotFoundException') {
-            throw error;
-        }
-    }
-
     const params = {
         TableName: 'RoleTable',
         KeySchema: [
-            { AttributeName: 'roleId', KeyType: 'HASH' },
-            { AttributeName: 'username', KeyType: 'RANGE' }
+            { AttributeName: 'roleId', KeyType: 'HASH' }
         ],
         AttributeDefinitions: [
-            { AttributeName: 'roleId', AttributeType: 'S' },
-            { AttributeName: 'username', AttributeType: 'S' },
-            { AttributeName: 'email', AttributeType: 'S' }
-        ],
-        GlobalSecondaryIndexes: [
-            {
-                IndexName: 'EmailIndex',
-                KeySchema: [
-                    { AttributeName: 'email', KeyType: 'HASH' }
-                ],
-                Projection: {
-                    ProjectionType: 'ALL'
-                },
-                ProvisionedThroughput: {
-                    ReadCapacityUnits: 5,
-                    WriteCapacityUnits: 5
-                }
-            }
+            { AttributeName: 'roleId', AttributeType: 'S' }
         ],
         ProvisionedThroughput: {
             ReadCapacityUnits: 5,
@@ -64,10 +35,85 @@ const createRoleTable = async () => {
 
     try {
         await client.send(new CreateTableCommand(params));
-        console.log('RoleTable created successfully');
+        console.log('Created RoleTable');
+
+        // Insert default roles
+        const defaultRoles = [
+            {
+                roleId: 'ROLE-1',
+                roleName: 'admin',
+                description: 'Administrator role with full access',
+                permissions: {
+                    production: ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+                    'production-units': ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+                    'production-charges': ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+                    'consumption': ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+                    'consumption-units': ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+                    users: ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+                    roles: ['READ']
+                },
+                metadata: {
+                    accessLevel: 'Full',
+                    isSystemRole: true
+                },
+                createdAt: timestamp,
+                updatedAt: timestamp
+            },
+            {
+                roleId: 'ROLE-2',
+                roleName: 'user',
+                description: 'Standard user with basic access',
+                permissions: {
+                    production: ['READ', 'UPDATE'],
+                    'production-units': ['READ', 'UPDATE'],
+                    'production-charges': ['READ', 'UPDATE'],
+                    'consumption': ['READ', 'UPDATE'],
+                    'consumption-units': ['READ', 'UPDATE'],
+                    users: ['READ'],
+                    roles: ['READ']
+                },
+                metadata: {
+                    accessLevel: 'Standard',
+                    isSystemRole: true
+                },
+                createdAt: timestamp,
+                updatedAt: timestamp
+            },
+            {
+                roleId: 'ROLE-3',
+                roleName: 'viewer',
+                description: 'Read-only access',
+                permissions: {
+                    production: ['READ'],
+                    'production-units': ['READ'],
+                    'production-charges': ['READ'],
+                    'consumption': ['READ'],
+                    'consumption-units': ['READ'],
+                    users: ['READ'],
+                    roles: ['READ']
+                },
+                metadata: {
+                    accessLevel: 'Basic',
+                    isSystemRole: true
+                },
+                createdAt: timestamp,
+                updatedAt: timestamp
+            }
+        ];
+
+        for (const role of defaultRoles) {
+            await docClient.send(new PutCommand({
+                TableName: 'RoleTable',
+                Item: role
+            }));
+        }
+        console.log('Added default roles to RoleTable');
     } catch (error) {
-        console.error('Error creating RoleTable:', error);
-        throw error;
+        if (error.name === 'ResourceInUseException') {
+            console.log('RoleTable already exists');
+        } else {
+            throw error;
+        }
     }
 };
 
@@ -535,6 +581,16 @@ const createDefaultCompanies = async () => {
             emailId: 'info@aramarandsons.com',
             contactPerson: 'Suresh Ramar',
             managingDirector: 'Ramesh Ramar'
+        },
+        {
+            companyId: 5,  // Using numeric ID for SMR Energy
+            companyName: 'SMR ENERGY',
+            type: 'generator',
+            address: '123 Energy Street, Chennai, Tamil Nadu 600001',
+            mobile: '+91 9876543210',
+            emailId: 'smr@energy.com',
+            contactPerson: 'SMR Admin',
+            managingDirector: 'Dr. SMR Sharma'
         }
     ];
 
@@ -551,10 +607,60 @@ const createDefaultCompanies = async () => {
     }
 };
 
+const createUserTable = async () => {
+    const params = {
+        TableName: TableNames.USERS,
+        KeySchema: [
+            { AttributeName: 'username', KeyType: 'HASH' }
+        ],
+        AttributeDefinitions: [
+            { AttributeName: 'username', AttributeType: 'S' }
+        ],
+        ProvisionedThroughput: {
+            ReadCapacityUnits: 5,
+            WriteCapacityUnits: 5
+        }
+    };
+
+    try {
+        await client.send(new CreateTableCommand(params));
+        console.log('Created UserTable');
+
+        // Insert default admin user
+        const defaultUser = {
+            username: 'admin',
+            email: 'admin@example.com',
+            password: '$2b$10$default_hashed_password', // This should be properly hashed in production
+            roleId: 'ROLE-1', // Admin role
+            metadata: {
+                department: 'IT',
+                accessLevel: 'Full',
+                lastPasswordChange: timestamp
+            },
+            isActive: true,
+            version: 1,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            lastLogin: null
+        };
+
+        await docClient.send(new PutCommand({
+            TableName: TableNames.USERS,
+            Item: defaultUser
+        }));
+        console.log('Added default admin user to UserTable');
+    } catch (error) {
+        if (error.name === 'ResourceInUseException') {
+            console.log('UserTable already exists');
+        } else {
+            throw error;
+        }
+    }
+};
+
 const createDefaultUsers = async () => {
     const users = [
         {
-            roleId: 'ROLE-1',
             username: 'strio_admin',
             email: 'admin@strio.com',
             password: 'admin123',
@@ -571,7 +677,6 @@ const createDefaultUsers = async () => {
             ttl: 0
         },
         {
-            roleId: 'ROLE-2',
             username: 'strio_user',
             email: 'user@strio.com',
             password: 'user123',
@@ -588,7 +693,6 @@ const createDefaultUsers = async () => {
             ttl: 0
         },
         {
-            roleId: 'ROLE-3',
             username: 'strio_viewer',
             email: 'viewer@strio.com',
             password: 'viewer123',
@@ -603,13 +707,27 @@ const createDefaultUsers = async () => {
             updatedAt: timestamp,
             lastLogin: timestamp,
             ttl: 0
+        },
+        {
+            userId: 'USER-SMR',
+            username: 'smr_energy',
+            email: 'smr@energy.com',
+            password: '$2b$10$5QqnPz3LcDvxFBaqBWQT2.AzQlHs4Jy5vgqQT3TvO7nZzJ2RPsW2.',  // hashed password for 'password123'
+            roles: ['ROLE-1', 'ROLE-2', 'ROLE-3'],  // All three roles: admin, user, viewer
+            active: true,
+            metadata: {
+                company: 'SMR ENERGY',
+                lastLogin: null
+            },
+            createdAt: timestamp,
+            updatedAt: timestamp
         }
     ];
 
     for (const user of users) {
         try {
             await docClient.send(new PutCommand({
-                TableName: 'RoleTable',
+                TableName: 'UserTable',
                 Item: user
             }));
             console.log(`Created user: ${user.username}`);
@@ -621,6 +739,7 @@ const createDefaultUsers = async () => {
 
 const init = async () => {
     await createRoleTable();
+    await createUserTable();
     await createBankingTable();
     await createAllocationTable();
     await createCompanyTable();

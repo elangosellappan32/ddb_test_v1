@@ -10,36 +10,27 @@ class AuthController {
     async login(username, password) {
         try {
             logger.info(`Login attempt for user: ${username}`);
-            
-            // Get user from RoleTable
-            const userData = await this.authDal.getUserFromRoleTable(username);
-            
+            // Get user from UserTable
+            const userData = await this.authDal.getUserFromUserTable(username);
             if (!userData) {
                 throw new Error('User not found');
             }
-
-            // Check password
             if (userData.password !== password) {
                 throw new Error('Invalid credentials');
             }
-
-            // Set permissions based on role
-            const permissions = userData.role === 'admin' 
+            const permissions = userData.metadata?.permissions || (userData.role === 'admin' 
                 ? ['CREATE', 'READ', 'UPDATE', 'DELETE']
-                : ['READ'];
-
-            // Generate token
+                : ['READ']);
             const token = jwt.sign(
-                { 
+                {
                     username,
                     role: userData.role,
                     permissions,
-                    emailId: userData.emailId
+                    emailId: userData.email
                 },
                 process.env.JWT_SECRET || 'your-secret-key',
                 { expiresIn: '24h' }
             );
-
             return {
                 success: true,
                 token,
@@ -47,7 +38,7 @@ class AuthController {
                     username,
                     role: userData.role,
                     permissions,
-                    emailId: userData.emailId
+                    emailId: userData.email
                 }
             };
         } catch (error) {

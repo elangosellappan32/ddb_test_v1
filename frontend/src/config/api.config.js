@@ -1,4 +1,4 @@
-export const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3333/api';
+export const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3333';
 
 export const API_CONFIG = {
     BASE_URL: API_BASE_URL,
@@ -6,6 +6,7 @@ export const API_CONFIG = {
     RETRY_ATTEMPTS: 3,
     RETRY_DELAY: 1000,
     TABLES: {
+        USER: 'UserTable',
         ROLE: 'RoleTable',
         COMPANY: 'CompanyTable',
         CAPTATIVE: 'CaptativeTable',
@@ -189,30 +190,51 @@ export const ROLES = {
 
 export const ROLE_PERMISSIONS = {
     [ROLES.ADMIN]: {
-        canCreateUser: true,
-        canUpdateRole: true,
-        canDeleteUser: true,
-        canViewAllUsers: true,
-        canUpdatePassword: true,
-        canAccessProduction: true,
-        roleId: 'ROLE-1'
+        roleId: 'ROLE-1',
+        permissions: {
+            production: ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+            'production-units': ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+            'production-charges': ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+            'consumption': ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+            'consumption-units': ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+            users: ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+            roles: ['READ']
+        },
+        metadata: {
+            accessLevel: 'Full',
+            isSystemRole: true
+        }
     },
     [ROLES.USER]: {
-        canCreateUser: false,
-        canUpdateRole: false,
-        canDeleteUser: false,
-        canViewAllUsers: false,
-        canUpdatePassword: true,
-        canAccessProduction: true,
-        roleId: 'ROLE-2'
+        roleId: 'ROLE-2',
+        permissions: {
+            production: ['READ', 'UPDATE'],
+            'production-units': ['READ', 'UPDATE'],
+            'production-charges': ['READ', 'UPDATE'],
+            'consumption': ['READ', 'UPDATE'],
+            'consumption-units': ['READ', 'UPDATE'],
+            users: ['READ'],
+            roles: ['READ']
+        },
+        metadata: {
+            accessLevel: 'Standard',
+            isSystemRole: true
+        }
     },
     [ROLES.VIEWER]: {
-        canCreateUser: false,
-        canUpdateRole: false,
-        canDeleteUser: false,
-        canViewAllUsers: false,
-        canUpdatePassword: true,
-        canAccessProduction: false,
-        roleId: 'ROLE-3'
+        roleId: 'ROLE-3',
+        permissions: {
+            production: ['READ'],
+            'production-units': ['READ'],
+            'production-charges': ['READ'],
+            'consumption': ['READ'],
+            'consumption-units': ['READ'],
+            users: ['READ'],
+            roles: ['READ']
+        },
+        metadata: {
+            accessLevel: 'Basic',
+            isSystemRole: true
+        }
     }
 };

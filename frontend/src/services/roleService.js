@@ -5,38 +5,72 @@ const roleService = {
     getAllRoles: async () => {
         try {
             const response = await api.get(`${API_CONFIG.ENDPOINTS.ROLES.GET_ALL}`);
-            return response.data;
+            // Only return roles, not user info
+            return response.data.map(role => ({
+                roleId: role.roleId,
+                roleName: role.roleName,
+                description: role.description,
+                permissions: role.permissions,
+                metadata: {
+                    accessLevel: role.metadata.accessLevel,
+                    isSystemRole: role.metadata.isSystemRole
+                }
+            }));
         } catch (error) {
             console.error('Error fetching roles:', error);
             return [
                 {
                     roleId: 'ROLE-1',
-                    username: 'strio_admin',
-                    role: 'admin',
+                    roleName: 'admin',
+                    description: 'Administrator role with full access',
+                    permissions: {
+                        production: ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+                        'production-units': ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+                        'production-charges': ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+                        'consumption': ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+                        'consumption-units': ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+                        users: ['CREATE', 'READ', 'UPDATE', 'DELETE'],
+                        roles: ['READ']
+                    },
                     metadata: {
-                        department: 'IT Administration',
                         accessLevel: 'Full',
-                        permissions: ['read', 'write', 'delete', 'admin']
+                        isSystemRole: true
                     }
                 },
                 {
                     roleId: 'ROLE-2',
-                    username: 'strio_user',
-                    role: 'user',
+                    roleName: 'user',
+                    description: 'Standard user with basic access',
+                    permissions: {
+                        production: ['READ', 'UPDATE'],
+                        'production-units': ['READ', 'UPDATE'],
+                        'production-charges': ['READ', 'UPDATE'],
+                        'consumption': ['READ', 'UPDATE'],
+                        'consumption-units': ['READ', 'UPDATE'],
+                        users: ['READ'],
+                        roles: ['READ']
+                    },
                     metadata: {
-                        department: 'Operations',
                         accessLevel: 'Standard',
-                        permissions: ['read', 'write']
+                        isSystemRole: true
                     }
                 },
                 {
                     roleId: 'ROLE-3',
-                    username: 'strio_viewer',
-                    role: 'viewer',
+                    roleName: 'viewer',
+                    description: 'Read-only access',
+                    permissions: {
+                        production: ['READ'],
+                        'production-units': ['READ'],
+                        'production-charges': ['READ'],
+                        'consumption': ['READ'],
+                        'consumption-units': ['READ'],
+                        users: ['READ'],
+                        roles: ['READ']
+                    },
                     metadata: {
-                        department: 'Monitoring',
                         accessLevel: 'Basic',
-                        permissions: ['read']
+                        isSystemRole: true
                     }
                 }
             ];
@@ -45,43 +79,34 @@ const roleService = {
 
     getRoleByUsername: async (username) => {
         try {
-            const response = await api.get(`${API_CONFIG.ENDPOINTS.ROLES.GET_BY_USERNAME(username)}`);
-            return response.data;
+            // First get the user to get their roleId
+            const userResponse = await api.get(`${API_CONFIG.ENDPOINTS.USERS.GET_BY_USERNAME(username)}`);
+            const roleId = userResponse.data.roleId;
+            
+            // Then get the role details
+            const roleResponse = await api.get(`${API_CONFIG.ENDPOINTS.ROLES.GET_BY_ID(roleId)}`);
+            return roleResponse.data;
         } catch (error) {
             console.error('Error fetching role:', error);
-            const defaultRoles = {
-                'strio_admin': {
-                    roleId: 'ROLE-1',
-                    username: 'strio_admin',
-                    role: 'admin',
-                    metadata: {
-                        department: 'IT Administration',
-                        accessLevel: 'Full',
-                        permissions: ['read', 'write', 'delete', 'admin']
-                    }
+            // Return a default user role as fallback
+            return {
+                roleId: 'ROLE-2',
+                roleName: 'user',
+                description: 'Standard user with basic access',
+                permissions: {
+                    production: ['READ', 'UPDATE'],
+                    'production-units': ['READ', 'UPDATE'],
+                    'production-charges': ['READ', 'UPDATE'],
+                    'consumption': ['READ', 'UPDATE'],
+                    'consumption-units': ['READ', 'UPDATE'],
+                    users: ['READ'],
+                    roles: ['READ']
                 },
-                'strio_user': {
-                    roleId: 'ROLE-2',
-                    username: 'strio_user',
-                    role: 'user',
-                    metadata: {
-                        department: 'Operations',
-                        accessLevel: 'Standard',
-                        permissions: ['read', 'write']
-                    }
-                },
-                'strio_viewer': {
-                    roleId: 'ROLE-3',
-                    username: 'strio_viewer',
-                    role: 'viewer',
-                    metadata: {
-                        department: 'Monitoring',
-                        accessLevel: 'Basic',
-                        permissions: ['read']
-                    }
+                metadata: {
+                    accessLevel: 'Standard',
+                    isSystemRole: true
                 }
             };
-            return defaultRoles[username] || defaultRoles['strio_user'];
         }
     }
 };

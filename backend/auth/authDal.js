@@ -4,91 +4,114 @@ const {
     ScanCommand,
     PutCommand,
     UpdateCommand,
-    QueryCommand
+    QueryCommand,
+    GetCommand
 } = require('@aws-sdk/lib-dynamodb');
 const logger = require('../utils/logger');
 
 class AuthDAL {
     constructor() {
-        const client = new DynamoDBClient({
-            endpoint: process.env.DYNAMODB_ENDPOINT || 'http://localhost:8000'
-        });
-        this.docClient = DynamoDBDocumentClient.from(client);
-        this.tableName = 'RoleTable';
+        try {
+            const client = new DynamoDBClient({
+                endpoint: process.env.DYNAMODB_ENDPOINT || 'http://localhost:8000',
+                maxAttempts: 3
+            });
+            this.docClient = DynamoDBDocumentClient.from(client);
+            this.userTable = 'UserTable';
+            this.roleTable = 'RoleTable';
+        } catch (error) {
+            logger.error('Failed to initialize DynamoDB client:', error);
+            throw new Error('Database connection failed');
+        }
     }
 
-    async getUserFromRoleTable(username) {
+    async validateTables() {
         try {
-            const command = new ScanCommand({
-                TableName: this.tableName,
-                FilterExpression: '#username = :username',
-                ExpressionAttributeNames: {
-                    '#username': 'username'
-                },
-                ExpressionAttributeValues: {
-                    ':username': username
-                }
-            });
-
-            const result = await this.docClient.send(command);
-            
-            if (!result.Items || result.Items.length === 0) {
-                return null;
-            }
-
-            const user = result.Items[0];
-            return {
-                username: user.username,
-                password: user.password,
-                role: user.role,
-                emailId: user.emailId,
-                version: user.version
-            };
+            // Test connection by attempting to scan with limit 1
+            await this.docClient.send(new ScanCommand({
+                TableName: this.userTable,
+                Limit: 1
+            }));
+            await this.docClient.send(new ScanCommand({
+                TableName: this.roleTable,
+                Limit: 1
+            }));
+            return true;
         } catch (error) {
-            logger.error('Get user error:', error);
-            throw new Error('Database error');
+            logger.error('Table validation failed:', error);
+            if (error.name === 'ResourceNotFoundException') {
+                throw new Error('Required database tables do not exist');
+            }
+            throw error;
         }
     }
 
     async getUserByUsername(username) {
         try {
-            // First get the roleId for the username
-            const queryParams = {
-                TableName: this.tableName,
-                KeyConditionExpression: 'roleId = :roleId',
-                FilterExpression: 'username = :username',
-                ExpressionAttributeValues: {
-                    ':roleId': this.getRoleIdByUsername(username),
-                    ':username': username
-                }
-            };
+            await this.validateTables();
+            const command = new GetCommand({
+                TableName: this.userTable,
+                Key: { username }
+            });
 
-            const command = new QueryCommand(queryParams);
-            const { Items } = await this.docClient.send(command);
-            return Items?.[0] || null;
+            const result = await this.docClient.send(command);
+            if (!result.Item) {
+                return null;
+            }
+
+            // Map the role field to roleId for consistency
+            const user = result.Item;
+            if (user.role && !user.roleId) {
+                // Convert role to roleId based on our schema
+                user.roleId = user.role === 'admin' ? 'ROLE-1' : 
+                             user.role === 'user' ? 'ROLE-2' : 'ROLE-3';
+            }
+            
+            return user;
         } catch (error) {
             logger.error('DAL Error - getUserByUsername:', error);
+            if (error.name === 'ResourceNotFoundException') {
+                throw new Error('User table not found');
+            } else if (error.name === 'NetworkingError') {
+                throw new Error('Database connection failed');
+            }
             throw error;
         }
     }
 
-    getRoleIdByUsername(username) {
-        switch (username) {
-            case 'strio_admin':
-                return 'ROLE-1';
-            case 'strio_user':
-                return 'ROLE-2';
-            case 'strio_viewer':
-                return 'ROLE-3';
-            default:
-                return 'ROLE-2'; // Default to user role
+    async getRoleById(roleId) {
+        try {
+            const command = new GetCommand({
+                TableName: this.roleTable,
+                Key: { roleId }
+            });
+
+            const result = await this.docClient.send(command);
+            if (!result.Item) {
+                return null;
+            }
+
+            // Return role without any user-specific data
+            return {
+                roleId: result.Item.roleId,
+                roleName: result.Item.roleName,
+                description: result.Item.description,
+                permissions: result.Item.permissions,
+                metadata: {
+                    accessLevel: result.Item.metadata.accessLevel,
+                    isSystemRole: result.Item.metadata.isSystemRole
+                }
+            };
+        } catch (error) {
+            logger.error('DAL Error - getRoleById:', error);
+            throw error;
         }
     }
 
     async getUserByEmail(email) {
         try {
             const command = new QueryCommand({
-                TableName: this.tableName,
+                TableName: this.userTable,
                 IndexName: 'EmailIndex',
                 KeyConditionExpression: 'email = :email',
                 ExpressionAttributeValues: {
@@ -97,7 +120,13 @@ class AuthDAL {
             });
 
             const response = await this.docClient.send(command);
-            return response.Items[0];
+            if (!response.Items.length) {
+                return null;
+            }
+
+            // Return user info without sensitive data
+            const { password, ...userWithoutPassword } = response.Items[0];
+            return userWithoutPassword;
         } catch (error) {
             logger.error('DAL Error - getUserByEmail:', error);
             throw error;
@@ -105,30 +134,33 @@ class AuthDAL {
     }
 
     async createUser(userData) {
-        if (!userData.username || !userData.password || !userData.role) {
-            throw new Error('Username, password and role are required');
+        if (!userData.username || !userData.password || !userData.roleId) {
+            throw new Error('Missing required user data');
+        }
+
+        // Verify role exists
+        const role = await this.getRoleById(userData.roleId);
+        if (!role) {
+            throw new Error('Invalid role ID');
         }
 
         const timestamp = new Date().toISOString();
-        const ttl = Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60); // 30 days
-
         const command = new PutCommand({
-            TableName: this.tableName,
+            TableName: this.userTable,
             Item: {
                 username: userData.username,
                 email: userData.email,
                 password: userData.password,
-                role: userData.role || 'user',
-                metadata: userData.metadata || {
-                    department: 'General',
-                    accessLevel: 'Basic',
-                    permissions: ['read']
+                roleId: userData.roleId,
+                metadata: {
+                    department: userData.metadata?.department || 'General',
+                    accessLevel: role.metadata.accessLevel
                 },
+                isActive: true,
                 version: 1,
                 createdAt: timestamp,
                 updatedAt: timestamp,
-                lastLogin: timestamp,
-                ttl: ttl
+                lastLogin: null
             },
             ConditionExpression: 'attribute_not_exists(username) AND attribute_not_exists(email)'
         });
@@ -137,18 +169,18 @@ class AuthDAL {
             await this.docClient.send(command);
             return { success: true };
         } catch (error) {
-            logger.error('DAL Error - createUser:', error);
+            logger.error('Create user error:', error);
             throw error;
         }
     }
 
     async updatePassword(username, hashedPassword) {
         if (!username || !hashedPassword) {
-            throw new Error('Username and new password are required');
+            throw new Error('Missing required data');
         }
 
         const command = new UpdateCommand({
-            TableName: this.tableName,
+            TableName: this.userTable,
             Key: { username },
             UpdateExpression: 'SET #pwd = :pwd, updatedAt = :updatedAt, version = version + :inc',
             ExpressionAttributeNames: {
@@ -164,20 +196,16 @@ class AuthDAL {
 
         try {
             await this.docClient.send(command);
-            logger.info(`Password updated for user: ${username}`);
-            return true;
+            return { success: true };
         } catch (error) {
-            if (error.name === 'ConditionalCheckFailedException') {
-                throw new Error('User not found');
-            }
-            logger.error('DAL - Error updating password:', error);
-            throw new Error('Database error while updating password');
+            logger.error('Update password error:', error);
+            throw error;
         }
     }
 
     async updateUserMetadata(username, metadata) {
         const command = new UpdateCommand({
-            TableName: this.tableName,
+            TableName: this.userTable,
             Key: { username },
             UpdateExpression: 'SET metadata = :metadata, updatedAt = :updatedAt, version = version + :inc',
             ExpressionAttributeValues: {
@@ -189,17 +217,17 @@ class AuthDAL {
         });
 
         try {
-            const response = await this.docClient.send(command);
-            return response.Attributes;
+            const result = await this.docClient.send(command);
+            return result.Attributes;
         } catch (error) {
-            logger.error('DAL Error - updateUserMetadata:', error);
+            logger.error('Update user metadata error:', error);
             throw error;
         }
     }
 
     async updateLastLogin(username) {
         const command = new UpdateCommand({
-            TableName: this.tableName,
+            TableName: this.userTable,
             Key: { username },
             UpdateExpression: 'SET lastLogin = :lastLogin',
             ExpressionAttributeValues: {
@@ -209,49 +237,52 @@ class AuthDAL {
 
         try {
             await this.docClient.send(command);
+            return { success: true };
         } catch (error) {
-            logger.error('DAL Error - updateLastLogin:', error);
-            // Don't throw error for login timestamp updates
+            logger.error('Update last login error:', error);
+            throw error;
         }
     }
 
     async getAllUsers() {
         const command = new ScanCommand({
-            TableName: this.tableName,
-            ProjectionExpression: '#username, #role, createdAt, updatedAt, version',
+            TableName: this.userTable,
+            ProjectionExpression: '#username, email, roleId, createdAt, updatedAt, version, isActive',
             ExpressionAttributeNames: {
-                '#username': 'username',
-                '#role': 'role'
+                '#username': 'username'
             }
         });
 
         try {
-            const response = await this.docClient.send(command);
-            return response.Items;
+            const result = await this.docClient.send(command);
+            return result.Items;
         } catch (error) {
-            logger.error('DAL - Error fetching all users:', error);
-            throw new Error('Database error while fetching users');
+            logger.error('Get all users error:', error);
+            throw error;
         }
     }
 
     async getAllRoles() {
-        try {
-            const params = {
-                TableName: this.tableName,
-                ProjectionExpression: 'roleId, username, role, metadata'
-            };
+        const command = new ScanCommand({
+            TableName: this.roleTable
+        });
 
-            const command = new ScanCommand(params);
-            const { Items } = await this.docClient.send(command);
-            return Items || [];
+        try {
+            const result = await this.docClient.send(command);
+            // Map roles to ensure we only return role-specific data
+            return result.Items.map(role => ({
+                roleId: role.roleId,
+                roleName: role.roleName,
+                description: role.description,
+                permissions: role.permissions,
+                metadata: {
+                    accessLevel: role.metadata.accessLevel,
+                    isSystemRole: role.metadata.isSystemRole
+                }
+            }));
         } catch (error) {
-            logger.error('DAL Error - getAllRoles:', error);
-            // Return default roles if query fails
-            return [
-                { roleId: 'ROLE-1', username: 'strio_admin', role: 'admin' },
-                { roleId: 'ROLE-2', username: 'strio_user', role: 'user' },
-                { roleId: 'ROLE-3', username: 'strio_viewer', role: 'viewer' }
-            ];
+            logger.error('Get all roles error:', error);
+            throw error;
         }
     }
 }

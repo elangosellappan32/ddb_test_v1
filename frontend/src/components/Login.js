@@ -43,12 +43,15 @@ const Login = () => {
         setLoading(true);
 
         try {
-            await login(formData.username, formData.password);
-            // Immediately navigate to dashboard or the page user tried to access before login
-            const redirect = location.state?.from?.pathname || '/dashboard';
-            navigate(redirect, { replace: true });
+            const success = await login(formData.username, formData.password);
+            if (success) {
+                // Immediately navigate to dashboard or the page user tried to access before login
+                const redirect = location.state?.from?.pathname || '/dashboard';
+                navigate(redirect, { replace: true });
+            }
         } catch (error) {
-            setError(error.message || 'Invalid credentials. Please try again.');
+            const errorMessage = error.response?.data?.message || error.message || 'Invalid credentials. Please try again.';
+            setError(errorMessage);
             setFormData(prev => ({...prev, password: ''}));
         } finally {
             setLoading(false);

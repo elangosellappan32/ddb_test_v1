@@ -1,52 +1,46 @@
-const ROLE_PERMISSIONS = {
-  ADMIN: {
-    'production': ['CREATE', 'READ', 'UPDATE', 'DELETE'],
-    'production-units': ['CREATE', 'READ', 'UPDATE', 'DELETE'],
-    'production-charges': ['CREATE', 'READ', 'UPDATE', 'DELETE'],
-    'consumption': ['CREATE', 'READ', 'UPDATE', 'DELETE'],
-    'consumption-units': ['CREATE', 'READ', 'UPDATE', 'DELETE']
-  },
-  USER: {
-    'production': ['READ', 'UPDATE'],
-    'production-units': ['READ', 'UPDATE'],
-    'production-charges': ['READ', 'UPDATE'],
-    'consumption': ['READ', 'UPDATE'],
-    'consumption-units': ['READ', 'UPDATE']
-  },
-  VIEWER: {
-    'production': ['READ'],
-    'production-units': ['READ'],
-    'production-charges': ['READ'],
-    'consumption': ['READ'],
-    'consumption-units': ['READ']
-  }
-};
+import { ROLES, ROLE_PERMISSIONS } from '../config/rolesConfig';
 
-export const hasPermission = (user, module, action) => {
+export const hasPermission = (user, resource, action) => {
   if (!user?.role) return false;
   
-  const rolePermissions = ROLE_PERMISSIONS[user.role.toUpperCase()];
+  const userRole = user.role.toUpperCase();
+  const rolePermissions = ROLE_PERMISSIONS[userRole];
   if (!rolePermissions) return false;
 
-  const modulePermissions = rolePermissions[module.toLowerCase()];
-  if (!modulePermissions) return false;
+  const resourcePermissions = rolePermissions[resource.toLowerCase()];
+  if (!resourcePermissions) return false;
 
-  return modulePermissions.includes(action.toUpperCase());
+  return resourcePermissions.includes(action.toUpperCase());
 };
 
 export const isAdmin = (user) => {
-  return user?.role?.toUpperCase() === 'ADMIN';
+  return user?.role?.toUpperCase() === ROLES.ADMIN;
 };
 
-export const getModulePermissions = (user, module) => {
+export const getModulePermissions = (user, resource) => {
   if (!user?.role || typeof user.role !== 'string') {
     return [];
   }
   
-  const rolePermissions = ROLE_PERMISSIONS[user.role.toUpperCase()];
+  const userRole = user.role.toUpperCase();
+  const rolePermissions = ROLE_PERMISSIONS[userRole];
   if (!rolePermissions) {
     return [];
   }
 
-  return rolePermissions[module.toLowerCase()] || [];
+  return rolePermissions[resource.toLowerCase()] || [];
+};
+
+export const hasAnyPermission = (user, resource, actions) => {
+  return actions.some(action => hasPermission(user, resource, action));
+};
+
+export const hasAllPermissions = (user, resource, actions) => {
+  return actions.every(action => hasPermission(user, resource, action));
+};
+
+export const getHighestRole = () => ROLES.ADMIN;
+
+export const hasRole = (user, role) => {
+  return user?.role?.toUpperCase() === role.toUpperCase();
 };

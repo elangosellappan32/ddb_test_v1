@@ -11,20 +11,26 @@ const dynamoDB = DynamoDBDocument.from(new DynamoDB({
 
 // Validation functions
 const validateBanking = (value) => {
-    // Convert undefined/null to 0
-    if (value === undefined || value === null) {
-        return { isValid: true, value: 0 }; // Default to 0 instead of error
-    }
+    try {
+        // Convert undefined/null to 0
+        if (value === undefined || value === null) {
+            return { isValid: true, value: 0 }; // Default to 0 instead of error
+        }
 
-    // Convert to number
-    const banking = Number(value);
-    
-    // Validate it's 0 or 1
-    if (isNaN(banking) || (banking !== 0 && banking !== 1)) {
-        return { isValid: false, error: 'Banking must be 0 (No) or 1 (Yes)' };
-    }
+        // Convert to number
+        const banking = Number(value);
 
-    return { isValid: true, value: banking };
+        // Check if it's a valid number
+        if (isNaN(banking)) {
+            logger.error('Invalid banking value:', value);
+            return { isValid: false, error: 'Banking must be a number' };
+        }
+
+        return { isValid: true, value: banking };
+    } catch (error) {
+        logger.error('Banking validation error:', error);
+        return { isValid: false, error: 'Banking validation failed' };
+    }
 };
 
 const validateDecimal = (value, fieldName) => {

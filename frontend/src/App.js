@@ -41,14 +41,41 @@ const AppRoutes = () => {
           <PrivateRoute>
             <Layout />
           </PrivateRoute>
-        }>
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/production" element={<Production />} />
-          <Route path="/production/:companyId/:productionSiteId" element={<ProductionSiteDetails />} />
-          <Route path="/consumption" element={<Consumption />} />
-          <Route path="/consumption/:companyId/:consumptionSiteId" element={<ConsumptionSiteDetails />} />
-          <Route path="/report" element={<Report/>} />
-          <Route path="/allocation" element={<Allocation />} />
+        }>          <Route path="/dashboard" element={
+            <PrivateRoute>
+              <Dashboard />
+            </PrivateRoute>
+          } />
+          <Route path="/production" element={
+            <PrivateRoute requiredResource="production" requiredAction="READ">
+              <Production />
+            </PrivateRoute>
+          } />
+          <Route path="/production/:companyId/:productionSiteId" element={
+            <PrivateRoute requiredResource="production" requiredAction="READ">
+              <ProductionSiteDetails />
+            </PrivateRoute>
+          } />
+          <Route path="/consumption" element={
+            <PrivateRoute requiredResource="consumption" requiredAction="READ">
+              <Consumption />
+            </PrivateRoute>
+          } />
+          <Route path="/consumption/:companyId/:consumptionSiteId" element={
+            <PrivateRoute requiredResource="consumption" requiredAction="READ">
+              <ConsumptionSiteDetails />
+            </PrivateRoute>
+          } />
+          <Route path="/report" element={
+            <PrivateRoute requiredResource="reports" requiredAction="READ">
+              <Report/>
+            </PrivateRoute>
+          } />
+          <Route path="/allocation" element={
+            <PrivateRoute requiredResource="allocation" requiredAction="READ">
+              <Allocation />
+            </PrivateRoute>
+          } />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Routes>

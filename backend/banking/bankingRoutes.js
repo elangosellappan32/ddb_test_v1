@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const bankingController = require('./bankingController');
 const validateJson = require('../middleware/validateJson');
-const validateBanking = require('./Bankingvalidator');
+const validateBanking = require('./bankingValidator');
+const logger = require('../utils/logger');
 
 // Get all banking records
 router.get('/', bankingController.getAllBanking);

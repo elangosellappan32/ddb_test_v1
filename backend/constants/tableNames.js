@@ -4,7 +4,8 @@ const TableNames = {
     PRODUCTION_CHARGE: 'ProductionChargeTable',
     CONSUMPTION_SITES: 'ConsumptionSiteTable',
     CONSUMPTION_UNIT:'ConsumptionUnitTable',
-    USERS: 'RoleTable',
+    USERS: 'UserTable', // changed from 'RoleTable' to 'UserTable'
+    ROLES: 'RoleTable', // added for clarity
     BANKING: 'BankingTable',
     ALLOCATION: 'AllocationTable',
     LAPSE: 'LapseTable',

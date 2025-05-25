@@ -2,14 +2,8 @@ const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
 const jwt = require('jsonwebtoken');
-const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, ScanCommand } = require('@aws-sdk/lib-dynamodb');
-
-const client = new DynamoDBClient({
-    endpoint: process.env.DYNAMODB_ENDPOINT || 'http://localhost:8000'
-});
-
-const docClient = DynamoDBDocumentClient.from(client);
+const AuthDAL = require('./authDal');
+const authDal = new AuthDAL();
 
 // Login route
 router.post('/login', async (req, res) => {
@@ -23,79 +17,117 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        logger.info(`Login attempt for user: ${username}`);
-
-        const command = new ScanCommand({
-            TableName: 'RoleTable',
-            FilterExpression: '#username = :username',
-            ExpressionAttributeNames: {
-                '#username': 'username'
-            },
-            ExpressionAttributeValues: {
-                ':username': username
-            }
-        });
-
-        try {
-            const result = await docClient.send(command);
-            
-            if (!result.Items || result.Items.length === 0) {
-                logger.warn(`User not found: ${username}`);
-                return res.status(401).json({
-                    success: false,
-                    message: 'Invalid credentials'
-                });
-            }
-
-            const user = result.Items[0];
-            
-            if (user.password !== password) {
-                logger.warn(`Invalid password for user: ${username}`);
-                return res.status(401).json({
-                    success: false,
-                    message: 'Invalid credentials'
-                });
-            }
-
-            const permissions = {
-                admin: ['CREATE', 'READ', 'UPDATE', 'DELETE'],
-                user: ['CREATE', 'READ', 'UPDATE'],
-                viewer: ['READ']
-            }[user.role] || ['READ'];
-
-            const token = jwt.sign(
-                {
-                    username,
-                    role: user.role,
-                    permissions
-                },
-                process.env.JWT_SECRET || 'your-secret-key',
-                { expiresIn: '24h' }
-            );
-
-            logger.info(`Successful login for user: ${username}`);
-            res.json({
-                success: true,
-                token,
-                user: {
-                    username,
-                    role: user.role,
-                    permissions
-                }
-            });
-        } catch (error) {
-            logger.error('DynamoDB Error:', error);
-            res.status(500).json({
+        logger.info(`Login attempt for user: ${username}`);        // Get user data
+        const user = await authDal.getUserByUsername(username);
+        
+        if (!user) {
+            logger.warn(`User not found: ${username}`);
+            return res.status(401).json({
                 success: false,
-                message: 'Database error occurred'
+                message: 'Invalid username or password'
             });
         }
-    } catch (error) {
+
+        // Password check would normally use bcrypt.compare
+        if (password !== user.password) {
+            logger.warn(`Invalid password for user: ${username}`);
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid username or password'
+            });
+        }
+
+        // Get role information
+        const role = await authDal.getRoleById(user.roleId);
+        if (!role) {
+            logger.error(`Role not found for user ${username} with roleId ${user.roleId}`);
+            return res.status(500).json({
+                success: false,
+                message: 'Error retrieving user role'
+            });
+        }
+
+        // Create JWT token with role permissions
+        const token = jwt.sign(
+            {
+                username,
+                roleId: role.roleId,
+                roleName: role.roleName,
+                permissions: role.permissions
+            },
+            process.env.JWT_SECRET || 'your-secret-key',
+            { expiresIn: '24h' }
+        );
+
+        // Update last login time
+        await authDal.updateLastLogin(username);
+
+        logger.info(`Successful login for user: ${username}`);        res.json({
+            success: true,
+            token,
+            user: {
+                username,
+                email: user.email,
+                roleId: role.roleId,
+                roleName: role.roleName,
+                permissions: role.permissions,
+                metadata: {
+                    department: user.metadata?.department || 'General',
+                    accessLevel: role.metadata?.accessLevel || 'Basic'
+                }
+            }
+        });    } catch (error) {
         logger.error('Login error:', error);
-        res.status(500).json({
+        let statusCode = 500;
+        let message = 'Internal server error';
+
+        if (error.message === 'User table not found' || error.message === 'Required database tables do not exist') {
+            statusCode = 503;
+            message = 'Service temporarily unavailable';
+        } else if (error.message === 'Database connection failed') {
+            statusCode = 503;
+            message = 'Unable to connect to database';
+        }
+
+        res.status(statusCode).json({
             success: false,
-            message: 'Internal server error'
+            message: process.env.NODE_ENV === 'development' ? error.message : message
         });
+    }
+});
+
+// Get current user profile
+router.get('/profile', async (req, res) => {
+    try {
+        const username = req.user && req.user.username; // Assuming middleware sets req.user
+        if (!username) {
+            return res.status(401).json({ error: 'Not authenticated' });
+        }
+
+        const user = await authDal.getUserByUsername(username);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const role = await authDal.getRoleById(user.roleId);
+        if (!role) {
+            return res.status(404).json({ error: 'Role not found' });
+        }
+
+        res.json({
+            username: user.username,
+            email: user.email,
+            roleId: role.roleId,
+            roleName: role.roleName,
+            permissions: role.permissions,
+            metadata: {
+                department: user.metadata.department,
+                accessLevel: role.metadata.accessLevel
+            }
+        });
+    } catch (error) {
+        logger.error('Error getting user profile:', error);
+        res.status(500).json({ error: 'Failed to retrieve user profile' });
     }
 });
 
