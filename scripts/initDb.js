@@ -625,30 +625,6 @@ const createUserTable = async () => {
     try {
         await client.send(new CreateTableCommand(params));
         console.log('Created UserTable');
-
-        // Insert default admin user
-        const defaultUser = {
-            username: 'admin',
-            email: 'admin@example.com',
-            password: '$2b$10$default_hashed_password', // This should be properly hashed in production
-            roleId: 'ROLE-1', // Admin role
-            metadata: {
-                department: 'IT',
-                accessLevel: 'Full',
-                lastPasswordChange: timestamp
-            },
-            isActive: true,
-            version: 1,
-            createdAt: timestamp,
-            updatedAt: timestamp,
-            lastLogin: null
-        };
-
-        await docClient.send(new PutCommand({
-            TableName: TableNames.USERS,
-            Item: defaultUser
-        }));
-        console.log('Added default admin user to UserTable');
     } catch (error) {
         if (error.name === 'ResourceInUseException') {
             console.log('UserTable already exists');
@@ -660,67 +636,149 @@ const createUserTable = async () => {
 
 const createDefaultUsers = async () => {
     const users = [
+        // STRIO Admin
         {
             username: 'strio_admin',
             email: 'admin@strio.com',
             password: 'admin123',
-            role: 'admin',
+            roleId: 'ROLE-1',
             metadata: {
                 department: 'IT Administration',
-                accessLevel: 'Full',
-                permissions: ['read', 'write', 'delete', 'admin']
+                accessLevel: 'ADMIN',
+                accessibleSites: {
+                    productionSites: { L: [
+                        { S: '1_1' }, { S: '1_2' }, { S: '1_3' }, { S: '1_4' }, { S: '1_5' }
+                    ]},
+                    consumptionSites: { L: [
+                        { S: '1_1' }, { S: '1_2' }, { S: '1_3' }, { S: '1_4' }, { S: '1_5' }
+                    ]}
+                }
             },
+            isActive: true,
             version: 1,
             createdAt: timestamp,
             updatedAt: timestamp,
-            lastLogin: timestamp,
-            ttl: 0
+            lastLogin: null
         },
+        // STRIO User
         {
             username: 'strio_user',
             email: 'user@strio.com',
             password: 'user123',
-            role: 'user',
+            roleId: 'ROLE-2',
             metadata: {
                 department: 'Operations',
-                accessLevel: 'Standard',
-                permissions: ['read', 'write']
+                accessLevel: 'MANAGER',
+                accessibleSites: {
+                    productionSites: { L: [
+                        { S: '1_1' }, { S: '1_2' }
+                    ]},
+                    consumptionSites: { L: [
+                        { S: '1_1' }, { S: '1_2' }, { S: '1_3' }
+                    ]}
+                }
             },
+            isActive: true,
             version: 1,
             createdAt: timestamp,
             updatedAt: timestamp,
-            lastLogin: timestamp,
-            ttl: 0
+            lastLogin: null
         },
+        // STRIO Viewer
         {
             username: 'strio_viewer',
             email: 'viewer@strio.com',
             password: 'viewer123',
-            role: 'viewer',
+            roleId: 'ROLE-3',
             metadata: {
                 department: 'Monitoring',
-                accessLevel: 'Basic',
-                permissions: ['read']
+                accessLevel: 'VIEWER',
+                accessibleSites: {
+                    productionSites: { L: [
+                        { S: '1_1' }
+                    ]},
+                    consumptionSites: { L: [
+                        { S: '1_1' }, { S: '1_2' }
+                    ]}
+                }
             },
+            isActive: true,
             version: 1,
             createdAt: timestamp,
             updatedAt: timestamp,
-            lastLogin: timestamp,
-            ttl: 0
+            lastLogin: null
         },
+        // SMR Admin
         {
-            userId: 'USER-SMR',
-            username: 'smr_energy',
-            email: 'smr@energy.com',
-            password: '$2b$10$5QqnPz3LcDvxFBaqBWQT2.AzQlHs4Jy5vgqQT3TvO7nZzJ2RPsW2.',  // hashed password for 'password123'
-            roles: ['ROLE-1', 'ROLE-2', 'ROLE-3'],  // All three roles: admin, user, viewer
-            active: true,
+            username: 'smr_admin',
+            email: 'admin@smr.com',
+            password: 'admin123',
+            roleId: 'ROLE-1',
             metadata: {
-                company: 'SMR ENERGY',
-                lastLogin: null
+                department: 'SMR Administration',
+                accessLevel: 'ADMIN',
+                accessibleSites: {
+                    productionSites: { L: [
+                        { S: '1_1' }
+                    ]},
+                    consumptionSites: { L: [
+                        { S: '1_1' }, { S: '1_2' }
+                    ]}
+                }
             },
+            isActive: true,
+            version: 1,
             createdAt: timestamp,
-            updatedAt: timestamp
+            updatedAt: timestamp,
+            lastLogin: null
+        },
+        // SMR User
+        {
+            username: 'smr_user',
+            email: 'user@smr.com',
+            password: 'user123',
+            roleId: 'ROLE-2',
+            metadata: {
+                department: 'SMR Operations',
+                accessLevel: 'MANAGER',
+                accessibleSites: {
+                    productionSites: { L: [
+                        { S: '1_1' }
+                    ]},
+                    consumptionSites: { L: [
+                        { S: '1_1' }, { S: '1_2' }
+                    ]}
+                }
+            },
+            isActive: true,
+            version: 1,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            lastLogin: null
+        },
+        // SMR Viewer
+        {
+            username: 'smr_viewer',
+            email: 'viewer@smr.com',
+            password: 'viewer123',
+            roleId: 'ROLE-3',
+            metadata: {
+                department: 'SMR Monitoring',
+                accessLevel: 'VIEWER',
+                accessibleSites: {
+                    productionSites: { L: [
+                        { S: '1_1' }
+                    ]},
+                    consumptionSites: { L: [
+                        { S: '1_1' }, { S: '1_2' }
+                    ]}
+                }
+            },
+            isActive: true,
+            version: 1,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            lastLogin: null
         }
     ];
 
