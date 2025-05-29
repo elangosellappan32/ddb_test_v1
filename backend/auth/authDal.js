@@ -19,9 +19,10 @@ class AuthDAL {
             this.docClient = DynamoDBDocumentClient.from(client);
             this.userTable = 'UserTable';
             this.roleTable = 'RoleTable';
+            this.tokenTable = 'TokenTable';
         } catch (error) {
-            logger.error('Failed to initialize DynamoDB client:', error);
-            throw new Error('Database connection failed');
+            logger.error('AuthDAL initialization error:', error);
+            throw error;
         }
     }
 
@@ -282,6 +283,56 @@ class AuthDAL {
             }));
         } catch (error) {
             logger.error('Get all roles error:', error);
+            throw error;
+        }
+    }
+
+    async storeRefreshToken(username, token) {
+        try {
+            const now = new Date().toISOString();
+            await this.docClient.send(new PutCommand({
+                TableName: this.tokenTable,
+                Item: {
+                    username,
+                    token,
+                    createdAt: now,
+                    updatedAt: now
+                }
+            }));
+            return true;
+        } catch (error) {
+            logger.error('Store refresh token error:', error);
+            throw error;
+        }
+    }
+
+    async getRefreshToken(username) {
+        try {
+            const { Item } = await this.docClient.send(new GetCommand({
+                TableName: this.tokenTable,
+                Key: { username }
+            }));
+            return Item?.token;
+        } catch (error) {
+            logger.error('Get refresh token error:', error);
+            throw error;
+        }
+    }
+
+    async revokeRefreshToken(username) {
+        try {
+            await this.docClient.send(new UpdateCommand({
+                TableName: this.tokenTable,
+                Key: { username },
+                UpdateExpression: 'SET revoked = :revoked, updatedAt = :updatedAt',
+                ExpressionAttributeValues: {
+                    ':revoked': true,
+                    ':updatedAt': new Date().toISOString()
+                }
+            }));
+            return true;
+        } catch (error) {
+            logger.error('Revoke refresh token error:', error);
             throw error;
         }
     }

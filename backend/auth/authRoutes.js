@@ -47,13 +47,17 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // Create JWT token with role permissions
+        // Create JWT token with role permissions and accessible sites
         const token = jwt.sign(
             {
                 username,
                 roleId: role.roleId,
                 roleName: role.roleName,
-                permissions: role.permissions
+                permissions: role.permissions,
+                accessibleSites: user.metadata?.accessibleSites || {
+                    productionSites: { L: [] },
+                    consumptionSites: { L: [] }
+                }
             },
             process.env.JWT_SECRET || 'your-secret-key',
             { expiresIn: '24h' }
@@ -73,7 +77,11 @@ router.post('/login', async (req, res) => {
                 permissions: role.permissions,
                 metadata: {
                     department: user.metadata?.department || 'General',
-                    accessLevel: role.metadata?.accessLevel || 'Basic'
+                    accessLevel: role.metadata?.accessLevel || 'Basic',
+                    accessibleSites: user.metadata?.accessibleSites || {
+                        productionSites: { L: [] },
+                        consumptionSites: { L: [] }
+                    }
                 }
             }
         });    } catch (error) {

@@ -52,9 +52,7 @@ const AppRoutes = () => {
             </PrivateRoute>
           } />
           <Route path="/production/:companyId/:productionSiteId" element={
-            <PrivateRoute requiredResource="production" requiredAction="READ">
-              <ProductionSiteDetails />
-            </PrivateRoute>
+            <ProductionSiteDetails />
           } />
           <Route path="/consumption" element={
             <PrivateRoute requiredResource="consumption" requiredAction="READ">
@@ -62,9 +60,7 @@ const AppRoutes = () => {
             </PrivateRoute>
           } />
           <Route path="/consumption/:companyId/:consumptionSiteId" element={
-            <PrivateRoute requiredResource="consumption" requiredAction="READ">
-              <ConsumptionSiteDetails />
-            </PrivateRoute>
+            <ConsumptionSiteDetails />
           } />
           <Route path="/report" element={
             <PrivateRoute requiredResource="reports" requiredAction="READ">

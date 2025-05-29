@@ -3,7 +3,7 @@ const router = express.Router();
 const consumptionUnitController = require('./consumptionUnitController');
 const validateConsumptionUnit = require('./ConsumptionUnitvalidator');
 
-// Create consumption unit
+// All get operations do not require auth for details views
 router.post('/:companyId/:consumptionSiteId', validateConsumptionUnit, consumptionUnitController.createConsumptionUnit);
 
 // Get all consumption units for a site

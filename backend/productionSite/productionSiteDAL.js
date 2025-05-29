@@ -10,9 +10,10 @@ const {
 } = require('@aws-sdk/lib-dynamodb');
 const Decimal = require('decimal.js');
 const logger = require('../utils/logger');
+const TableNames = require('../constants/tableNames');
 
 const docClient = require('../utils/db');
-const TableName = 'ProductionSiteTable';
+const TableName = TableNames.PRODUCTION_SITES;
 
 const getLastProductionSiteId = async (companyId) => {
     try {
@@ -152,8 +153,71 @@ const updateItem = async (companyId, productionSiteId, updates) => {
     }
 };
 
-const deleteItem = async (companyId, productionSiteId) => {
+const cleanupRelatedData = async (companyId, productionSiteId) => {
+    const siteId = `${companyId}_${productionSiteId}`;
+    let cleanupStats = { deletedUnits: 0, deletedCharges: 0 };
+    
     try {
+        // First check for associated data
+        const [unitItems, chargeItems] = await Promise.all([
+            docClient.send(new QueryCommand({
+                TableName: TableNames.PRODUCTION_UNIT,
+                KeyConditionExpression: 'pk = :pk',
+                ExpressionAttributeValues: { ':pk': siteId }
+            })),
+            docClient.send(new QueryCommand({
+                TableName: TableNames.PRODUCTION_CHARGE,
+                KeyConditionExpression: 'pk = :pk',
+                ExpressionAttributeValues: { ':pk': siteId }
+            }))
+        ]);
+
+        // Batch the deletions in chunks to avoid overwhelming DynamoDB
+        for (let i = 0; i < unitItems.Items?.length || 0; i += 25) {
+            const batch = unitItems.Items.slice(i, i + 25);
+            await Promise.all(batch.map(item => 
+                docClient.send(new DeleteCommand({
+                    TableName: TableNames.PRODUCTION_UNIT,
+                    Key: { pk: item.pk, sk: item.sk }
+                }))
+            ));
+        }
+        cleanupStats.deletedUnits = unitItems.Items?.length || 0;
+
+        for (let i = 0; i < chargeItems.Items?.length || 0; i += 25) {
+            const batch = chargeItems.Items.slice(i, i + 25);
+            await Promise.all(batch.map(item => 
+                docClient.send(new DeleteCommand({
+                    TableName: TableNames.PRODUCTION_CHARGE,
+                    Key: { pk: item.pk, sk: item.sk }
+                }))
+            ));
+        }
+        cleanupStats.deletedCharges = chargeItems.Items?.length || 0;
+
+        logger.info(`[ProductionSiteDAL] Cleanup completed for site ${siteId}:`, cleanupStats);
+        return cleanupStats;
+    } catch (error) {
+        logger.error(`[ProductionSiteDAL] Failed to cleanup site ${siteId}:`, error);
+        throw error;
+    }
+};
+
+const deleteItem = async (companyId, productionSiteId) => {
+    const timer = logger.startTimer();
+    let cleanupResult = null;
+    
+    try {
+        // 1. Check if site exists
+        const existingSite = await getItem(companyId, productionSiteId);
+        if (!existingSite) {
+            throw new Error('Production site not found');
+        }
+
+        // 2. Clean up related data
+        cleanupResult = await cleanupRelatedData(companyId, productionSiteId);
+        
+        // 3. Delete the site itself
         const { Attributes } = await docClient.send(new DeleteCommand({
             TableName,
             Key: { 
@@ -163,9 +227,18 @@ const deleteItem = async (companyId, productionSiteId) => {
             ReturnValues: 'ALL_OLD'
         }));
 
-        return Attributes;
+        timer.end('Production site deletion completed');
+        return {
+            ...Attributes,
+            relatedDataCleanup: cleanupResult
+        };
     } catch (error) {
-        logger.error('[ProductionSiteDAL] DeleteItem Error:', error);
+        logger.error('[ProductionSiteDAL] Delete Error:', {
+            error,
+            companyId,
+            productionSiteId,
+            cleanupResult
+        });
         throw error;
     }
 };
@@ -182,11 +255,50 @@ const getAllItems = async () => {
     }
 };
 
+const getAllProductionSites = async () => {
+    try {
+        logger.info('[ProductionSiteDAL] Fetching all production sites...');
+        
+        const { Items } = await docClient.send(new ScanCommand({
+            TableName
+        }));
+
+        // Return empty array if no items found
+        if (!Items) {
+            logger.info('[ProductionSiteDAL] No items found in table');
+            return [];
+        }
+
+        logger.info(`[ProductionSiteDAL] Found ${Items.length} production sites`);
+
+        // Transform and validate each item
+        return Items.map(item => ({
+            companyId: String(item.companyId || '1'),
+            productionSiteId: String(item.productionSiteId),
+            name: item.name || 'Unnamed Site',
+            type: (item.type || 'unknown').toLowerCase(),
+            location: item.location || 'Unknown Location',
+            status: (item.status || 'active').toLowerCase(),
+            version: Number(item.version || 1),
+            capacity_MW: item.capacity_MW || '0',
+            annualProduction_L: item.annualProduction_L || '0',
+            htscNo: item.htscNo || '0',
+            injectionVoltage_KV: item.injectionVoltage_KV || '0',
+            banking: String(item.banking || '0'),
+            createdat: item.createdat || new Date().toISOString(),
+            updatedat: item.updatedat || new Date().toISOString()
+        }));
+    } catch (error) {
+        logger.error('[ProductionSiteDAL] GetAll Error:', error);
+        throw error;
+    }
+};
+
 module.exports = {
     create,
     getItem,
     updateItem,
     deleteItem,
-    getAllItems,
+    getAllProductionSites,
     getLastProductionSiteId
 };

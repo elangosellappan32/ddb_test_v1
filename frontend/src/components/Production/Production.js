@@ -20,8 +20,9 @@ const Production = () => {
   const navigate = useNavigate();
   const { enqueueSnackbar } = useSnackbar();
   const { user } = useAuth();
+  
   const [sites, setSites] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSite, setSelectedSite] = useState(null);
@@ -67,16 +68,28 @@ const Production = () => {
       console.log('[Production] Fetching sites, attempt:', retryCount + 1);
       const response = await productionSiteApi.fetchAll();
       
-      if (!response?.data) {
-        throw new Error('Invalid response format');
-      }
+      // Get accessible sites from user metadata
+      const accessibleSites = user?.accessibleSites?.productionSites?.L || [];
+      const accessibleSiteIds = new Set(accessibleSites.map(site => site.S));
+      
+      // Filter and transform data
+      const formattedData = response?.data
+        ?.filter(site => {
+          const siteId = `${site.companyId}_${site.productionSiteId}`;
+          return accessibleSiteIds.has(siteId);
+        })
+        ?.map(site => ({
+          companyId: String(site.companyId) || '1',
+          productionSiteId: String(site.productionSiteId),
+          name: site.name || 'Unnamed Site',
+          type: (site.type || 'unknown').toLowerCase(),
+          location: site.location || 'Unknown Location',
+          status: (site.status || 'inactive').toLowerCase(),
+          version: Number(site.version || 1),
+          timetolive: Number(site.timetolive || 0),
+          capacity: Number(site.capacity || 0)
+        })) || [];
 
-      // Transform and validate each site
-      const formattedData = response.data
-        .map(validateSiteData)
-        .filter(site => site.productionSiteId && site.name); // Filter out invalid entries
-
-      console.log('[Production] Formatted Sites Data:', formattedData);
       setSites(formattedData);
       setLoading(false);
       
@@ -108,7 +121,7 @@ const Production = () => {
         )
       });
     }
-  }, [enqueueSnackbar, retryCount]);
+  }, [enqueueSnackbar, retryCount, user]);
 
   useEffect(() => {
     if (permissions.read) {
@@ -155,18 +168,54 @@ const Production = () => {
       });
       return;
     }
+
+    if (!site?.companyId || !site?.productionSiteId) {
+      enqueueSnackbar('Invalid site data', { variant: 'error' });
+      return;
+    }
     
     try {
-      const confirmed = window.confirm(`Are you sure you want to delete "${site.name}"?`);
-      if (!confirmed) return;
+      const confirmed = await new Promise(resolve => {
+        // Show a more detailed confirmation dialog
+        const message = `Are you sure you want to delete "${site.name}"?\n\n` +
+          'This action will:\n' +
+          '- Permanently remove the production site\n' +
+          '- Delete all associated production data\n' +
+          '- Cannot be undone';
+        resolve(window.confirm(message));
+      });
+
+      if (!confirmed) {
+        enqueueSnackbar('Delete operation cancelled', { variant: 'info' });
+        return;
+      }
 
       setLoading(true);
+      setError(null);
+
       await productionSiteApi.delete(site.companyId, site.productionSiteId);
-      enqueueSnackbar('Site deleted successfully', { variant: 'success' });
-      fetchSites();
+      
+      enqueueSnackbar('Site deleted successfully', { 
+        variant: 'success',
+        autoHideDuration: 3000
+      });
+      
+      // Refresh the sites list
+      await fetchSites();
     } catch (error) {
       console.error('[Production] Delete error:', error);
-      enqueueSnackbar(error.message || 'Failed to delete site', { variant: 'error' });
+      setError('Failed to delete site. Please try again.');
+      enqueueSnackbar(error.message || 'Failed to delete site', { 
+        variant: 'error',
+        autoHideDuration: 5000,
+        action: (key) => (
+          <Button color="inherit" size="small" onClick={() => {
+            enqueueSnackbar.close(key);
+          }}>
+            Dismiss
+          </Button>
+        )
+      });
     } finally {
       setLoading(false);
     }

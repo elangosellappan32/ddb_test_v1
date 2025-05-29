@@ -1,5 +1,6 @@
 import api, { handleApiError } from './apiUtils';
 import { API_CONFIG } from '../config/api.config';
+import { withRetry, defaultShouldRetry } from './retryService';
 
 const generatePK = (companyId, consumptionSiteId) => `${companyId}_${consumptionSiteId}`;
 
@@ -127,18 +128,42 @@ const consumptionSiteApi = {
     } catch (error) {
       throw handleApiError(error);
     }
-  },
+  },  delete: async (companyId, consumptionSiteId) => {
+    if (!companyId || !consumptionSiteId) {
+      throw new Error('Company ID and Consumption Site ID are required');
+    }
 
-  delete: async (companyId, consumptionSiteId) => {
-    try {
-      console.log('[ConsumptionSiteAPI] Deleting site:', { companyId, consumptionSiteId });
+    return withRetry(async (attempt) => {
+      // On first attempt, verify the site exists and is accessible
+      if (attempt === 1) {
+        const site = await consumptionSiteApi.fetchOne(companyId, consumptionSiteId);
+        if (!site?.data) {
+          throw new Error('Site not found');
+        }
+      }
+
+      console.log(`[ConsumptionSiteAPI] Deleting site (attempt ${attempt}):`, {
+        companyId,
+        consumptionSiteId
+      });
+
       const response = await api.delete(
         API_CONFIG.ENDPOINTS.CONSUMPTION.SITE.DELETE(companyId, consumptionSiteId)
       );
+
+      if (!response.data?.success) {
+        throw new Error(response.data?.message || 'Failed to delete site');
+      }
+
+      console.log('[ConsumptionSiteAPI] Site deletion successful');
       return response.data;
-    } catch (error) {
-      throw handleApiError(error);
-    }
+    }, {
+      retries: 3,
+      shouldRetry: defaultShouldRetry,
+      onRetry: (attempt, error) => {
+        console.log(`[ConsumptionSiteAPI] Retrying delete operation (attempt ${attempt}):`, error);
+      }
+    });
   }
 };
 

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const productionUnitController = require('./productionUnitController');
 
-// Get all production units for a site
+// Get all production units for a site - No auth for details
 router.get('/:companyId/:productionSiteId/all', productionUnitController.getAllProductionUnits);
 
 // Get production unit by ID

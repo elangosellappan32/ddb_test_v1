@@ -233,8 +233,57 @@ const deleteProductionSite = async (req, res) => {
         const { companyId, productionSiteId } = req.params;
         logger.info(`[REQUEST] Delete Production Site ${productionSiteId}`);
 
-        const result = await productionSiteDAL.deleteItem(companyId, productionSiteId);
-        if (!result) {
+        // Check for authenticated user
+        if (!req.user) {
+            logger.error('[ProductionSiteController] No authenticated user');
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required',
+                code: 'UNAUTHORIZED'
+            });
+        }        // Check if user has DELETE permission for production
+        if (!req.user.permissions) {
+            logger.error('[ProductionSiteController] User permissions not configured');
+            return res.status(403).json({
+                success: false,
+                message: 'User permissions not properly configured',
+                code: 'INVALID_PERMISSIONS'
+            });
+        }
+
+        const canDelete = req.user.permissions.production?.includes('DELETE');
+        if (!canDelete) {
+            logger.error('[ProductionSiteController] User lacks DELETE permission:', req.user.permissions);
+            return res.status(403).json({
+                success: false,
+                message: 'You do not have permission to delete sites',
+                code: 'DELETE_NOT_ALLOWED'
+            });
+        }
+
+        // Input validation
+        if (!companyId || !productionSiteId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Company ID and Production Site ID are required',
+                code: 'INVALID_INPUT'
+            });
+        }
+
+        // Check if site exists and is accessible
+        let existingSite;
+        try {
+            existingSite = await productionSiteDAL.getItem(companyId, productionSiteId);
+        } catch (error) {
+            logger.error('[ProductionSiteController] Error checking site existence:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Error checking site existence',
+                code: 'DATABASE_ERROR'
+            });
+        }
+
+        if (!existingSite) {
             return res.status(404).json({
                 success: false,
                 message: 'Production site not found',
@@ -242,30 +291,92 @@ const deleteProductionSite = async (req, res) => {
             });
         }
 
-        res.json({
+        // If user has restricted site access, validate they can access this site
+        if (req.user?.accessibleSites?.productionSites) {
+            const accessibleSiteIds = req.user.accessibleSites.productionSites.L.map(site => site.S);
+            const siteId = `${companyId}_${productionSiteId}`;
+            if (!accessibleSiteIds.includes(siteId)) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You do not have permission to delete this site',
+                    code: 'ACCESS_DENIED'
+                });
+            }
+        }
+
+        // Proceed with deletion and cleanup
+        let result;
+        try {
+            result = await productionSiteDAL.deleteItem(companyId, productionSiteId);
+        } catch (error) {
+            logger.error('[ProductionSiteController] Error during site deletion:', error);
+            
+            if (error.code === 'ConditionalCheckFailedException') {
+                return res.status(409).json({
+                    success: false,
+                    message: 'Site has been modified by another user',
+                    code: 'CONFLICT'
+                });
+            }
+
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to delete production site',
+                code: 'DELETE_ERROR',
+                error: error.message
+            });
+        }
+
+        if (!result) {
+            logger.error('[ProductionSiteController] Deletion returned no result');
+            return res.status(500).json({
+                success: false,
+                message: 'Deletion failed - no result returned',
+                code: 'DELETE_ERROR'
+            });
+        }
+
+        // Log the successful deletion with cleanup details
+        logger.info('[SUCCESS] Site deletion completed:', {
+            siteId: productionSiteId,
+            cleanupStats: result.relatedDataCleanup
+        });
+
+        return res.json({
             success: true,
             message: 'Production site deleted successfully',
             data: result
         });
     } catch (error) {
-        logger.error('[ProductionSiteController] Delete Error:', error);
-        res.status(500).json({
+        logger.error('[ProductionSiteController] Unexpected error during deletion:', error);
+        
+        return res.status(500).json({
             success: false,
-            message: 'Failed to delete production site',
+            message: 'An unexpected error occurred while deleting the production site',
             error: error.message,
-            code: 'DELETE_ERROR'
+            code: 'UNEXPECTED_ERROR'
         });
     }
 };
 
 const getAllProductionSites = async (req, res) => {
     try {
-        logger.info('[ProductionSiteController] Fetching all production sites');
-        const result = await productionSiteDAL.getAllItems();
-        logger.info(`[ProductionSiteController] Successfully fetched ${result.length} sites`);
+        // Get all production sites
+        let items = await productionSiteDAL.getAllProductionSites();
+        
+        // Filter items based on user's accessible sites
+        if (req.user && req.user.accessibleSites) {
+            const accessibleSiteIds = req.user.accessibleSites.productionSites.L.map(site => site.S);
+            items = items.filter(item => {
+                const siteId = `${item.companyId}_${item.productionSiteId}`;
+                return accessibleSiteIds.includes(siteId);
+            });
+        }
+
+        // Return filtered results
         res.json({
             success: true,
-            data: result
+            data: items
         });
     } catch (error) {
         logger.error('[ProductionSiteController] Error fetching production sites:', error);

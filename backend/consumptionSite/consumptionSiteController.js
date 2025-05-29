@@ -46,7 +46,17 @@ const validateRequiredFields = (data) => {
 // CRUD Operations
 const getAllConsumptionSites = async (req, res) => {
     try {
-        const items = await consumptionSiteDAL.getAllConsumptionSites();
+        let items = await consumptionSiteDAL.getAllConsumptionSites();
+
+        // Filter items based on user's accessible sites
+        if (req.user && req.user.accessibleSites) {
+            const accessibleSiteIds = req.user.accessibleSites.consumptionSites.L.map(site => site.S);
+            items = items.filter(item => {
+                const siteId = `${item.companyId}_${item.consumptionSiteId}`;
+                return accessibleSiteIds.includes(siteId);
+            });
+        }
+
         res.json({
             success: true,
             data: items
@@ -145,27 +155,107 @@ const updateConsumptionSite = async (req, res) => {
 const deleteConsumptionSite = async (req, res) => {
     try {
         const { companyId, consumptionSiteId } = req.params;
-        const deletedItem = await consumptionSiteDAL.deleteConsumptionSite(
-            companyId,
-            consumptionSiteId
-        );
-        
-        if (!deletedItem) {
-            return res.status(404).json({
+
+        // Authentication check
+        if (!req.user) {
+            logger.error('[ConsumptionSiteController] No authenticated user');
+            return res.status(401).json({
                 success: false,
-                message: 'Consumption site not found'
+                message: 'Authentication required',
+                code: 'UNAUTHORIZED'
             });
         }
 
-        res.json({
+        // Permission check
+        if (!req.user.permissions?.consumption?.includes('DELETE')) {
+            logger.error('[ConsumptionSiteController] User lacks DELETE permission:', req.user.permissions);
+            return res.status(403).json({
+                success: false,
+                message: 'You do not have permission to delete sites',
+                code: 'DELETE_NOT_ALLOWED'
+            });
+        }
+
+        // Input validation
+        if (!companyId || !consumptionSiteId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Company ID and Consumption Site ID are required',
+                code: 'INVALID_INPUT'
+            });
+        }        // Check if user has permission to delete this site
+        if (!req.user.role?.toLowerCase() === 'admin' && req.user?.accessibleSites?.consumptionSites) {
+            const accessibleSiteIds = req.user.accessibleSites.consumptionSites.L.map(site => site.S);
+            const siteId = `${companyId}_${consumptionSiteId}`;
+            if (!accessibleSiteIds.includes(siteId)) {
+                logger.error(`[ConsumptionSiteController] User ${req.user.username} attempted to delete inaccessible site ${siteId}`);
+                return res.status(403).json({
+                    success: false,
+                    message: 'You do not have permission to delete this site',
+                    code: 'ACCESS_DENIED'
+                });
+            }
+        }        // First check if the site exists
+        const existingSite = await consumptionSiteDAL.getConsumptionSite(companyId, consumptionSiteId);
+        if (!existingSite) {
+            logger.warn(`[ConsumptionSiteController] Attempt to delete non-existent site: ${companyId}_${consumptionSiteId}`);
+            return res.status(404).json({
+                success: false,
+                message: 'Consumption site not found',
+                code: 'NOT_FOUND'
+            });
+        }
+
+        // Proceed with deletion and cleanup
+        let result;
+        try {
+            result = await consumptionSiteDAL.deleteConsumptionSite(companyId, consumptionSiteId);
+            logger.info(`[ConsumptionSiteController] Successfully deleted site: ${companyId}_${consumptionSiteId}`);
+        } catch (error) {
+            logger.error('[ConsumptionSiteController] Error during site deletion:', error);
+            
+            if (error.code === 'ConditionalCheckFailedException') {
+                return res.status(409).json({
+                    success: false,
+                    message: 'Site has been modified by another user',
+                    code: 'CONFLICT'
+                });
+            }
+
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to delete consumption site',
+                code: 'DELETE_ERROR',
+                error: error.message
+            });
+        }
+
+        if (!result) {
+            logger.error('[ConsumptionSiteController] Deletion returned no result');
+            return res.status(500).json({
+                success: false,
+                message: 'Deletion failed - no result returned',
+                code: 'DELETE_ERROR'
+            });
+        }
+
+        // Log the successful deletion with cleanup details
+        logger.info('[SUCCESS] Site deletion completed:', {
+            siteId: consumptionSiteId,
+            cleanupStats: result.relatedDataCleanup
+        });
+
+        return res.json({
             success: true,
-            data: deletedItem
+            message: 'Consumption site deleted successfully',
+            data: result
         });
     } catch (error) {
         logger.error('[ConsumptionSiteController] Delete Error:', error);
         res.status(500).json({
             success: false,
-            message: error.message
+            message: error.message || 'An unexpected error occurred while deleting the consumption site',
+            code: 'UNEXPECTED_ERROR'
         });
     }
 };

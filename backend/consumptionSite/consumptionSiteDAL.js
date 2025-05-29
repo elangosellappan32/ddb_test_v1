@@ -154,7 +154,21 @@ const updateConsumptionSite = async (companyId, consumptionSiteId, updates) => {
 };
 
 const deleteConsumptionSite = async (companyId, consumptionSiteId) => {
+    const timer = logger.startTimer();
+    let cleanupResult = null;
+    
     try {
+        // 1. Check if site exists
+        const existingSite = await getConsumptionSite(companyId, consumptionSiteId);
+        if (!existingSite) {
+            throw new Error('Consumption site not found');
+        }
+
+        // 2. Clean up related data
+        const cleanupRelatedData = require('./cleanupRelatedData');
+        cleanupResult = await cleanupRelatedData(companyId, consumptionSiteId);
+        
+        // 3. Delete the site itself
         const { Attributes } = await docClient.send(new DeleteCommand({
             TableName,
             Key: { 
@@ -163,9 +177,19 @@ const deleteConsumptionSite = async (companyId, consumptionSiteId) => {
             },
             ReturnValues: 'ALL_OLD'
         }));
-        return Attributes;
+
+        timer.end('Consumption site deletion completed');
+        return {
+            ...Attributes,
+            relatedDataCleanup: cleanupResult
+        };
     } catch (error) {
-        logger.error('[ConsumptionSiteDAL] Delete Error:', error);
+        logger.error('[ConsumptionSiteDAL] Delete Error:', {
+            error,
+            companyId,
+            consumptionSiteId,
+            cleanupResult
+        });
         throw error;
     }
 };
@@ -175,15 +199,24 @@ const getAllConsumptionSites = async () => {
         const { Items } = await docClient.send(new ScanCommand({
             TableName
         }));
-        
-        return (Items || []).map(item => ({
-            ...item,
-            siteName: item.name, // Map name to siteName for consistency
-            type: item.type?.toLowerCase() || 'unknown',
-            status: item.status?.toLowerCase() || 'active',
+
+        // Return empty array if no items found
+        if (!Items) {
+            logger.info('[ConsumptionSiteDAL] No items found in table');
+            return [];
+        }
+
+        // Transform and validate each item
+        return Items.map(item => ({
+            companyId: String(item.companyId || '1'),
+            consumptionSiteId: String(item.consumptionSiteId),
+            name: item.name || 'Unnamed Site',
+            type: (item.type || 'unknown').toLowerCase(),
+            location: item.location || 'Unknown Location',
+            status: (item.status || 'active').toLowerCase(),
             version: Number(item.version || 1),
-            annualConsumption: Number(item.annualConsumption || 0),
             timetolive: Number(item.timetolive || 0),
+            annualConsumption: Number(item.annualConsumption || 0),
             createdat: item.createdat || new Date().toISOString(),
             updatedat: item.updatedat || new Date().toISOString()
         }));

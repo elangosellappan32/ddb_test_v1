@@ -8,27 +8,68 @@ const authDal = new AuthDAL();
  */
 const authenticateToken = async (req, res, next) => {
     try {
+        // Skip auth for public routes
+        const isPublicRoute = req.method === 'GET' && req.path.match(/\/(production|consumption)\/\d+\/\d+/);
+        if (isPublicRoute) {
+            logger.info('[Auth] Skipping auth for public route:', req.path);
+            return next();
+        }
+
         const authHeader = req.headers.authorization;
         const token = authHeader && authHeader.split(' ')[1];
 
         if (!token) {
-            return res.status(401).json({ error: 'Authentication required' });
-        }
-
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+            logger.error('[Auth] No token provided');
+            return res.status(401).json({ 
+                success: false,
+                message: 'Authentication required',
+                code: 'AUTH_REQUIRED'
+            });
+        }const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
         
-        // Get fresh role data from database
-        const role = await authDal.getRoleById(decoded.roleId);
-        if (!role) {
-            return res.status(403).json({ error: 'Invalid role' });
+        // Get fresh user data from database
+        const user = await authDal.getUserByUsername(decoded.username);
+        if (!user) {
+            logger.error(`[Auth] User not found: ${decoded.username}`);
+            return res.status(403).json({ 
+                success: false,
+                message: 'User not found',
+                code: 'USER_NOT_FOUND'
+            });
         }
 
-        // Attach user and role info to request
+        // If user has a roleId, get fresh role data
+        let role = null;
+        if (decoded.roleId) {
+            role = await authDal.getRoleById(decoded.roleId);
+            if (!role) {
+                logger.error(`[Auth] Invalid role for user: ${decoded.username}`);
+                return res.status(403).json({ 
+                    success: false,
+                    message: 'Invalid role',
+                    code: 'INVALID_ROLE'
+                });
+            }
+        }        // Attach user and role info to request
         req.user = {
             username: decoded.username,
-            roleId: role.roleId,
-            roleName: role.roleName,
-            permissions: role.permissions
+            email: decoded.emailId || user.email,
+            role: decoded.role || user.role,
+            permissions: decoded.permissions || role?.permissions || {
+                'production': ['READ'],
+                'consumption': ['READ'],
+                'production-units': ['READ'],
+                'consumption-units': ['READ']
+            },
+            accessibleSites: user.metadata?.accessibleSites || {
+                productionSites: { L: [] },
+                consumptionSites: { L: [] }
+            },
+            // Include role info if available
+            ...(role && {
+                roleId: role.roleId,
+                roleName: role.roleName
+            })
         };
 
         next();

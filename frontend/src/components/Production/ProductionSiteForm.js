@@ -47,28 +47,29 @@ const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) 
   const [touched, setTouched] = useState({});
   const [isValid, setIsValid] = useState(false);
 
-  // Initialize form with either initialData or site data
+  // Initialize form with existing data
   useEffect(() => {
-    if (initialData) {
-      setFormData({ 
-        ...INITIAL_FORM_STATE, 
-        ...initialData,
-        banking: Number(initialData.banking) || 0,
-        annualProduction_L: initialData.annualProduction_L || initialData.annualProduction || ''  // Handle both field names
-      });
-    } else if (site) {
+    const data = initialData || site;
+    if (data) {
       setFormData({
-        ...INITIAL_FORM_STATE,
-        name: site.name || '',
-        location: site.location || '',
-        capacity_MW: site.capacity_MW || '',
-        type: site.type || '',
-        status: site.status || 'Active',
-        injectionVoltage_KV: site.injectionVoltage_KV || '',
-        htscNo: site.htscNo || '',
-        banking: Number(site.banking) || 0,
-        annualProduction_L: site.annualProduction_L || site.annualProduction || ''  // Handle both field names
+        name: data.name || '',
+        type: data.type || '',
+        location: data.location || '',
+        capacity_MW: data.capacity_MW || '',
+        injectionVoltage_KV: data.injectionVoltage_KV || '',
+        htscNo: data.htscNo || '',
+        status: data.status || 'Active',
+        banking: Number(data.banking || 0),
+        annualProduction_L: data.annualProduction_L || data.annualProduction || '',
+        version: Number(data.version || 1)
       });
+      
+      // Clear any existing errors when initializing
+      setErrors({});
+      // Reset touched state
+      setTouched({});
+      
+      console.log('Form initialized with data:', data);
     }
   }, [initialData, site]);
 
@@ -101,40 +102,42 @@ const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) 
   // Update handleChange to handle number fields properly
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
+    
     let processedValue = value;
 
+    // Special handling for number fields
     if (type === 'number') {
-      // Convert empty string to undefined for number fields
-      processedValue = value === '' ? undefined : Number(value);
-    } else if (type === 'checkbox') {
+      processedValue = value === '' ? '' : Number(value);
+    }
+    // Handle checkbox/switch fields
+    else if (type === 'checkbox') {
       processedValue = checked ? 1 : 0;
     }
 
-    // If status is being changed to Inactive or Maintenance, disable banking
+    // Update form data
+    let updates = { [name]: processedValue };
+
+    // Special handling for status changes
     if (name === 'status' && (value === 'Inactive' || value === 'Maintenance')) {
-      setFormData(prev => ({
-        ...prev,
-        [name]: processedValue,
-        banking: 0
-      }));
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        [name]: processedValue
-      }));
+      updates.banking = 0; // Disable banking for inactive/maintenance status
     }
 
-    // Clear error when field is modified
-    const fieldError = validateField(name, processedValue);
-    setErrors(prev => ({
+    setFormData(prev => ({
       ...prev,
-      [name]: fieldError
+      ...updates
     }));
 
     // Mark field as touched
     setTouched(prev => ({
       ...prev,
       [name]: true
+    }));
+
+    // Validate the field
+    const fieldError = validateField(name, processedValue);
+    setErrors(prev => ({
+      ...prev,
+      [name]: fieldError
     }));
   };
 
@@ -158,14 +161,14 @@ const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) 
 
       case 'capacity_MW':
         if (!value && value !== 0) return 'Capacity is required';
-        if (value <= 0) return 'Capacity must be greater than 0';
-        if (isNaN(value)) return 'Capacity must be a number';
+        const capacityValue = Number(value);
+        if (isNaN(capacityValue) || capacityValue <= 0) return 'Capacity must be greater than 0';
         return '';
 
       case 'injectionVoltage_KV':
         if (!value && value !== 0) return 'Injection Voltage is required';
-        if (value <= 0) return 'Injection Voltage must be greater than 0';
-        if (isNaN(value)) return 'Injection Voltage must be a number';
+        const voltageValue = Number(value);
+        if (isNaN(voltageValue) || voltageValue <= 0) return 'Injection Voltage must be greater than 0';
         return '';
 
       case 'htscNo':
@@ -175,8 +178,13 @@ const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) 
 
       case 'annualProduction_L':
         if (!value && value !== 0) return 'Annual Production is required';
-        if (value <= 0) return 'Annual Production must be greater than 0';
-        if (isNaN(value)) return 'Annual Production must be a number';
+        const productionValue = Number(value);
+        if (isNaN(productionValue) || productionValue <= 0) return 'Annual Production must be greater than 0';
+        return '';
+
+      case 'status':
+        if (!value) return 'Status is required';
+        if (!SITE_STATUS.includes(value)) return 'Invalid Status';
         return '';
 
       default:

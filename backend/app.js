@@ -23,6 +23,39 @@ const captiveRoutes = require('./captive/captiveRoutes');
 
 const app = express();
 
+// Remove auth for site detail endpoints
+const removeAuthForDetail = (router) => {
+    const wrappedRouter = express.Router();
+    router.stack.forEach((layer) => {
+        if (layer.route) {
+            const path = layer.route.path;
+            const methods = layer.route.methods;
+            
+            // If this is a details endpoint (has :companyId and :siteId params)
+            if (path.includes(':companyId') && (path.includes(':productionSiteId') || path.includes(':consumptionSiteId'))) {
+                // For GET requests, don't use auth middleware
+                if (methods.get) {
+                    wrappedRouter.get(path, layer.route.stack
+                        .filter(s => !s.name.includes('authenticate') && !s.name.includes('validateSite'))
+                        .map(s => s.handle));
+                }
+                // For other methods, keep all middleware
+                Object.keys(methods).forEach(method => {
+                    if (method !== 'get') {
+                        wrappedRouter[method](path, layer.route.stack.map(s => s.handle));
+                    }
+                });
+            } else {
+                // For non-details endpoints, keep all middleware
+                Object.keys(methods).forEach(method => {
+                    wrappedRouter[method](path, layer.route.stack.map(s => s.handle));
+                });
+            }
+        }
+    });
+    return wrappedRouter;
+};
+
 // Security middleware
 app.use(helmet());
 
@@ -56,22 +89,19 @@ app.use('/api/health', healthRoutes);
 // Protected routes (require authentication)
 app.use('/api/roles', authenticateToken, roleRoutes);
 
-// Protected routes with resource-specific permissions
-app.use('/api/production-site', authenticateToken, 
-    checkPermission('production', 'READ'),
-    productionSiteRoutes);
-    
-app.use('/api/production-unit', authenticateToken,
+// Protected routes with resource-specific permissions, but details pages are public
+app.use('/api/production-site', authenticateToken, checkPermission('production', 'READ'), removeAuthForDetail(productionSiteRoutes));
+    app.use('/api/production-unit', authenticateToken,
     checkPermission('production-units', 'READ'),
-    productionUnitRoutes);
+    removeAuthForDetail(productionUnitRoutes));
     
 app.use('/api/production-charge', authenticateToken,
     checkPermission('production-charges', 'READ'),
-    productionChargeRoutes);
+    removeAuthForDetail(productionChargeRoutes));
     
 app.use('/api/consumption-site', authenticateToken,
     checkPermission('consumption', 'READ'),
-    consumptionSiteRoutes);
+    removeAuthForDetail(consumptionSiteRoutes));
     
 app.use('/api/consumption-unit', authenticateToken,
     checkPermission('consumption-units', 'READ'),

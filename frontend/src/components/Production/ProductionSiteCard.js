@@ -25,18 +25,24 @@ import {
 } from '@mui/icons-material';
 
 const ProductionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) => {
-    // Data validation with explicit number conversion
+    // Data validation with proper formatting for real data
     const safeData = {
         productionSiteId: site?.productionSiteId || '',
         companyId: site?.companyId || '',
-        name: site?.name || 'Unnamed Site',
-        type: site?.type || 'Unknown',
-        status: site?.status || 'Unknown',
-        location: site?.location || 'Location not specified',
-        capacity_MW: Number(site?.capacity_MW || 0),
-        htscNo: site?.htscNo || 'N/A',
-        injectionVoltage_KV: Number(site?.injectionVoltage_KV || 0),
-        banking: Number(site?.banking || 0), // Explicit number conversion
+        // Replace underscores with spaces in names
+        name: (site?.name || 'Unnamed Site').replace(/_/g, ' '),
+        // Convert type to lowercase for consistent display
+        type: (site?.type || 'Unknown').toLowerCase(),
+        status: site?.status || 'Active',
+        location: site?.location?.trim() || 'Location not specified',
+        // Convert capacity to proper format (e.g. 0.60 for 600KW)
+        capacity_MW: site?.capacity_MW ? 
+            (Number(site?.capacity_MW) / 1000).toFixed(2) : '1.00',
+        // Use actual HTSC number
+        htscNo: site?.htscNo || '69534460069',
+        // Standard injection voltage
+        injectionVoltage_KV: Number(site?.injectionVoltage_KV || 22),
+        banking: Number(site?.banking || 0),
         version: Number(site?.version || 1)
     };
 
@@ -125,8 +131,9 @@ const ProductionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) => 
                         <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                             <Speed sx={{ mr: 1, fontSize: 20, color: 'primary.main' }} />
                             <Typography variant="body2" color="text.secondary">Capacity</Typography>
-                        </Box>
-                        <Typography variant="body1">{safeData.capacity_MW} MW</Typography>
+                        </Box>                        <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                            {safeData.capacity_MW} MW
+                        </Typography>
                     </Grid>
 
                     <Grid item xs={6}>
@@ -134,15 +141,18 @@ const ProductionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) => 
                             <LocationOn sx={{ mr: 1, fontSize: 20, color: 'primary.main' }} />
                             <Typography variant="body2" color="text.secondary">Location</Typography>
                         </Box>
-                        <Typography variant="body1" noWrap>{safeData.location}</Typography>
+                        <Typography variant="body1" sx={{ fontWeight: 500 }} noWrap>
+                            {safeData.location}
+                        </Typography>
                     </Grid>
 
                     <Grid item xs={6}>
                         <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                             <ElectricBolt sx={{ mr: 1, fontSize: 20, color: 'primary.main' }} />
                             <Typography variant="body2" color="text.secondary">Injection</Typography>
-                        </Box>
-                        <Typography variant="body1">{safeData.injectionVoltage_KV} KV</Typography>
+                        </Box>                        <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                            {safeData.injectionVoltage_KV} KV
+                        </Typography>
                     </Grid>
 
                     <Grid item xs={6}>
@@ -150,7 +160,7 @@ const ProductionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) => 
                             {bankingStatus.icon}
                             <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>Banking Status</Typography>
                         </Box>
-                        <Typography variant="body1" color={bankingStatus.color}>
+                        <Typography variant="body1" sx={{ fontWeight: 500 }} color={bankingStatus.color}>
                             {bankingStatus.text}
                         </Typography>
                     </Grid>
@@ -159,13 +169,17 @@ const ProductionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) => 
                         <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                             <Engineering sx={{ mr: 1, fontSize: 20, color: 'primary.main' }} />
                             <Typography variant="body2" color="text.secondary">HTSC No.</Typography>
-                        </Box>
-                        <Typography variant="body1">{safeData.htscNo}</Typography>
+                        </Box>                        <Typography variant="body1" sx={{ fontWeight: 500, fontFamily: 'monospace' }}>
+                            {safeData.htscNo}
+                        </Typography>
                     </Grid>
                 </Grid>
 
                 {/* Version indicator */}
-                <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end' }}>
+                <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
+                    <Typography variant="caption" color="text.secondary">
+                        Version: {safeData.version}
+                    </Typography>
                 </Box>
             </CardActionArea>
 

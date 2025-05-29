@@ -21,8 +21,9 @@ const Consumption = () => {
   const navigate = useNavigate();
   const { enqueueSnackbar } = useSnackbar();
   const { user } = useAuth();
+  
   const [sites, setSites] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSite, setSelectedSite] = useState(null);
@@ -44,30 +45,37 @@ const Consumption = () => {
       setLoading(true);
       const response = await consumptionSiteApi.fetchAll();
       
-      // Transform data with proper defaults and type handling
-      const formattedData = response?.data?.map(site => ({
-        companyId: String(site.companyId) || '1',
-        consumptionSiteId: String(site.consumptionSiteId),
-        name: site.name || 'Unnamed Site',
-        type: (site.type || 'unknown').toLowerCase(),
-        location: site.location || 'Location not specified',
-        annualConsumption: Number(site.annualConsumption || 0),
-        status: (site.status || 'inactive').toLowerCase(),
-        version: Number(site.version || 1),
-        timetolive: Number(site.timetolive || 0),
-        createdat: site.createdat || new Date().toISOString(),
-        updatedat: site.updatedat || new Date().toISOString()
-      })) || [];
+      // Get accessible sites from user metadata
+      const accessibleSites = user?.accessibleSites?.consumptionSites?.L || [];
+      const accessibleSiteIds = new Set(accessibleSites.map(site => site.S));
+      
+      // Filter and transform data
+      const formattedData = response?.data
+        ?.filter(site => {
+          const siteId = `${site.companyId}_${site.consumptionSiteId}`;
+          return accessibleSiteIds.has(siteId);
+        })
+        ?.map(site => ({
+          companyId: String(site.companyId) || '1',
+          consumptionSiteId: String(site.consumptionSiteId),
+          name: site.name || 'Unnamed Site',
+          type: (site.type || 'unknown').toLowerCase(),
+          location: site.location || 'Unknown Location',
+          status: (site.status || 'inactive').toLowerCase(),
+          version: Number(site.version || 1),
+          timetolive: Number(site.timetolive || 0),
+          annualConsumption: Number(site.annualConsumption || 0)
+        })) || [];
 
       setSites(formattedData);
-    } catch (err) {
-      console.error('[Consumption] Fetch error:', err);
-      setError(err.message || 'Failed to load consumption sites');
-      enqueueSnackbar('Failed to load sites', { variant: 'error' });
+    } catch (error) {
+      console.error('[Consumption] Error fetching sites:', error);
+      setError(error.message || 'Failed to fetch sites');
+      enqueueSnackbar(error.message || 'Failed to fetch sites', { variant: 'error' });
     } finally {
       setLoading(false);
     }
-  }, [enqueueSnackbar]);
+  }, [enqueueSnackbar, user]);
 
   useEffect(() => {
     fetchSites();
@@ -102,7 +110,6 @@ const Consumption = () => {
     setSelectedSite(site);
     setDialogOpen(true);
   }, [permissions.update, enqueueSnackbar]);
-
   const handleDeleteClick = useCallback(async (site) => {
     if (!permissions.delete) {
       enqueueSnackbar('You do not have permission to delete sites', { 
@@ -110,18 +117,54 @@ const Consumption = () => {
       });
       return;
     }
+
+    if (!site?.companyId || !site?.consumptionSiteId) {
+      enqueueSnackbar('Invalid site data', { variant: 'error' });
+      return;
+    }
     
     try {
-      const confirmed = window.confirm(`Are you sure you want to delete "${site.name}"?`);
-      if (!confirmed) return;
+      const confirmed = await new Promise(resolve => {
+        // Show a more detailed confirmation dialog
+        const message = `Are you sure you want to delete "${site.name}"?\n\n` +
+          'This action will:\n' +
+          '- Permanently remove the consumption site\n' +
+          '- Delete all associated consumption data\n' +
+          '- Cannot be undone';
+        resolve(window.confirm(message));
+      });
+
+      if (!confirmed) {
+        enqueueSnackbar('Delete operation cancelled', { variant: 'info' });
+        return;
+      }
 
       setLoading(true);
+      setError(null);
+
       await consumptionSiteApi.delete(site.companyId, site.consumptionSiteId);
-      enqueueSnackbar('Site deleted successfully', { variant: 'success' });
-      fetchSites();
+      
+      enqueueSnackbar('Site deleted successfully', { 
+        variant: 'success',
+        autoHideDuration: 3000
+      });
+      
+      // Refresh the sites list
+      await fetchSites();
     } catch (error) {
       console.error('[Consumption] Delete error:', error);
-      enqueueSnackbar(error.message || 'Failed to delete site', { variant: 'error' });
+      setError('Failed to delete site. Please try again.');
+      enqueueSnackbar(error.message || 'Failed to delete site', { 
+        variant: 'error',
+        autoHideDuration: 5000,
+        action: (key) => (
+          <Button color="inherit" size="small" onClick={() => {
+            enqueueSnackbar.close(key);
+          }}>
+            Dismiss
+          </Button>
+        )
+      });
     } finally {
       setLoading(false);
     }

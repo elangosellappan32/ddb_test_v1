@@ -194,16 +194,58 @@ const productionSiteApi = {
       return handleApiError(error);
     }
   },
+  delete: async (companyId, productionSiteId, retries = 3) => {
+    let lastError;
+    
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        // Validate inputs
+        if (!companyId || !productionSiteId) {
+          throw new Error('Company ID and Production Site ID are required');
+        }
 
-  delete: async (companyId, productionSiteId) => {
-    try {
-      const response = await api.delete(
-        API_CONFIG.ENDPOINTS.PRODUCTION.SITE.DELETE(1, productionSiteId)
-      );
-      return response.data;
-    } catch (error) {
-      return handleApiError(error);
+        // For first attempt only, validate site exists
+        if (attempt === 1) {
+          const site = await productionSiteApi.fetchOne(companyId, productionSiteId);
+          if (!site || !site.data) {
+            throw new Error('Site not found');
+          }
+        }
+
+        const response = await api.delete(
+          API_CONFIG.ENDPOINTS.PRODUCTION.SITE.DELETE(companyId, productionSiteId)
+        );
+
+        if (!response.data || !response.data.success) {
+          throw new Error(response.data?.message || 'Failed to delete site');
+        }
+
+        // Successful deletion
+        console.log(`[ProductionSiteAPI] Site deleted successfully (attempt ${attempt})`);
+        return response.data;
+        
+      } catch (error) {
+        lastError = error;
+        console.error(`[ProductionSiteAPI] Delete Error (attempt ${attempt}/${retries}):`, error);
+
+        // Don't retry on these errors
+        if (error.message?.includes('not found') || 
+            error.message?.includes('permission') ||
+            error.response?.status === 404 ||
+            error.response?.status === 403) {
+          break;
+        }
+
+        // Wait before retrying (exponential backoff)
+        if (attempt < retries) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
     }
+
+    // If all retries failed, throw the last error
+    throw handleApiError(lastError);
   }
 };
 
