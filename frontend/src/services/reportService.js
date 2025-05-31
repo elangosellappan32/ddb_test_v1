@@ -38,3 +38,12 @@ export const fetchFormVBData = async (financialYear) => {
     throw new Error(error.response?.data?.message || 'Failed to fetch Form V-B data');
   }
 };
+
+export const fetchConsumptionSites = async () => {
+  try {
+    const response = await axios.get('/api/consumption-sites');
+    return response;
+  } catch (error) {
+    throw new Error('Failed to fetch consumption sites: ' + error.message);
+  }
+};

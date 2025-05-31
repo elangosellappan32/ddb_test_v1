@@ -9,12 +9,21 @@ const formatDateToMMYYYY = (date) => {
   return `${String(d.getMonth() + 1).padStart(2, '0')}${d.getFullYear()}`;
 };
 
+const formatSiteName = (name) => {
+  if (!name || typeof name !== 'string') return 'Unnamed Site';
+  return name.trim()
+    .split(' ')
+    .filter(word => word.length > 0)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+};
+
 const formatSiteData = (data) => ({
   companyId: String(data.companyId || '1'),
   consumptionSiteId: String(data.consumptionSiteId),
-  name: data.name || 'Unnamed Site',
+  name: formatSiteName(data.name),
   type: (data.type || 'unknown').toLowerCase(),
-  location: data.location || 'Location not specified',
+  location: data.location?.trim() || 'Location not specified',
   annualConsumption: Number(data.annualConsumption || 0),
   status: (data.status || 'inactive').toLowerCase(),
   version: Number(data.version || 1),

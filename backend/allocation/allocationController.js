@@ -187,26 +187,41 @@ function transformFormVBData(data) {
 
     baseData.siteMetrics = data.consumptionSites.map(site => {
         const siteGeneration = Number(site.generation || 0);
-        const siteAuxiliary = Number(site.auxiliary || 0);
-        const siteNetGeneration = siteGeneration - siteAuxiliary;        const verificationCriteria = siteNetGeneration * 0.51;
+        const siteAuxiliary = Number(site.auxiliaryConsumption || site.auxiliary || 0);
+        const siteNetGeneration = siteGeneration - siteAuxiliary;
+        const verificationCriteria = siteNetGeneration * 0.51;
         
-        // Ensure siteName is not null or undefined
-        const siteName = site.siteName || site.name || 'Unnamed Site';
+        // Get site name from the most reliable source first
+        const siteName = site.name || site.siteName || 'Unnamed Site';
+        
+        // Get equity shares from the most reliable source
+        const equityShares = site.equityShares || 
+                            (site.shares ? (site.shares.certificates || 0) : 0);
+        
+        // Get allocation percentage from the most reliable source
+        let allocationPercentage = 0;
+        if (site.allocationPercentage) {
+            allocationPercentage = Number(site.allocationPercentage);
+        } else if (site.shares?.ownership) {
+            allocationPercentage = Number(site.shares.ownership.replace('%', '')) || 0;
+        }
         
         return {
             siteName: siteName,
-            equityShares: site.shares?.certificates || 0,
-            allocationPercentage: Number(site.shares?.ownership?.replace('%', '') || 0),
+            equityShares: equityShares,
+            allocationPercentage: allocationPercentage,
             annualGeneration: siteGeneration,
             auxiliaryConsumption: siteAuxiliary,
             verificationCriteria: verificationCriteria,
             permittedConsumption: {
-                base: siteNetGeneration,
-                minus10: siteNetGeneration * 0.9,
-                plus10: siteNetGeneration * 1.1
+                withZero: verificationCriteria,
+                minus10: verificationCriteria * 0.9,
+                plus10: verificationCriteria * 1.1
             },
-            actualConsumption: Number(site.actual || 0),
-            normsCompliance: site.norms === 'Yes'
+            actualConsumption: Number(site.actualConsumption || site.actual || 0),
+            normsCompliance: site.normsCompliance !== undefined ? 
+                           site.normsCompliance : 
+                           (site.norms === 'Yes')
         };
     });
 

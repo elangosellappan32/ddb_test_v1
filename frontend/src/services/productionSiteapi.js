@@ -76,8 +76,46 @@ const validateResponse = (response) => {
   return validSites;
 };
 
+// Cache for storing production sites data
+let productionSitesCache = {
+  data: [],
+  lastUpdated: null,
+  isUpdating: false
+};
+
+// Cache TTL in milliseconds (5 minutes)
+const CACHE_TTL = 5 * 60 * 1000;
+
 const productionSiteApi = {
-  fetchAll: async (retries = 3, delay = 1000) => {
+  fetchAll: async (forceRefresh = false, retries = 3, delay = 1000) => {
+    const now = Date.now();
+    
+    // Return cached data if it's still fresh and not forcing refresh
+    if (!forceRefresh && 
+        productionSitesCache.lastUpdated && 
+        (now - productionSitesCache.lastUpdated) < CACHE_TTL) {
+      console.log('[ProductionSiteAPI] Returning cached data');
+      return {
+        data: [...productionSitesCache.data],
+        total: productionSitesCache.data.length,
+        fromCache: true,
+        lastUpdated: productionSitesCache.lastUpdated
+      };
+    }
+
+    // Prevent multiple simultaneous updates
+    if (productionSitesCache.isUpdating) {
+      console.log('[ProductionSiteAPI] Update in progress, returning current cache');
+      return {
+        data: [...productionSitesCache.data],
+        total: productionSitesCache.data.length,
+        fromCache: true,
+        updating: true
+      };
+    }
+
+    // Set updating flag
+    productionSitesCache.isUpdating = true;
     let lastError;
     
     for (let attempt = 1; attempt <= retries; attempt++) {
@@ -93,9 +131,19 @@ const productionSiteApi = {
         
         if (validatedData.length > 0) {
           console.log('[ProductionSiteAPI] Successfully retrieved sites:', validatedData);
+          
+          // Update cache
+          productionSitesCache = {
+            data: validatedData,
+            lastUpdated: now,
+            isUpdating: false
+          };
+          
           return {
             data: validatedData,
-            total: validatedData.length
+            total: validatedData.length,
+            fromCache: false,
+            lastUpdated: now
           };
         }
 
@@ -110,7 +158,6 @@ const productionSiteApi = {
           data: [],
           total: 0
         };
-
       } catch (error) {
         lastError = error;
         console.error(`[ProductionSiteAPI] Fetch error (attempt ${attempt}/${retries}):`, error);
@@ -118,6 +165,11 @@ const productionSiteApi = {
         if (attempt < retries) {
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
+        }
+      } finally {
+        // Reset updating flag when done
+        if (attempt === retries) {
+          productionSitesCache.isUpdating = false;
         }
       }
     }

@@ -25,7 +25,7 @@ async function calculateFormVBMetrics(financialYear) {
 
         logger.info('Processing months:', months);
 
-        // Fetch all required data
+        // Fetch all required data in parallel
         const [productionData, consumptionData, bankingData, allocationData, consumptionSites] = await Promise.all([
             productionUnitDAL.getAllProductionUnits(),
             consumptionUnitDAL.getAllConsumptionUnits(),
@@ -34,26 +34,39 @@ async function calculateFormVBMetrics(financialYear) {
             consumptionSiteDAL.getAllConsumptionSites()
         ]);
 
+        // Create a map of consumption sites for faster lookup
+        const siteMap = new Map(
+            consumptionSites.map(site => [
+                site.consumptionSiteId, 
+                { 
+                    ...site,
+                    name: site.name || site.siteName || 'Unnamed Site',
+                    equityShares: Number(site.equityShares || 0),
+                    allocationPercentage: Number(site.allocationPercentage || 0)
+                }
+            ])
+        );
+
         // Filter data by months in the financial year
         const filterByMonths = (data) => {
-            return data.filter(item => months.includes(item.sk));
+            return data.filter(item => item.sk && months.includes(item.sk));
         };
 
-        // Filter data for the financial year
+        // Filter and process data for the financial year
         const filteredProductionData = filterByMonths(productionData);
         const filteredConsumptionData = filterByMonths(consumptionData);
         const filteredBankingData = filterByMonths(bankingData);
         const filteredAllocationData = filterByMonths(allocationData);
 
-        // Calculate totals
+        // Calculate totals for all periods (c1-c5)
         const calculateTotal = (items) => {
             return items.reduce((sum, item) => {
                 const values = [
-                    item.c1 || 0, 
-                    item.c2 || 0, 
-                    item.c3 || 0, 
-                    item.c4 || 0, 
-                    item.c5 || 0
+                    Number(item.c1) || 0, 
+                    Number(item.c2) || 0, 
+                    Number(item.c3) || 0, 
+                    Number(item.c4) || 0, 
+                    Number(item.c5) || 0
                 ];
                 return sum + values.reduce((a, b) => a + b, 0);
             }, 0);
@@ -65,20 +78,19 @@ async function calculateFormVBMetrics(financialYear) {
         // Calculate auxiliary consumption (5% of total generation)
         const auxiliaryConsumption = totalGeneratedUnits * 0.05;
 
-        // Calculate aggregate generation
-        const aggregateGeneration = totalGeneratedUnits - auxiliaryConsumption;
+        // Calculate aggregate generation (net of auxiliary consumption)
+        const aggregateGeneration = Math.max(0, totalGeneratedUnits - auxiliaryConsumption);
 
-        // Calculate 51% of aggregate generation
-        const percentage51 = aggregateGeneration * 0.51;
+        // Calculate 51% of aggregate generation (verification criteria)
+        const verificationCriteria = aggregateGeneration * 0.51;
 
         // Calculate actual consumption units
         const totalAllocatedUnits = calculateTotal(filteredAllocationData);
-
-        // Calculate percentage of actual adjusted/consumed units
-        const percentageAdjusted = (totalAllocatedUnits / aggregateGeneration) * 100;
+        const percentageAdjusted = aggregateGeneration > 0 ? 
+            (totalAllocatedUnits / aggregateGeneration) * 100 : 0;
 
         // Calculate site metrics
-        const siteMetrics = consumptionSites.map(site => {
+        const siteMetrics = Array.from(siteMap.values()).map(site => {
             const siteAllocations = filteredAllocationData.filter(a => 
                 a.consumptionSiteId === site.consumptionSiteId
             );
@@ -86,27 +98,43 @@ async function calculateFormVBMetrics(financialYear) {
             const siteTotalAllocated = calculateTotal(siteAllocations);
             const siteShare = (site.equityShares / 100) || 0;
 
-            // Calculate permitted consumption
+            // Calculate permitted consumption based on site's share
+            const siteVerificationCriteria = verificationCriteria * siteShare;
             const sitePermittedConsumption = {
-                withZero: percentage51 * siteShare,
-                minus10: percentage51 * siteShare * 0.9,
-                plus10: percentage51 * siteShare * 1.1
+                withZero: siteVerificationCriteria,
+                minus10: siteVerificationCriteria * 0.9,
+                plus10: siteVerificationCriteria * 1.1
             };
 
+            // Check if actual consumption is within permitted range
+            const isCompliant = (
+                siteTotalAllocated <= sitePermittedConsumption.plus10 && 
+                siteTotalAllocated >= sitePermittedConsumption.minus10
+            );
+
             return {
-                siteName: site.siteName,
+                siteId: site.consumptionSiteId,
+                siteName: site.name,
                 equityShares: site.equityShares,
-                allocationPercentage: siteShare * 100,
+                allocationPercentage: site.allocationPercentage || (siteShare * 100),
                 annualGeneration: totalGeneratedUnits,
                 auxiliaryConsumption: auxiliaryConsumption,
-                verificationCriteria: percentage51 * siteShare,
+                verificationCriteria: siteVerificationCriteria,
                 permittedConsumption: sitePermittedConsumption,
                 actualConsumption: siteTotalAllocated,
-                normsCompliance: (
-                    siteTotalAllocated <= sitePermittedConsumption.plus10 && 
-                    siteTotalAllocated >= sitePermittedConsumption.minus10
-                )
+                normsCompliance: isCompliant,
+                lastUpdated: new Date().toISOString()
             };
+        });
+
+        logger.info(`Form VB metrics calculated for ${financialYear}`, {
+            totalSites: siteMetrics.length,
+            totalGeneratedUnits,
+            auxiliaryConsumption,
+            aggregateGeneration,
+            verificationCriteria,
+            totalAllocatedUnits,
+            percentageAdjusted
         });
 
         return {
@@ -114,10 +142,11 @@ async function calculateFormVBMetrics(financialYear) {
             totalGeneratedUnits,
             auxiliaryConsumption,
             aggregateGeneration,
-            percentage51,
+            verificationCriteria,
             totalAllocatedUnits,
             percentageAdjusted,
-            siteMetrics
+            siteMetrics,
+            lastUpdated: new Date().toISOString()
         };
     } catch (error) {
         logger.error('[calculateFormVBMetrics] Error:', error);

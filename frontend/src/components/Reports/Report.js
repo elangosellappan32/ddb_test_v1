@@ -274,99 +274,70 @@ const AllocationReport = () => {
     };
 
     // Calculate total generation (production units + banking units)
-    const totalGeneration = Number(reportData.totalGeneratedUnits || 0) + Number(reportData.totalBankingUnits || 0);
+    const totalGeneration = Number(reportData.totalGeneratedUnits || 0) + Number(reportData.totalBankingUnits || 0);    const getSiteName = (site) => {
+      if (!site) return 'Unnamed Site';
 
-    // Calculate verification criteria details
-    const verificationCriteriaDetails = reportData.siteMetrics.length > 0
-      ? {
-          auxiliaryConsumption: {
-            value: `${formatValue(reportData.auxiliaryConsumption || 0)} `,
-            align: 'center',
-            rawValue: Number(reportData.auxiliaryConsumption || 0)
-          },
-          verificationCriteria: {
-            value: `${formatValue((totalGeneration - (reportData.auxiliaryConsumption || 0)) * 0.51)} `,
-            align: 'center',
-            rawValue: (totalGeneration - (reportData.auxiliaryConsumption || 0)) * 0.51
-          }
+      // First try to get the siteName directly from the site object or its nested properties
+      const name = site.siteName || site.name;
+      if (name && typeof name === 'string' && name.trim()) {
+        return name.trim();
+      }
+
+      // Try from consumption site data next
+      if (site.consumptionSite?.name) {
+        return site.consumptionSite.name.trim();
+      }
+
+      // Look up in the report data using consumptionSiteId
+      if (site.consumptionSiteId && reportData.siteNames?.[site.consumptionSiteId]) {
+        const mappedName = reportData.siteNames[site.consumptionSiteId];
+        if (typeof mappedName === 'string' && mappedName.trim()) {
+          return mappedName.trim();
         }
-      : {
-          auxiliaryConsumption: { value: '', align: 'center', rawValue: 0 },
-          verificationCriteria: { value: '', align: 'center', rawValue: 0 }
-        };
+      }
 
-    // Extract permitted consumption details for the middle row
-    const middleRowPermittedConsumption = reportData.siteMetrics.length > 0 
-      ? { 
-          value: `${formatValue(totalGeneration)} MUs`, 
-          align: 'center',
-          base: formatValue(totalGeneration),
-          minus10: formatValue(totalGeneration * 0.9),
-          plus10: formatValue(totalGeneration * 1.1)
-        }
-      : { value: '', align: 'center', base: '', minus10: '', plus10: '' };
+      // Try metadata fields as a last resort before falling back
+      const metadataName = site.metadata?.name || site.siteData?.name || site.siteInfo?.name;
+      if (metadataName && typeof metadataName === 'string' && metadataName.trim()) {
+        return metadataName.trim();
+      }
 
-    const rows = reportData.siteMetrics.map((site, index) => {
+      // Only use site ID based name if we have no other option
+      if (site.consumptionSiteId) {
+        return `Consumption Site ${site.consumptionSiteId}`;
+      }
+      
+      return 'Unnamed Site';
+    };const rows = reportData.siteMetrics.map((site, index) => {
       const shares = {
         certificates: site.equityShares || '0',
         ownership: formatValue(site.allocationPercentage, true)
-      };
+      };      // Get the site name using our improved getSiteName function
+      const siteNameFormatted = getSiteName(site);
 
       const generation = formatValue(site.annualGeneration);
       
       // Calculate verification criteria for each row
       const siteAuxiliary = Number(site.auxiliaryConsumption || 0);
       const siteGeneration = Number(site.annualGeneration || 0);
-      const verificationCriteria = formatValue((siteGeneration - siteAuxiliary) * 0.51);
-
-      // Form V-A calculation
-      const formVACalculation = {
-        totalGeneration: formatValue(siteGeneration),
-        auxiliaryConsumption: formatValue(siteAuxiliary),
-        netGeneration: formatValue(siteGeneration - siteAuxiliary),
-        verificationCriteria: verificationCriteria,
-        percentageVerification: formatValue(((siteGeneration - siteAuxiliary) / siteGeneration) * 100, true)
-      };
-
-      const permittedConsumption = {
-        withZero: formatValue(site.permittedConsumption?.withZero || 0),
-        minus10: formatValue(site.permittedConsumption?.minus10 || 0),
-        plus10: formatValue(site.permittedConsumption?.plus10 || 0)
-      };
-
-      return {
+      const verificationCriteria = formatValue((siteGeneration - siteAuxiliary) * 0.51);      return {
         slNo: index + 1,
-        name: site.siteName || site.name || 'Unnamed Site',
+        name: siteNameFormatted,  // Use the formatted site name
         shares,
         proRata: 'Minimum 51%',
         generation,
-        // Show auxiliary consumption in the middle row
-        auxiliary: Math.floor(reportData.siteMetrics.length / 2) === index 
-          ? `${formatValue(reportData.auxiliaryConsumption || 0)} ` 
-          : '',
-        auxiliaryAlign: Math.floor(reportData.siteMetrics.length / 2) === index 
-          ? 'center' 
-          : 'left',
-        // Show verification criteria for each row
-        criteria: `${verificationCriteria} `,
-        criteriaAlign: Math.floor(reportData.siteMetrics.length / 2) === index 
-          ? 'center' 
-          : 'left',
-        // Show permitted consumption in the middle row
-        permittedConsumption: Math.floor(reportData.siteMetrics.length / 2) === index 
-          ? {
-              withZero: middleRowPermittedConsumption.base,
-              minus10: middleRowPermittedConsumption.minus10,
-              plus10: middleRowPermittedConsumption.plus10
-            }
-          : permittedConsumption,
-        permittedConsumptionAlign: Math.floor(reportData.siteMetrics.length / 2) === index 
-          ? 'center' 
-          : 'left',
+        auxiliary: site.auxiliaryConsumption ? formatValue(site.auxiliaryConsumption) : '',
+        auxiliaryAlign: Math.floor(reportData.siteMetrics.length / 2) === index ? 'center' : 'left',
+        criteria: verificationCriteria,
+        criteriaAlign: Math.floor(reportData.siteMetrics.length / 2) === index ? 'center' : 'left',
+        permittedConsumption: {
+          withZero: formatValue(site.permittedConsumption?.withZero || 0),
+          minus10: formatValue(site.permittedConsumption?.minus10 || 0),
+          plus10: formatValue(site.permittedConsumption?.plus10 || 0)
+        },
+        permittedConsumptionAlign: Math.floor(reportData.siteMetrics.length / 2) === index ? 'center' : 'left',
         actual: formatValue(site.actualConsumption),
-        norms: site.normsCompliance ? 'Yes' : 'No',
-        // Add Form V-A calculation details
-        formVACalculation
+        norms: site.normsCompliance ? 'Yes' : 'No'
       };
     });
 
@@ -625,32 +596,25 @@ const AllocationReport = () => {
           >
             {isForm5B ? (
               <>
-                <TableHead>                  <TableRow sx={{ '& th': { fontWeight: 'bold', whiteSpace: 'pre-line' } }}>
-                    <TableCell>Sl.No.</TableCell>
-                    <TableCell>Name of share holder</TableCell>
+                <TableHead>
+                  <TableRow>
+                    <TableCell rowSpan={2}>Sl.No.</TableCell>
+                    <TableCell rowSpan={2}>Name of share holder</TableCell>
                     <TableCell colSpan={2} align="center">No. of equity shares of value Rs. /-</TableCell>
-                    <TableCell>% to be consumed on pro rata basis by each captive user</TableCell>
-                    <TableCell>100% annual generation in MUs (x)</TableCell>
-                    <TableCell>Annual Auxiliary consumption in MUs (y)</TableCell>
-                    <TableCell>Generation considered to verify consumption criteria in MUs (x-y)*51%</TableCell>
+                    <TableCell rowSpan={2}>% to be consumed on pro rata basis by each captive user</TableCell>
+                    <TableCell rowSpan={2}>100% annual generation in MUs (x)</TableCell>
+                    <TableCell rowSpan={2}>Annual Auxiliary consumption in MUs (y)</TableCell>
+                    <TableCell rowSpan={2}>Generation considered to verify consumption criteria in MUs (x-y)*51%</TableCell>
                     <TableCell colSpan={3} align="center">Permitted consumption as per norms in MUs</TableCell>
-                    <TableCell>Actual consumption in MUs</TableCell>
-                    <TableCell>Whether consumption norms met</TableCell>
+                    <TableCell rowSpan={2}>Actual consumption in MUs</TableCell>
+                    <TableCell rowSpan={2}>Whether consumption norms met</TableCell>
                   </TableRow>
-                  <TableRow sx={{ '& th': { whiteSpace: 'pre-line', fontWeight: 'normal' } }}>
-                    <TableCell></TableCell>
-                    <TableCell></TableCell>
+                  <TableRow>
                     <TableCell>As per share certificates as on 31st March</TableCell>
                     <TableCell>% of ownership through shares in Company/unit of CGP</TableCell>
-                    <TableCell></TableCell>
-                    <TableCell></TableCell>
-                    <TableCell></TableCell>
-                    <TableCell></TableCell>
                     <TableCell>with 0% variation</TableCell>
                     <TableCell>-10%</TableCell>
                     <TableCell>+10%</TableCell>
-                    <TableCell></TableCell>
-                    <TableCell></TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>

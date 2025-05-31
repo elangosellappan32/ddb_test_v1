@@ -52,22 +52,53 @@ const FormVCsvReport = ({
   
         csvContent += headers + '\n';
   
-        // Add data rows with safe number formatting
-        data.consumptionSites.forEach((site, index) => {
-          csvContent += [            index + 1,
-            `"${site.siteName || site.name || 'Unnamed Site'}"`,
-            `"${site.equityShares || ''}"`,
-            site.allocationPercentage ? formatValue(site.allocationPercentage, true) : '0.00%',
-            'Minimum 51%',
-            formatValue(site.annualGeneration),
-            index === 0 ? formatValue(site.auxiliaryConsumption) : '',
-            formatValue(site.verificationCriteria),
-            index === 0 ? formatValue(site.permittedConsumption?.withZero) : '',
-            index === 0 ? formatValue(site.permittedConsumption?.minus10) : '',
-            index === 0 ? formatValue(site.permittedConsumption?.plus10) : '',
-            formatValue(site.actualConsumption),
-            `"${site.normsCompliance ? 'Yes' : 'No'}"`
-          ].join(',') + '\n';
+        // Group sites by their auxiliary consumption and permitted consumption values
+        const siteGroups = [];
+        let currentGroup = null;
+        
+        // Ensure consumptionSites is an array before forEach
+        const consumptionSites = Array.isArray(data.consumptionSites) ? data.consumptionSites : [];
+        
+        consumptionSites.forEach((site, index) => {
+          const auxKey = `${site.auxiliaryConsumption}_${JSON.stringify(site.permittedConsumption)}`;
+          
+          if (!currentGroup || currentGroup.auxKey !== auxKey) {
+            currentGroup = {
+              auxKey,
+              auxiliaryConsumption: site.auxiliaryConsumption,
+              permittedConsumption: site.permittedConsumption,
+              sites: []
+            };
+            siteGroups.push(currentGroup);
+          }
+          
+          currentGroup.sites.push({
+            ...site,
+            index: index + 1
+          });
+        });
+        
+        // Generate CSV rows for each group
+        siteGroups.forEach((group, groupIndex) => {
+          group.sites.forEach((site, siteIndex) => {
+            const isFirstInGroup = siteIndex === 0;
+            
+            csvContent += [
+              site.index,
+              `"${site.siteName || site.name || 'Unnamed Site'}"`,
+              `"${site.equityShares || ''}"`,
+              site.allocationPercentage ? formatValue(site.allocationPercentage, true) : '0.00%',
+              'Minimum 51%',
+              formatValue(site.annualGeneration),
+              isFirstInGroup ? formatValue(group.auxiliaryConsumption) : '',
+              formatValue(site.verificationCriteria),
+              isFirstInGroup ? formatValue(group.permittedConsumption?.withZero) : '',
+              isFirstInGroup ? formatValue(group.permittedConsumption?.minus10) : '',
+              isFirstInGroup ? formatValue(group.permittedConsumption?.plus10) : '',
+              formatValue(site.actualConsumption),
+              `"${site.normsCompliance ? 'Yes' : 'No'}"`
+            ].join(',') + '\n';
+          });
         });
   
         // Add empty row before summary

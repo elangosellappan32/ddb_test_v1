@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
-import { alpha } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import {
     Box,
     Card,
@@ -9,7 +9,10 @@ import {
     Typography,
     Grid,
     IconButton,
-    Tooltip
+    Tooltip,
+    LinearProgress,
+    Chip,
+    Badge
 } from '@mui/material';
 import {
     LocationOn,
@@ -21,10 +24,46 @@ import {
     AccountBalance as BankIcon,
     WindPower as WindIcon,
     WbSunny as SolarIcon,
-    FiberManualRecord as StatusDotIcon
+    FiberManualRecord as StatusDotIcon,
+    Cached as RefreshIcon,
+    Error as ErrorIcon,
+    Warning as WarningIcon
 } from '@mui/icons-material';
+import { formatDistanceToNow } from 'date-fns';
 
-const ProductionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) => {
+const ProductionSiteCard = ({ site, onView, onEdit, onDelete, permissions, onRefresh, lastUpdated }) => {
+    const theme = useTheme();
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState(null);
+    const [localSite, setLocalSite] = useState(site);
+    const [lastRefreshed, setLastRefreshed] = useState(lastUpdated || new Date());
+
+    // Effect to update local state when props change
+    useEffect(() => {
+        setLocalSite(site);
+    }, [site]);
+
+    // Handle manual refresh
+    const handleRefresh = async (e) => {
+        if (e) e.stopPropagation();
+        if (isLoading) return;
+        
+        setIsLoading(true);
+        setError(null);
+        
+        try {
+            if (onRefresh) {
+                await onRefresh();
+            }
+            setLastRefreshed(new Date());
+        } catch (err) {
+            console.error('Error refreshing site data:', err);
+            setError(err.message || 'Failed to refresh data');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     // Data validation with proper formatting for real data
     const safeData = {
         productionSiteId: site?.productionSiteId || '',
@@ -99,20 +138,51 @@ const ProductionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) => 
             }}
         >
             <CardActionArea onClick={onView} sx={{ p: 2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                    <Typography variant="h6" noWrap sx={{ maxWidth: '70%' }}>
-                        {safeData.name}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <StatusDotIcon 
-                            sx={{ 
-                                fontSize: 12, 
-                                color: `${getStatusColor(safeData.status)}.main`
-                            }} 
-                        />
-                        <Typography variant="caption" color={`${getStatusColor(safeData.status)}.main`}>
-                            {safeData.status}
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, gap: 1 }}>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography variant="h6" noWrap>
+                            {safeData.name}
                         </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                            <Typography 
+                                variant="caption" 
+                                color="text.secondary"
+                                sx={{ display: 'flex', alignItems: 'center' }}
+                            >
+                                {isLoading ? (
+                                    <>
+                                        <RefreshIcon 
+                                            sx={{ 
+                                                fontSize: 12, 
+                                                mr: 0.5,
+                                                animation: 'spin 2s linear infinite',
+                                                '@keyframes spin': {
+                                                    '0%': { transform: 'rotate(0deg)' },
+                                                    '100%': { transform: 'rotate(360deg)' },
+                                                },
+                                            }} 
+                                        />
+                                        Updating...
+                                    </>
+                                ) : error ? (
+                                    <>
+                                        <ErrorIcon sx={{ fontSize: 12, color: 'error.main', mr: 0.5 }} />
+                                        Update failed
+                                    </>
+                                ) : (
+                                    <>
+                                        <StatusDotIcon 
+                                            sx={{ 
+                                                fontSize: 10, 
+                                                mr: 0.5,
+                                                color: `${getStatusColor(safeData.status)}.main`
+                                            }} 
+                                        />
+                                        {safeData.status} • Updated {formatDistanceToNow(new Date(lastRefreshed), { addSuffix: true })}
+                                    </>
+                                )}
+                            </Typography>
+                        </Box>
                     </Box>
                 </Box>
 
@@ -183,8 +253,41 @@ const ProductionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) => 
                 </Box>
             </CardActionArea>
 
-            {(permissions?.update || permissions?.delete) && (
-                <CardActions sx={{ justifyContent: 'flex-end', p: 1.5 }}>
+            <CardActions sx={{ justifyContent: 'space-between', p: 1.5, pt: 0 }}>
+                <Box>
+                    <Tooltip title="Last refreshed">
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', ml: 1 }}>
+                            {formatDistanceToNow(new Date(lastRefreshed), { addSuffix: true })}
+                        </Typography>
+                    </Tooltip>
+                </Box>
+                <Box>
+                    <Tooltip title="Refresh data">
+                        <span>
+                            <IconButton 
+                                size="small"
+                                color="primary"
+                                onClick={handleRefresh}
+                                disabled={isLoading}
+                                sx={{
+                                    transition: 'transform 0.3s',
+                                    '&:hover': {
+                                        transform: 'rotate(180deg)',
+                                        backgroundColor: alpha(theme.palette.primary.main, 0.1)
+                                    },
+                                    animation: isLoading ? 'pulse 2s infinite' : 'none',
+                                    '@keyframes pulse': {
+                                        '0%': { opacity: 0.6 },
+                                        '50%': { opacity: 1 },
+                                        '100%': { opacity: 0.6 },
+                                    },
+                                }}
+                            >
+                                <RefreshIcon fontSize="small" />
+                            </IconButton>
+                        </span>
+                    </Tooltip>
+                    
                     {permissions?.update && onEdit && (
                         <Tooltip title="Edit Site">
                             <IconButton 
@@ -194,6 +297,8 @@ const ProductionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) => 
                                     e.stopPropagation();
                                     onEdit();
                                 }}
+                                disabled={isLoading}
+                                sx={{ ml: 1 }}
                             >
                                 <EditIcon />
                             </IconButton>
@@ -208,12 +313,20 @@ const ProductionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) => 
                                     e.stopPropagation();
                                     onDelete();
                                 }}
+                                disabled={isLoading}
+                                sx={{ ml: 1 }}
                             >
                                 <DeleteIcon />
                             </IconButton>
                         </Tooltip>
                     )}
-                </CardActions>
+                </Box>
+            </CardActions>
+            
+            {isLoading && (
+                <Box sx={{ width: '100%', position: 'absolute', bottom: 0, left: 0 }}>
+                    <LinearProgress color="primary" variant="indeterminate" />
+                </Box>
             )}
         </Card>
     );
@@ -222,9 +335,22 @@ const ProductionSiteCard = ({ site, onView, onEdit, onDelete, permissions }) => 
 ProductionSiteCard.propTypes = {
     site: PropTypes.object.isRequired,
     onView: PropTypes.func.isRequired,
-    onEdit: PropTypes.func,  // Make optional
-    onDelete: PropTypes.func, // Make optional
-    permissions: PropTypes.object.isRequired
+    onEdit: PropTypes.func,
+    onDelete: PropTypes.func,
+    onRefresh: PropTypes.func,
+    permissions: PropTypes.object.isRequired,
+    lastUpdated: PropTypes.oneOfType([
+        PropTypes.instanceOf(Date),
+        PropTypes.string,
+        PropTypes.number
+    ])
+};
+
+ProductionSiteCard.defaultProps = {
+    onEdit: null,
+    onDelete: null,
+    onRefresh: null,
+    lastUpdated: new Date()
 };
 
 export default ProductionSiteCard;
