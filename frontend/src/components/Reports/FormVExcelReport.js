@@ -59,29 +59,50 @@ const FormVExcelReport = ({
       patternType: 'solid'
     },
     numFmt: isHeader ? '@' : '0.00' // Text format for headers, number format for data
-  });      const createFormVA = (workbook, data) => {
+  });      const createFormVA = async (workbook, data) => {
     try {
       console.log('Creating Form V-A worksheet with data:', data);
 
-      // Validate data
-      if (!data || typeof data !== 'object') {
-        console.error('Invalid Form V-A data:', data);
+      // Helper function to safely convert to number with default
+      const toNumber = (value, defaultValue = 0) => {
+        if (value === null || value === undefined || value === '') return defaultValue;
+        const num = parseFloat(value);
+        return isNaN(num) ? defaultValue : num;
+      };
+
+      if (!data) {
+        console.error('No data available for Form V-A');
         return false;
       }
 
-      // Pre-process and validate values
-      const processedData = {
-        totalGeneratedUnits: Number(data.totalGeneratedUnits || 0),
-        auxiliaryConsumption: Number(data.auxiliaryConsumption || 0),
-        aggregateGeneration: Number(data.aggregateGeneration || 0),
-        fiftyOnePercentGeneration: Number(data.fiftyOnePercentGeneration || 0),
-        actualConsumedUnits: Number(data.actualConsumedUnits || 0),
-        consumptionPercentage: Number(data.consumptionPercentage || 0)
+      console.log('=== Starting Form V-A Report Generation ===');
+      console.log('Raw data received:', JSON.stringify(data, null, 2));
+
+      // Process numeric values with proper validation
+      const totalGenerated = toNumber(data.totalGeneratedUnits, 0);
+      const auxiliaryConsumption = toNumber(data.auxiliaryConsumption, 0);
+      const aggregateGeneration = toNumber(data.aggregateGeneration, 0);
+      const fiftyOnePercent = toNumber(data.fiftyOnePercentGeneration, 0);
+      const actualConsumed = toNumber(data.actualConsumedUnits, 0);
+      
+      // Calculate consumption percentage safely
+      const consumptionPercentage = aggregateGeneration > 0 
+        ? (actualConsumed / aggregateGeneration) * 100 
+        : 0;
+
+      // Format value for display (without decimals)
+      const formatValue = (value, isPercentage = false) => {
+        if (isPercentage) {
+          return Math.round(value) + '%'; // Remove decimal points
+        }
+        return value.toLocaleString('en-IN', {
+          maximumFractionDigits: 0 // No decimal places
+        });
       };
 
       // Define headers
       const headers = [
-        ['FORMAT V-A'],
+        ['FORM V-A'],
         ['Statement showing compliance to the requirement of minimum 51% consumption for Captive Status'],
         [`Financial Year: ${financialYear}`],
         [], // Empty row for spacing
@@ -90,15 +111,15 @@ const FormVExcelReport = ({
 
       // Define rows with validated data
       const rows = [
-        [1, 'Total Generated units of a generating plant / Station identified for captive use', formatValue(processedData.totalGeneratedUnits)],
-        [2, 'Less : Auxiliary Consumption in the above in units', formatValue(processedData.auxiliaryConsumption)],
-        [3, 'Net units available for captive consumption (Aggregate generation for captive use)', formatValue(processedData.aggregateGeneration)],
-        [4, '51% of aggregate generation available for captive consumption in units', formatValue(processedData.fiftyOnePercentGeneration)],
-        [5, 'Actual Adjusted / Consumed units by the captive users', formatValue(processedData.actualConsumedUnits)],
-        [6, 'Percentage of actual adjusted / consumed units by the captive users with respect to aggregate generation for captive use', formatValue(processedData.consumptionPercentage, true)]
+        [1, 'Total Generated units of a generating plant / Station identified for captive use', totalGenerated],
+        [2, 'Less : Auxiliary Consumption in the above in units', auxiliaryConsumption],
+        [3, 'Net units available for captive consumption (Aggregate generation for captive use)', aggregateGeneration],
+        [4, '51% of aggregate generation available for captive consumption in units', fiftyOnePercent],
+        [5, 'Actual Adjusted / Consumed units by the captive users', actualConsumed],
+        [6, 'Percentage of actual adjusted / consumed units by the captive users with respect to aggregate generation for captive use', 
+          consumptionPercentage / 100] // Store as decimal for Excel formatting
       ];
 
-      // Create worksheet with validated data
       const ws = XLSX.utils.aoa_to_sheet([...headers, ...rows], { cellStyles: true });
 
       // Set optimized column widths
@@ -158,19 +179,18 @@ const FormVExcelReport = ({
 
           // Apply number formats based on column type
           if (isData) {
-            // Define column types
-            const percentageCols = [3, 4, 7]; // Ownership, Allocation, Auxiliary Consumption
-            const numberCols = [2, 5, 6, 8, 9, 10, 11, 12]; // Numbers and amounts
-            
-            if (percentageCols.includes(C)) {
-              ws[cell].z = '0.00%';
-              if (ws[cell].v && typeof ws[cell].v === 'string') {
-                ws[cell].v = Number(ws[cell].v.replace('%', '')) / 100;
+            // For Form V-A, the last row is a percentage, others are numbers
+            if (R === rows.length + 4) { // Last data row (percentage)
+              ws[cell].z = '0%'; // No decimal places for percentage
+              if (ws[cell].v !== undefined && ws[cell].v !== null) {
+                // Round to nearest whole number for percentage
+                ws[cell].v = Math.round(toNumber(ws[cell].v, 0)) / 100;
               }
-            } else if (numberCols.includes(C)) {
-              ws[cell].z = '#,##0.00';
-              if (ws[cell].v) {
-                ws[cell].v = Number(ws[cell].v);
+            } else if (C === 2) { // Values column
+              ws[cell].z = '#,##0'; // No decimal places
+              if (ws[cell].v !== undefined && ws[cell].v !== null) {
+                // Round to nearest whole number
+                ws[cell].v = Math.round(toNumber(ws[cell].v, 0));
               }
             }
           }
@@ -402,21 +422,40 @@ const FormVExcelReport = ({
       ];
 
 
-      // Create data rows
-      const dataRows = processedMetrics.map((site, index) => ([
-        index + 1, // Sl. No.
-        site.siteName, // Name of Share Holder
-        site.equityShares, // No. of equity shares
-        site.ownershipPercentage / 100, // % of ownership
-        site.annualGeneration, // 100% annual generation
-        site.auxiliaryConsumption, // Annual Auxiliary consumption
-        site.generationForConsumption, // Generation considered
-        site.basePermitted, // Permitted Consumption (0%)
-        site.minus10Percent, // Permitted Consumption (-10%)
-        site.plus10Percent, // Permitted Consumption (+10%)
-        site.actualConsumption, // Actual Consumption (MUs)
-        site.consumptionNormsMet ? 'Yes' : 'No' // Consumption Norms Met
-      ]));
+      // Helper function to safely convert to number with default
+      const toNumber = (value, defaultValue = 0) => {
+        const num = parseFloat(value);
+        return isNaN(num) ? defaultValue : num;
+      };
+
+      // Create data rows with proper number handling
+      const dataRows = processedMetrics.map((site, index) => {
+        // Ensure all numeric values are properly converted
+        const equityShares = toNumber(site.equityShares, 0);
+        const ownershipPercentage = toNumber(site.ownershipPercentage, 0);
+        const annualGeneration = toNumber(site.annualGeneration, 0);
+        const auxiliaryConsumption = toNumber(site.auxiliaryConsumption, 0);
+        const generationForConsumption = toNumber(site.generationForConsumption, 0);
+        const basePermitted = toNumber(site.basePermitted, 0);
+        const minus10Percent = toNumber(site.minus10Percent, 0);
+        const plus10Percent = toNumber(site.plus10Percent, 0);
+        const actualConsumption = toNumber(site.actualConsumption, 0);
+        
+        return [
+          index + 1, // Sl. No.
+          site.siteName || `Site ${index + 1}`, // Name of Share Holder
+          equityShares, // No. of equity shares
+          ownershipPercentage / 100, // % of ownership (as decimal)
+          annualGeneration, // 100% annual generation
+          auxiliaryConsumption, // Annual Auxiliary consumption
+          generationForConsumption, // Generation considered
+          basePermitted, // Permitted Consumption (0%)
+          minus10Percent, // Permitted Consumption (-10%)
+          plus10Percent, // Permitted Consumption (+10%)
+          actualConsumption, // Actual Consumption (MUs)
+          site.consumptionNormsMet ? 'Yes' : 'No' // Consumption Norms Met
+        ];
+      });
 
       // Create worksheet
       const ws = XLSX.utils.aoa_to_sheet([...headers, ...dataRows]);
@@ -502,8 +541,16 @@ const FormVExcelReport = ({
 
           // Apply number formats
           if (isDataRow) {
-            if ([3, 4].includes(C)) {  // Percentage columns
+            if (C === 3) {  // Percentage column
               ws[cellRef].z = '0.00%';
+              if (ws[cellRef].v !== undefined && ws[cellRef].v !== null) {
+                ws[cellRef].v = toNumber(ws[cellRef].v, 0);
+              }
+            } else if (C >= 4 && C <= 10) {  // Numeric columns
+              ws[cellRef].z = '0.00';
+              if (ws[cellRef].v !== undefined && ws[cellRef].v !== null) {
+                ws[cellRef].v = toNumber(ws[cellRef].v, 0);
+              }
             } else if ([2, 5, 6, 7, 8, 9, 10, 11, 12].includes(C)) {  // Number columns
               // For the auxiliary consumption column (7), use 2 decimal places
               ws[cellRef].z = C === 7 ? '0.00' : '#,##0.00';
