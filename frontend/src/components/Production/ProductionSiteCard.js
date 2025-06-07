@@ -82,9 +82,9 @@ const ProductionSiteCard = ({
         type: (site?.type || 'Unknown').toLowerCase(),
         status: site?.status || 'Active',
         location: site?.location?.trim() || 'Location not specified',
-        // Convert capacity to proper format (e.g. 0.60 for 600KW)
-        capacity_MW: site?.capacity_MW ? 
-            (Number(site?.capacity_MW) / 1000).toFixed(2) : '1.00',
+        // Keep capacity as is (already in MW)
+        capacity_MW: site?.capacity_MW != null ? 
+            Number(site.capacity_MW).toFixed(2) : '0.00',
         // Use actual HTSC number
         htscNo: site?.htscNo || '69534460069',
         // Standard injection voltage
@@ -155,7 +155,8 @@ const ProductionSiteCard = ({
                             <Typography 
                                 variant="caption" 
                                 color="text.secondary"
-                                sx={{ display: 'flex', alignItems: 'center' }}
+                                component="div"
+                                sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}
                             >
                                 {isLoading ? (
                                     <>
@@ -264,9 +265,11 @@ const ProductionSiteCard = ({
             <CardActions sx={{ justifyContent: 'space-between', p: 1.5, pt: 0 }}>
                 <Box>
                     <Tooltip title="Last refreshed">
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', ml: 1 }}>
-                            {formatDistanceToNow(new Date(lastRefreshed), { addSuffix: true })}
-                        </Typography>
+                        <Box component="span">
+                            <Typography variant="caption" color="text.secondary" component="span" sx={{ display: 'inline-flex', alignItems: 'center', ml: 1 }}>
+                                {formatDistanceToNow(new Date(lastRefreshed), { addSuffix: true })}
+                            </Typography>
+                        </Box>
                     </Tooltip>
                 </Box>
                 <Box>

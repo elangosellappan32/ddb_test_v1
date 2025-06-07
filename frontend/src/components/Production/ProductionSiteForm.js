@@ -12,13 +12,17 @@ import {
   CircularProgress,
   Switch,
   FormControlLabel,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   InputAdornment,
   FormHelperText,
-  Typography
-} from '@mui/material';
+  Typography,
+  Paper,
+  Card,
+  CardHeader,
+  CardContent,
+  CardActions,
+  Divider
+} from '@mui/material'; 
+import { useNavigate } from 'react-router-dom';
 import {
   LocationOn as LocationIcon,
   Speed as CapacityIcon,
@@ -44,6 +48,7 @@ const INITIAL_FORM_STATE = {
 };
 
 const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) => {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState(INITIAL_FORM_STATE);
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
@@ -203,13 +208,25 @@ const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) 
     );
   }
 
+  const handleCancel = () => {
+    if (onCancel) {
+      onCancel();
+    } else {
+      navigate(-1); // Go back if no onCancel handler provided
+    }
+  };
+
   return (
-    <Box component="form" onSubmit={handleSubmit} noValidate>
-      <DialogTitle>
-        {site ? 'Edit Production Site' : 'Add Production Site'}
-      </DialogTitle>
-      <DialogContent>
-        <Grid container spacing={2} sx={{ mt: 1 }}>
+    <Paper elevation={3} sx={{ maxWidth: 800, mx: 'auto', p: 3, mt: 3 }}>
+      <Box component="form" onSubmit={handleSubmit} noValidate id="production-site-form">
+        <Card>
+          <CardHeader
+            title={site ? 'Edit Production Site' : 'Add Production Site'}
+            titleTypographyProps={{ variant: 'h5', fontWeight: 'bold' }}
+            sx={{ borderBottom: '1px solid rgba(0,0,0,0.12)' }}
+          />
+          <CardContent>
+            <Grid container spacing={3}>
           <Grid item xs={12}>
             <TextField
               fullWidth
@@ -459,22 +476,31 @@ const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) 
               }}
             />
           </Grid>
-        </Grid>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 3 }}>
-        <Button onClick={onCancel}>Cancel</Button>
-        <Button
-          variant="contained"
-          color="primary"
-          type="submit"
-          disabled={!isValid || loading}
-          startIcon={loading ? <CircularProgress size={20} /> : null}
-          sx={{ minWidth: 120 }}
-        >
-          {loading ? 'Saving...' : site ? 'Update' : 'Create'}
-        </Button>
-      </DialogActions>
-    </Box>
+            </Grid>
+          </CardContent>
+          <Divider />
+          <CardActions sx={{ justifyContent: 'flex-end', p: 2 }}>
+            <Button 
+              onClick={handleCancel}
+              variant="outlined"
+              disabled={loading}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              color="primary"
+              type="submit"
+              disabled={!isValid || loading}
+              startIcon={loading ? <CircularProgress size={20} /> : null}
+              sx={{ minWidth: 120, ml: 2 }}
+            >
+              {loading ? 'Saving...' : site ? 'Update' : 'Create'}
+            </Button>
+          </CardActions>
+        </Card>
+      </Box>
+    </Paper>
   );
 };
 

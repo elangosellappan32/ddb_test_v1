@@ -408,12 +408,6 @@ ConsumptionSiteCard.propTypes = {
   ])
 };
 
-ConsumptionSiteCard.defaultProps = {
-  permissions: {},
-  onEdit: null,
-  onDelete: null,
-  onRefresh: null,
-  lastUpdated: new Date()
-};
+// Default props removed - using default parameters instead
 
 export default ConsumptionSiteCard;

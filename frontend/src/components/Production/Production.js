@@ -27,6 +27,7 @@ const Production = () => {
   const [error, setError] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSite, setSelectedSite] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
   const [viewMode, setViewMode] = useState('card'); // 'card' or 'table'
   const [retryCount, setRetryCount] = useState(0);
 
@@ -158,7 +159,18 @@ const Production = () => {
       });
       return;
     }
-    setSelectedSite(null);
+    setSelectedSite({
+      name: '',
+      type: '',
+      location: '',
+      capacity_MW: '',
+      injectionVoltage_KV: '',
+      htscNo: '',
+      status: 'Active',
+      banking: 0,
+      annualProduction_L: ''
+    });
+    setIsEditing(false);
     setDialogOpen(true);
   }, [permissions.create, enqueueSnackbar]);
 
@@ -170,6 +182,7 @@ const Production = () => {
       return;
     }
     setSelectedSite(site);
+    setIsEditing(true);
     setDialogOpen(true);
   }, [permissions.update, enqueueSnackbar]);
 
@@ -529,13 +542,15 @@ const Production = () => {
         onClose={() => {
           setDialogOpen(false);
           setSelectedSite(null);
+          setIsEditing(false);
         }}
         onSubmit={handleSubmit}
         initialData={selectedSite}
         loading={loading}
         permissions={permissions}
         existingSites={sites}
-        user={user} // Pass the user prop
+        user={user}
+        isEditing={isEditing}
       />
     </Paper>
   );

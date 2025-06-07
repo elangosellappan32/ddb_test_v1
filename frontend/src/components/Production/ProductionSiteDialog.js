@@ -8,25 +8,8 @@ import {
   Box,
   Typography,
   CircularProgress,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  Button,
-  Grid,
-  Paper,
-  Alert,
-  Divider,
-  Tooltip
 } from '@mui/material';
-import {
-  Close as CloseIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  LocationOn as LocationIcon,
-  Speed as CapacityIcon,
-  ElectricBolt as VoltageIcon
-} from '@mui/icons-material';
+import { Close as CloseIcon } from '@mui/icons-material';
 import ProductionSiteForm from './ProductionSiteForm';
 import { useSnackbar } from 'notistack';
 import { updateUserSiteAccess } from '../../utils/siteAccessUtils';
@@ -39,29 +22,63 @@ const ProductionSiteDialog = ({
   loading: externalLoading,
   permissions,
   existingSites = [],
-  user
+  user,
+  isEditing = false
 }) => {
-  const [formData, setFormData] = useState(null);
-  const [showForm, setShowForm] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '',
+    type: '',
+    location: '',
+    capacity_MW: '',
+    injectionVoltage_KV: '',
+    htscNo: '',
+    status: 'Active',
+    banking: 0,
+    annualProduction_L: ''
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const { enqueueSnackbar } = useSnackbar();
 
   useEffect(() => {
-    if (initialData && open) {
-      setShowForm(true);
-      setFormData(initialData);
-    } else {
-      setFormData(null);
-      setShowForm(false);
+    if (open) {
+      if (isEditing && initialData) {
+        // When editing, use the initialData and ensure all fields are properly set
+        const siteData = {
+          name: initialData.name || '',
+          type: initialData.type || '',
+          location: initialData.location || '',
+          capacity_MW: initialData.capacity_MW != null ? initialData.capacity_MW : '',
+          injectionVoltage_KV: initialData.injectionVoltage_KV != null ? initialData.injectionVoltage_KV : '',
+          htscNo: initialData.htscNo || '',
+          annualProduction_L: initialData.annualProduction_L != null ? initialData.annualProduction_L : '',
+          status: initialData.status || 'Active',
+          banking: initialData.banking || 0,
+        };
+        console.log('Setting form data for edit:', siteData);
+        setFormData(siteData);
+      } else {
+        // For new site, use default empty values
+        const defaultData = {
+          name: '',
+          type: '',
+          location: '',
+          capacity_MW: '',
+          injectionVoltage_KV: '',
+          htscNo: '',
+          status: 'Active',
+          banking: 0,
+          annualProduction_L: ''
+        };
+        console.log('Setting default form data:', defaultData);
+        setFormData(defaultData);
+      }
     }
-  }, [initialData, open]);
+  }, [open, initialData, isEditing]);
 
   const handleClose = (event, reason) => {
     if (loading || externalLoading) return;
     if (reason !== 'backdropClick') {
-      setFormData(null);
-      setShowForm(false);
       onClose();
     }
   };
@@ -92,19 +109,8 @@ const ProductionSiteDialog = ({
     }
   };
 
-  const handleStartCreation = () => {
-    setShowForm(true);
-    setFormData(null);
-  };
-
-  const handleBackToList = () => {
-    setShowForm(false);
-    setFormData(null);
-  };
-
-  const handleEditSite = (site) => {
-    setFormData(site);
-    setShowForm(true);
+  const handleCancel = () => {
+    onClose();
   };
 
   return (
@@ -116,6 +122,7 @@ const ProductionSiteDialog = ({
       disableEscapeKeyDown={loading || externalLoading}
     >
       <DialogTitle
+        component="div"
         sx={{
           borderBottom: '2px solid #1976d2',
           mb: 2,
@@ -125,21 +132,10 @@ const ProductionSiteDialog = ({
           p: 2
         }}
       >
-        <Typography variant="h6">
-          {initialData ? 'Edit Production Site' : 
-           (showForm ? 'Add Production Site' : 'Production Sites')}
+        <Typography variant="h6" component="span">
+          {isEditing ? 'Edit Production Site' : 'Add Production Site'}
         </Typography>
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-          {!showForm && permissions?.create && (
-            <Button
-              variant="contained"
-              size="small"
-              startIcon={<AddIcon />}
-              onClick={handleStartCreation}
-            >
-              Add New
-            </Button>
-          )}
           {!(loading || externalLoading) && (
             <IconButton
               onClick={handleClose}
@@ -158,69 +154,13 @@ const ProductionSiteDialog = ({
             <Box display="flex" justifyContent="center" p={3}>
               <CircularProgress />
             </Box>
-          ) : !showForm ? (
-            <>
-              {existingSites.length === 0 ? (
-                <Alert severity="info" sx={{ mb: 2 }}>
-                  No production sites exist yet. Create your first one!
-                </Alert>
-              ) : (
-                <Paper variant="outlined" sx={{ mb: 2 }}>
-                  <List>
-                    {existingSites.map((site, index) => (
-                      <React.Fragment key={`${site.companyId}_${site.productionSiteId}`}>
-                        <ListItem>
-                          <ListItemText
-                            primary={
-                              <Typography variant="subtitle1">
-                                {site.name}
-                              </Typography>
-                            }
-                            secondary={
-                              <Grid container spacing={2} sx={{ mt: 1 }}>
-                                <Grid item xs={12} sm={4}>
-                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    <LocationIcon fontSize="small" color="action" />
-                                    <Typography variant="body2">{site.location}</Typography>
-                                  </Box>
-                                </Grid>
-                                <Grid item xs={12} sm={4}>
-                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    <CapacityIcon fontSize="small" color="action" />
-                                    <Typography variant="body2">{site.capacity_MW} MW</Typography>
-                                  </Box>
-                                </Grid>
-                                <Grid item xs={12} sm={4}>
-                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    <VoltageIcon fontSize="small" color="action" />
-                                    <Typography variant="body2">{site.injectionVoltage_KV} kV</Typography>
-                                  </Box>
-                                </Grid>
-                              </Grid>
-                            }
-                          />
-                          <ListItemSecondaryAction>
-                            {permissions?.update && (
-                              <Tooltip title="Edit">
-                                <IconButton edge="end" onClick={() => handleEditSite(site)}>
-                                  <EditIcon />
-                                </IconButton>
-                              </Tooltip>
-                            )}
-                          </ListItemSecondaryAction>
-                        </ListItem>
-                        {index < existingSites.length - 1 && <Divider />}
-                      </React.Fragment>
-                    ))}
-                  </List>
-                </Paper>
-              )}
-            </>
           ) : (
             <ProductionSiteForm
+              key={formData.name || 'new'} // Force re-render when formData changes
+              site={formData}
               initialData={formData}
               onSubmit={handleSubmit}
-              onCancel={handleBackToList}
+              onCancel={handleCancel}
               loading={loading || externalLoading}
               readOnly={!permissions?.update && !permissions?.create}
             />
@@ -242,8 +182,9 @@ ProductionSiteDialog.propTypes = {
     update: PropTypes.bool,
     delete: PropTypes.bool
   }),
-  existingSites: PropTypes.array,
-  user: PropTypes.object.isRequired
+
+  user: PropTypes.object.isRequired,
+  isEditing: PropTypes.bool
 };
 
 export default ProductionSiteDialog;
