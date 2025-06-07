@@ -20,6 +20,7 @@ const Production = () => {
   const navigate = useNavigate();
   const { enqueueSnackbar } = useSnackbar();
   const { user } = useAuth();
+  const authContext = useAuth(); // Get auth context at the top level
   
   const [sites, setSites] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -68,35 +69,46 @@ const Production = () => {
       console.log('[Production] Fetching sites, attempt:', retryCount + 1);
       const response = await productionSiteApi.fetchAll();
       
-      // Get accessible sites from user metadata
-      const accessibleSites = user?.accessibleSites?.productionSites?.L || [];
-      const accessibleSiteIds = new Set(accessibleSites.map(site => site.S));
+      // Log the raw response for debugging
+      console.log('[Production] Raw API response:', response);
       
-      // Filter and transform data
-      const formattedData = response?.data
-        ?.filter(site => {
-          const siteId = `${site.companyId}_${site.productionSiteId}`;
-          return accessibleSiteIds.has(siteId);
-        })
-        ?.map(site => ({
-          companyId: String(site.companyId) || '1',
-          productionSiteId: String(site.productionSiteId),
-          name: site.name || 'Unnamed Site',
-          type: (site.type || 'unknown').toLowerCase(),
-          location: site.location || 'Unknown Location',
-          status: (site.status || 'inactive').toLowerCase(),
-          version: Number(site.version || 1),
-          timetolive: Number(site.timetolive || 0),
-          capacity: Number(site.capacity || 0)
-        })) || [];
-
+      // Handle case where response is an array directly
+      let sitesData = Array.isArray(response) ? response : response?.data || [];
+      
+      // If data is nested under 'Items', extract it
+      if (sitesData?.Items && Array.isArray(sitesData.Items)) {
+        sitesData = sitesData.Items;
+      }
+      
+      // Transform data to ensure consistent format
+      const formattedData = sitesData.map(site => ({
+        companyId: String(site.companyId || '1'),
+        productionSiteId: String(site.productionSiteId || ''),
+        name: site.name || 'Unnamed Site',
+        type: (site.type || 'unknown').toLowerCase(),
+        location: site.location || 'Unknown Location',
+        status: (site.status || 'inactive').toLowerCase(),
+        capacity_MW: Number(site.capacity_MW || 0),
+        injectionVoltage_KV: Number(site.injectionVoltage_KV || 0),
+        annualProduction_L: Number(site.annualProduction_L || 0),
+        htscNo: site.htscNo || '',
+        banking: site.banking || 0,
+        version: Number(site.version || 1),
+        createdat: site.createdat || new Date().toISOString(),
+        updatedat: site.updatedat || new Date().toISOString()
+      }));
+      
+      console.log('[Production] Formatted sites data:', formattedData);
       setSites(formattedData);
       setLoading(false);
       
       if (formattedData.length === 0) {
         enqueueSnackbar('No production sites found', { variant: 'info' });
       } else {
-        enqueueSnackbar(`Successfully loaded ${formattedData.length} sites`, { variant: 'success' });
+        enqueueSnackbar(`Successfully loaded ${formattedData.length} sites`, { 
+          variant: 'success',
+          autoHideDuration: 2000
+        });
       }
 
     } catch (err) {
@@ -224,31 +236,122 @@ const Production = () => {
   const handleSubmit = async (formData) => {
     try {
       setLoading(true);
-      if (selectedSite) {
-        await productionSiteApi.update(
-          selectedSite.companyId,
-          selectedSite.productionSiteId,
-          { ...formData, version: selectedSite.version || 1 }
-        );
-      } else {
-        await productionSiteApi.create(formData);
+      
+      // Check if we have a valid user
+      if (!authContext?.user) {
+        throw new Error('Please log in to create or edit production sites.');
+      }
+
+      // Transform form data as needed
+      const submitData = {
+        ...formData,
+        capacity_MW: formData.capacity_MW != null ? Number(formData.capacity_MW) : null,
+        injectionVoltage_KV: formData.injectionVoltage_KV != null ? Number(formData.injectionVoltage_KV) : null,
+        annualProduction_L: formData.annualProduction_L != null ? Number(formData.annualProduction_L) : 0,
+        banking: formData.banking ? 1 : 0,
+        status: formData.status || 'Active',
+        version: selectedSite ? (selectedSite.version || 1) : 1,
+      };
+      
+      console.log('Submitting production site data:', submitData);
+      
+      try {
+        if (selectedSite) {
+          // Update existing site
+          await productionSiteApi.update(
+            selectedSite.companyId, 
+            selectedSite.productionSiteId, 
+            submitData
+          );
+          enqueueSnackbar('Production site updated successfully', { 
+            variant: 'success' 
+          });
+        } else {
+          // Create new site - pass auth context to get company ID
+          await productionSiteApi.create(submitData, authContext);
+          enqueueSnackbar('Production site created successfully', { 
+            variant: 'success'
+          });
+        }
+
+        // Refresh the sites list and close the dialog
+        await fetchSites();
+        setDialogOpen(false);
+        setSelectedSite(null);
+
+      } catch (error) {
+        // Handle specific error cases
+        if (error.code === 'NO_COMPANY_ASSOCIATION') {
+          enqueueSnackbar(error.message, {
+            variant: 'warning',
+            autoHideDuration: 8000,
+            action: (key) => (
+              <Button
+                color="inherit"
+                size="small"
+                onClick={() => {
+                  enqueueSnackbar.close(key);
+                }}
+              >
+                Contact Admin
+              </Button>
+            )
+          });
+        } else {
+          throw error; // Re-throw other errors to be handled by outer catch
+        }
+      }
+    } catch (error) {
+      console.error('Error saving production site:', error);
+      
+      let errorMessage = 'Failed to save production site';
+      let variant = 'error';
+      let autoHideDuration = 8000;
+      
+      if (error.code === 'NO_COMPANY_ASSOCIATION') {
+        errorMessage = error.message;
+        variant = 'warning';
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
       }
       
-      enqueueSnackbar(`Site ${selectedSite ? 'updated' : 'created'} successfully`, { variant: 'success' });
-      setDialogOpen(false);
-      setSelectedSite(null);
-      fetchSites();
-    } catch (error) {
-      console.error('[Production] Submit error:', error);
-      enqueueSnackbar(error.message || 'Failed to save site', { variant: 'error' });
+      enqueueSnackbar(errorMessage, {
+        variant,
+        autoHideDuration,
+        action: (key) => (
+          <Button
+            color="inherit"
+            size="small"
+            onClick={() => enqueueSnackbar.close(key)}
+          >
+            Dismiss
+          </Button>
+        )
+      });
     } finally {
       setLoading(false);
     }
   };
 
+  const renderCardView = () => (
+    <Grid container spacing={3} sx={{ mt: 2 }}>
+      {sites.map((site) => (
+        <Grid item xs={12} sm={6} md={4} lg={3} key={`${site.companyId}_${site.productionSiteId}`}>
+          <ProductionSiteCard 
+            site={site} 
+            onEdit={permissions.update ? () => handleSiteClick(site) : null}
+            onDelete={permissions.delete ? () => handleDeleteClick(site) : null}
+          />
+        </Grid>
+      ))}
+    </Grid>
+  );
+
   const renderTableView = () => (
-    <TableContainer component={Paper} sx={{ mt: 3 }}>
-      <Table>
+    <TableContainer component={Paper} sx={{ mt: 3, maxHeight: '70vh', overflow: 'auto' }}>
+      <Table stickyHeader>
         <TableHead>
           <TableRow>
             <TableCell>Name</TableCell>
@@ -256,44 +359,77 @@ const Production = () => {
             <TableCell>Type</TableCell>
             <TableCell align="right">Capacity (MW)</TableCell>
             <TableCell align="right">Production (L)</TableCell>
+            <TableCell>HTSC No</TableCell>
             <TableCell>Status</TableCell>
             <TableCell>Actions</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
-          {sites.map((site) => (
-            <TableRow key={`${site.companyId}_${site.productionSiteId}`}>
-              <TableCell>{site.name}</TableCell>
-              <TableCell>{site.location}</TableCell>
-              <TableCell>{site.type}</TableCell>
-              <TableCell align="right">{site.capacity_MW}</TableCell>
-              <TableCell align="right">{site.annualProduction_L}</TableCell>
-              <TableCell>
-                <Box
-                  component="span"
-                  sx={{
-                    px: 2,
-                    py: 0.5,
-                    borderRadius: 1,
-                    backgroundColor: site.status === 'Active' ? 'success.light' : 'warning.light',
-                    color: site.status === 'Active' ? 'success.dark' : 'warning.dark',
-                  }}
-                >
-                  {site.status}
-                </Box>
-              </TableCell>
-              <TableCell>
-                <IconButton onClick={() => handleSiteClick(site)} size="small">
-                  <EditIcon />
-                </IconButton>
-                {permissions.delete && (
-                  <IconButton onClick={() => handleDeleteClick(site)} size="small" color="error">
-                    <DeleteIcon />
-                  </IconButton>
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
+          {sites.map((site) => {
+            const statusColor = site.status === 'active' ? 'success' : 
+                              site.status === 'inactive' ? 'error' : 'warning';
+                              
+            return (
+              <TableRow 
+                key={`${site.companyId}_${site.productionSiteId}`}
+                hover
+                sx={{ '&:hover': { cursor: 'pointer' } }}
+                onClick={() => handleSiteClick(site)}
+              >
+                <TableCell>{site.name}</TableCell>
+                <TableCell>{site.location}</TableCell>
+                <TableCell sx={{ textTransform: 'capitalize' }}>{site.type}</TableCell>
+                <TableCell align="right">{site.capacity_MW.toLocaleString()}</TableCell>
+                <TableCell align="right">{site.annualProduction_L.toLocaleString()}</TableCell>
+                <TableCell>{site.htscNo || '-'}</TableCell>
+                <TableCell>
+                  <Box
+                    component="span"
+                    sx={{
+                      px: 2,
+                      py: 0.5,
+                      borderRadius: 1,
+                      backgroundColor: `${statusColor}.light`,
+                      color: `${statusColor}.dark`,
+                      fontWeight: 'medium',
+                      display: 'inline-block',
+                      minWidth: 80,
+                      textAlign: 'center',
+                      textTransform: 'capitalize'
+                    }}
+                  >
+                    {site.status}
+                  </Box>
+                </TableCell>
+                <TableCell>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <IconButton 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSiteClick(site);
+                      }} 
+                      size="small"
+                      color="primary"
+                    >
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                    {permissions.delete && (
+                      <IconButton 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteClick(site);
+                        }} 
+                        size="small" 
+                        color="error"
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    )}
+                  </Box>
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </TableContainer>
@@ -343,8 +479,31 @@ const Production = () => {
           <CircularProgress />
         </Box>
       ) : sites.length === 0 ? (
-        <Alert severity="info" sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-          No production sites found.
+        <Alert 
+          severity="info" 
+          sx={{ 
+            display: 'flex', 
+            justifyContent: 'center', 
+            py: 3,
+            '& .MuiAlert-message': {
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2
+            }
+          }}
+        >
+          <Typography>No production sites found.</Typography>
+          {permissions.create && (
+            <Button 
+              variant="text" 
+              color="primary" 
+              onClick={handleAddClick}
+              size="small"
+              sx={{ ml: 2 }}
+            >
+              Add New Site
+            </Button>
+          )}
         </Alert>
       ) : viewMode === 'table' ? (
         renderTableView()
@@ -374,6 +533,9 @@ const Production = () => {
         onSubmit={handleSubmit}
         initialData={selectedSite}
         loading={loading}
+        permissions={permissions}
+        existingSites={sites}
+        user={user} // Pass the user prop
       />
     </Paper>
   );

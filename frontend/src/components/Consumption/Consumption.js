@@ -38,42 +38,92 @@ const Consumption = () => {
   const adminUser = useMemo(() => isAdmin(user), [user]);
   const totalSites = useMemo(() => sites.length, [sites]);
 
+  // Format consumption for display
+  const formatConsumption = useCallback((value) => {
+    if (value >= 1000000) {
+      return `${(value / 1000000).toFixed(1)}M`;
+    } else if (value >= 1000) {
+      return `${(value / 1000).toFixed(1)}K`;
+    }
+    return value.toString();
+  }, []);
+
+  // Process site data
+  const processSiteData = useCallback((site) => {
+    // Handle annual consumption - ensure it's a valid number
+    let annualConsumption = 0;
+    const rawValue = site.annualConsumption ?? site.annualConsumption_L;
+    
+    if (rawValue !== undefined && rawValue !== null) {
+      if (typeof rawValue === 'number') {
+        annualConsumption = Math.round(rawValue);
+      } else if (typeof rawValue === 'string') {
+        const cleanValue = rawValue.trim() === '' ? '0' : rawValue.replace(/[^0-9.]/g, '');
+        const num = parseFloat(cleanValue);
+        annualConsumption = isNaN(num) ? 0 : Math.round(num);
+      } else if (typeof rawValue === 'object' && rawValue.N) {
+        const num = parseFloat(rawValue.N);
+        annualConsumption = isNaN(num) ? 0 : Math.round(num);
+      }
+    }
+    
+    return {
+      ...site,
+      companyId: String(site.companyId || '1'),
+      consumptionSiteId: String(site.consumptionSiteId || ''),
+      name: site.name || 'Unnamed Site',
+      type: (site.type || 'industrial').toLowerCase().trim(),
+      location: site.location || 'Unknown Location',
+      status: (site.status || 'inactive').toLowerCase().trim(),
+      version: Number(site.version || 1),
+      timetolive: Number(site.timetolive || 0),
+      annualConsumption,
+      formattedConsumption: formatConsumption(annualConsumption),
+      createdAt: site.createdAt || site.createdat || new Date().toISOString(),
+      updatedAt: site.updatedAt || site.updatedat || new Date().toISOString()
+    };
+  }, [formatConsumption]);
+
   // Fetch sites data
   const fetchSites = useCallback(async () => {
+    console.group('🔍 [Consumption] fetchSites()');
     try {
+      console.log('🔄 Setting loading state and clearing errors');
       setError(null);
       setLoading(true);
+      
+      console.log('📡 Making API call to fetch all consumption sites...');
       const response = await consumptionSiteApi.fetchAll();
+      console.log('✅ API Response:', {
+        status: response?.status,
+        dataCount: response?.data?.length,
+        rawData: response?.data
+      });
       
       // Get accessible sites from user metadata
       const accessibleSites = user?.accessibleSites?.consumptionSites?.L || [];
       const accessibleSiteIds = new Set(accessibleSites.map(site => site.S));
       
-      // Filter and transform data
-      const formattedData = response?.data
-        ?.filter(site => {
+      // Filter and process data
+      const formattedData = (response?.data || [])
+        .filter(site => {
           const siteId = `${site.companyId}_${site.consumptionSiteId}`;
           return accessibleSiteIds.has(siteId);
         })
-        ?.map(site => ({
-          companyId: String(site.companyId) || '1',
-          consumptionSiteId: String(site.consumptionSiteId),
-          name: site.name || 'Unnamed Site',
-          type: (site.type || 'unknown').toLowerCase(),
-          location: site.location || 'Unknown Location',
-          status: (site.status || 'inactive').toLowerCase(),
-          version: Number(site.version || 1),
-          timetolive: Number(site.timetolive || 0),
-          annualConsumption: Number(site.annualConsumption || 0)
-        })) || [];
+        .map(processSiteData);
 
+      console.log(`📊 Setting sites state with ${formattedData.length} sites`);
       setSites(formattedData);
+      
     } catch (error) {
-      console.error('[Consumption] Error fetching sites:', error);
-      setError(error.message || 'Failed to fetch sites');
-      enqueueSnackbar(error.message || 'Failed to fetch sites', { variant: 'error' });
+      console.error('❌ [Consumption] Error fetching sites:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to fetch sites';
+      setError(errorMessage);
+      enqueueSnackbar(errorMessage, { variant: 'error' });
     } finally {
+      console.log('🏁 Fetch completed, resetting loading state');
       setLoading(false);
+      console.groupEnd();
     }
   }, [enqueueSnackbar, user]);
 
@@ -174,7 +224,7 @@ const Consumption = () => {
     try {
       setLoading(true);
       if (selectedSite) {
-        // Ensure we have all required data for update
+        // Update existing site
         await consumptionSiteApi.update(
           selectedSite.companyId || '1',
           selectedSite.consumptionSiteId,
@@ -185,7 +235,15 @@ const Consumption = () => {
         );
         enqueueSnackbar('Site updated successfully', { variant: 'success' });
       } else {
-        await consumptionSiteApi.create(formData);
+        // Create new site - pass auth context to get company ID
+        await consumptionSiteApi.create(formData, {
+          user: {
+            ...user,
+            companyId: user?.companyId,
+            metadata: user?.metadata,
+            accessibleSites: user?.accessibleSites
+          }
+        });
         enqueueSnackbar('Site created successfully', { variant: 'success' });
       }
       
@@ -202,26 +260,31 @@ const Consumption = () => {
   };
 
   return (
-    <Paper elevation={0} sx={{ p: 3, backgroundColor: 'transparent' }}>
+    <Box sx={{ p: 3 }}>
       <Box sx={{ 
         display: 'flex', 
         justifyContent: 'space-between', 
+        alignItems: 'center',
         mb: 3,
-        borderBottom: '2px solid #1976d2',
-        pb: 2
+        pb: 2,
+        borderBottom: '1px solid',
+        borderColor: 'divider'
       }}>
-        <Typography variant="h5" sx={{ 
-          fontWeight: 'bold',
-          color: '#1976d2'
-        }}>
-          Consumption Sites
-        </Typography>
         <Box>
+          <Typography variant="h4" component="h1" sx={{ mb: 1 }}>
+            Consumption Sites
+          </Typography>
+          <Typography variant="body1" color="text.secondary">
+            {totalSites} {totalSites === 1 ? 'site' : 'sites'} • 
+            Total Consumption: {formatConsumption(sites.reduce((sum, site) => sum + (site.annualConsumption || 0), 0))} MWh/year
+          </Typography>
+        </Box>
+        
+        <Box sx={{ display: 'flex', gap: 2 }}>
           <Button
             variant="outlined"
             startIcon={<RefreshIcon />}
             onClick={fetchSites}
-            sx={{ mr: 2 }}
             disabled={loading}
           >
             Refresh
@@ -245,50 +308,49 @@ const Consumption = () => {
         </Alert>
       )}
 
-      <Grid container spacing={3}>
-        {loading ? (
-          <Grid item xs={12}>
-            <Box sx={{ 
-              display: 'flex', 
-              justifyContent: 'center', 
-              alignItems: 'center', 
-              minHeight: '200px' 
-            }}>
-              <CircularProgress />
-            </Box>
-          </Grid>
-        ) : sites.length === 0 ? (
-          <Grid item xs={12}>
-            <Alert severity="info" sx={{ 
-              display: 'flex', 
-              justifyContent: 'center',
-              py: 3
-            }}>
-              No consumption sites found.
-            </Alert>
-          </Grid>
-        ) : (
-          sites.map((site) => (
-            <Grid 
-              item 
-              xs={12} 
-              sm={6} 
-              md={4} 
-              key={`site_${site.companyId}_${site.consumptionSiteId}`}
-            >
-              <ConsumptionSiteCard 
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+          <CircularProgress />
+        </Box>
+      ) : sites.length === 0 ? (
+        <Paper elevation={0} sx={{ p: 4, textAlign: 'center', borderRadius: 2, bgcolor: 'background.paper' }}>
+          <Box sx={{ maxWidth: 400, mx: 'auto' }}>
+            <Typography variant="h6" color="text.secondary" gutterBottom>
+              No consumption sites found
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Get started by adding your first consumption site to track energy usage.
+            </Typography>
+            {permissions.create && (
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<AddIcon />}
+                onClick={handleAddClick}
+                size="large"
+              >
+                Create your first site
+              </Button>
+            )}
+          </Box>
+        </Paper>
+      ) : (
+        <Grid container spacing={3}>
+          {sites.map((site) => (
+            <Grid item key={`${site.companyId}_${site.consumptionSiteId}`} xs={12} sm={6} lg={4} xl={3}>
+              <ConsumptionSiteCard
                 site={site}
                 onView={() => handleSiteClick(site)}
                 onEdit={permissions.update ? () => handleEditClick(site) : null}
                 onDelete={permissions.delete ? () => handleDeleteClick(site) : null}
-                userRole={user?.role}
+                onRefresh={fetchSites}
                 permissions={permissions}
-                isAdmin={adminUser}
+                lastUpdated={site.updatedAt}
               />
             </Grid>
-          ))
-        )}
-      </Grid>
+          ))}
+        </Grid>
+      )}
 
       {dialogOpen && (
         <ConsumptionSiteDialog
@@ -301,10 +363,12 @@ const Consumption = () => {
           initialData={selectedSite}
           loading={loading}
           permissions={permissions}
-          totalSites={totalSites} // Pass total sites count
+          totalSites={totalSites}
+          existingSites={sites}
+          user={user}
         />
       )}
-    </Paper>
+    </Box>
   );
 };
 

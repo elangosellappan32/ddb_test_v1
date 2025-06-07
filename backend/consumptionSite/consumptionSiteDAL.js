@@ -38,14 +38,24 @@ const createConsumptionSite = async (item) => {
         const lastId = await getLastConsumptionSiteId(item.companyId || '1');
         const newId = lastId + 1;
 
+        // Ensure annualConsumption is properly formatted as a number
+        let annualConsumption = 0;
+        if (item.annualConsumption !== undefined && item.annualConsumption !== null) {
+            // Convert to number and round to nearest integer
+            annualConsumption = Math.round(Number(item.annualConsumption));
+            // Ensure it's not negative
+            annualConsumption = Math.max(0, annualConsumption);
+        }
+
         const newItem = {
-            companyId: item.companyId || '1',
+            companyId: String(item.companyId || '1').trim(),
             consumptionSiteId: newId.toString(),
-            name: item.name,
-            location: item.location,
-            type: item.type.toLowerCase(),
-            annualConsumption: new Decimal(item.annualConsumption || 0).toString(),
-            status: item.status || 'active',
+            name: String(item.name || '').trim(),
+            location: String(item.location || '').trim(),
+            type: String(item.type || 'industrial').toLowerCase().trim(),
+            annualConsumption: annualConsumption,
+            annualConsumption_L: annualConsumption, // Legacy field for backward compatibility
+            status: String(item.status || 'active').toLowerCase().trim(),
             version: 1,
             createdat: now,
             updatedat: now,
@@ -67,44 +77,37 @@ const createConsumptionSite = async (item) => {
 
 const getConsumptionSite = async (companyId, consumptionSiteId) => {
     try {
-        const { Item } = await docClient.send(new GetCommand({
-            TableName,
-            Key: { 
-                companyId: companyId.toString(),
-                consumptionSiteId: consumptionSiteId.toString()
+        const params = {
+            TableName: TableName,
+            Key: {
+                companyId: companyId,
+                consumptionSiteId: consumptionSiteId
             }
-        }));
-
-        if (!Item) {
-            const error = new Error('Consumption site not found');
-            error.statusCode = 404;
-            throw error;
-        }
-
-        // Validate required fields
-        if (!Item.name || !Item.type || !Item.location) {
-            logger.error('[ConsumptionSiteDAL] Invalid data in database:', Item);
-            const error = new Error('Invalid site data in database');
-            error.statusCode = 500;
-            throw error;
-        }
-
-        // Format and validate the data before returning
-        return {
-            companyId: Item.companyId,
-            consumptionSiteId: Item.consumptionSiteId,
-            name: Item.name,
-            location: Item.location,
-            type: Item.type.toLowerCase(),
-            annualConsumption: new Decimal(Item.annualConsumption || 0).toString(),
-            status: Item.status?.toLowerCase() || 'active',
-            version: Number(Item.version || 1),
-            timetolive: Number(Item.timetolive || 0),
-            createdat: Item.createdat || new Date().toISOString(),
-            updatedat: Item.updatedat || new Date().toISOString()
         };
+
+        const result = await docClient.send(new GetCommand(params));
+        
+        if (!result.Item) {
+            return null;
+        }
+
+        // Ensure annualConsumption is properly set from annualConsumption_L if not present
+        const item = { ...result.Item };
+        if (item.annualConsumption_L !== undefined && item.annualConsumption === undefined) {
+            item.annualConsumption = item.annualConsumption_L;
+        }
+        
+        // Ensure we have a valid number for annualConsumption
+        if (item.annualConsumption !== undefined) {
+            const numValue = Number(item.annualConsumption);
+            item.annualConsumption = isNaN(numValue) ? 0 : Math.round(numValue);
+        } else {
+            item.annualConsumption = 0;
+        }
+
+        return item;
     } catch (error) {
-        logger.error('[ConsumptionSiteDAL] Get Error:', error);
+        logger.error('Error getting consumption site:', { error, companyId, consumptionSiteId });
         throw error;
     }
 };

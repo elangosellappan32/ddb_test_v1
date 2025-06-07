@@ -717,12 +717,13 @@ const createDefaultUsers = async () => {
             metadata: {
                 department: 'SMR Administration',
                 accessLevel: 'ADMIN',
+                companyId: '5',  // Add companyId for SMR Energy
                 accessibleSites: {
                     productionSites: { L: [
-                        { S: '1_1' }
+                        { S: '5_1' }
                     ]},
                     consumptionSites: { L: [
-                        { S: '1_1' }, { S: '1_2' }
+                        { S: '2_1' }, { S: '3_2' }, { S: '5_1' }
                     ]}
                 }
             },
@@ -741,12 +742,13 @@ const createDefaultUsers = async () => {
             metadata: {
                 department: 'SMR Operations',
                 accessLevel: 'MANAGER',
+                companyId: '5',  // Add companyId for SMR Energy
                 accessibleSites: {
                     productionSites: { L: [
-                        { S: '1_1' }
+                        { S: '5_1' }
                     ]},
                     consumptionSites: { L: [
-                        { S: '1_1' }, { S: '1_2' }
+                        { S: '2_1' }, { S: '3_2' }
                     ]}
                 }
             },
@@ -765,12 +767,13 @@ const createDefaultUsers = async () => {
             metadata: {
                 department: 'SMR Monitoring',
                 accessLevel: 'VIEWER',
+                companyId: '5',  // Add companyId for SMR Energy
                 accessibleSites: {
                     productionSites: { L: [
-                        { S: '1_1' }
+                        { S: '5_1' }
                     ]},
                     consumptionSites: { L: [
-                        { S: '1_1' }, { S: '1_2' }
+                        { S: '2_1' }, { S: '3_2' }
                     ]}
                 }
             },

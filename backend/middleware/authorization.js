@@ -25,7 +25,9 @@ const authenticateToken = async (req, res, next) => {
                 message: 'Authentication required',
                 code: 'AUTH_REQUIRED'
             });
-        }const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+        }
+
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
         
         // Get fresh user data from database
         const user = await authDal.getUserByUsername(decoded.username);
@@ -50,11 +52,25 @@ const authenticateToken = async (req, res, next) => {
                     code: 'INVALID_ROLE'
                 });
             }
-        }        // Attach user and role info to request
+        }
+
+        // Get company ID from decoded token or user metadata
+        let companyId = decoded.companyId;
+        if (!companyId && user.metadata?.companyId) {
+            companyId = user.metadata.companyId;
+        }
+        if (!companyId && user.metadata?.accessibleSites?.productionSites?.L?.length > 0) {
+            // Extract company ID from the first production site ID (format: companyId_siteId)
+            const firstSiteId = user.metadata.accessibleSites.productionSites.L[0].S;
+            companyId = parseInt(firstSiteId.split('_')[0], 10);
+        }
+
+        // Attach user and role info to request
         req.user = {
             username: decoded.username,
             email: decoded.emailId || user.email,
             role: decoded.role || user.role,
+            companyId: companyId,
             permissions: decoded.permissions || role?.permissions || {
                 'production': ['READ'],
                 'consumption': ['READ'],
@@ -69,7 +85,11 @@ const authenticateToken = async (req, res, next) => {
             ...(role && {
                 roleId: role.roleId,
                 roleName: role.roleName
-            })
+            }),
+            metadata: {
+                ...user.metadata,
+                companyId
+            }
         };
 
         next();

@@ -31,7 +31,15 @@ import {
 } from '@mui/icons-material';
 import { formatDistanceToNow } from 'date-fns';
 
-const ProductionSiteCard = ({ site, onView, onEdit, onDelete, permissions, onRefresh, lastUpdated }) => {
+const ProductionSiteCard = ({ 
+    site, 
+    onView, 
+    onEdit = null, 
+    onDelete = null, 
+    permissions, 
+    onRefresh = null, 
+    lastUpdated = new Date() 
+}) => {
     const theme = useTheme();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -344,13 +352,6 @@ ProductionSiteCard.propTypes = {
         PropTypes.string,
         PropTypes.number
     ])
-};
-
-ProductionSiteCard.defaultProps = {
-    onEdit: null,
-    onDelete: null,
-    onRefresh: null,
-    lastUpdated: new Date()
 };
 
 export default ProductionSiteCard;

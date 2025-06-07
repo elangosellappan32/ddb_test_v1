@@ -30,8 +30,10 @@ import {
 import { 
   Refresh as RefreshIcon,
   CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon
+  Error as ErrorIcon,
+  Warning as WarningIcon
 } from '@mui/icons-material';
+import { styled } from '@mui/material/styles';
 import { fetchFormVAData, fetchFormVBData } from '../../services/reportService';
 import FormVExcelReport from './FormVExcelReport';
 import FormVCsvReport from './FormVCsvReport';
@@ -41,6 +43,74 @@ const REFRESH_INTERVAL = 60000; // Refresh every minute
 const Transition = React.forwardRef(function Transition(props, ref) {
   return <Slide direction="up" ref={ref} {...props} />;
 });
+
+// Styled Components
+const StyledTableContainer = styled(TableContainer)(({ theme }) => ({
+  borderRadius: '12px',
+  boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)',
+  border: '1px solid rgba(230, 235, 240, 0.8)',
+  overflow: 'auto',
+  marginTop: theme.spacing(3),
+  '& .MuiTable-root': {
+    borderCollapse: 'separate',
+    borderSpacing: 0,
+    minWidth: 1400
+  },
+  '& .MuiTableCell-root': {
+    borderColor: 'rgba(230, 235, 240, 0.8)',
+    padding: '12px 16px',
+    fontSize: '0.875rem',
+    '&.MuiTableCell-head': {
+      fontWeight: 600,
+      backgroundColor: '#f8fafc',
+      borderBottom: '2px solid rgba(230, 235, 240, 0.8)',
+      whiteSpace: 'nowrap',
+      '&.header-cell': {
+        backgroundColor: '#f0f4f8',
+        color: theme.palette.primary.dark,
+        fontSize: '0.8rem',
+        padding: '8px 12px',
+      }
+    }
+  },
+  '& .MuiTableRow-root': {
+    '&:hover': {
+      backgroundColor: 'rgba(0, 0, 0, 0.01)'
+    },
+    '&.totals-row': {
+      backgroundColor: 'rgba(25, 118, 210, 0.04)',
+      '& .MuiTableCell-root': {
+        fontWeight: 600,
+        borderTop: '2px solid rgba(0, 0, 0, 0.1)',
+        borderBottom: '2px solid rgba(0, 0, 0, 0.1)',
+        '&:first-of-type, &:last-of-type': {
+          borderLeft: '2px solid rgba(0, 0, 0, 0.1)',
+          borderRight: '2px solid rgba(0, 0, 0, 0.1)',
+        }
+      }
+    }
+  }
+}));
+
+const StatusBadge = styled(Box)(({ status }) => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '4px 8px',
+  borderRadius: '12px',
+  fontWeight: 500,
+  fontSize: '0.75rem',
+  backgroundColor: 
+    status === 'Yes' ? 'rgba(46, 125, 50, 0.1)' : 
+    status === 'No' ? 'rgba(211, 47, 47, 0.1)' : 'rgba(237, 108, 2, 0.1)',
+  color: 
+    status === 'Yes' ? '#2e7d32' : 
+    status === 'No' ? '#d32f2f' : '#ed6c02',
+  '& svg': {
+    marginRight: 4,
+    fontSize: '1rem'
+  }
+}));
 
 const AllocationReport = () => {
   const { enqueueSnackbar } = useSnackbar();
@@ -90,10 +160,21 @@ const AllocationReport = () => {
       }
 
       // For Form V-B, the data is nested under a 'data' property
+      console.log('Raw API response:', data);
       const processedData = isForm5B ? data.data : data;
+      console.log('Processed data:', processedData);
       
-      if (isForm5B && (!processedData.siteMetrics || processedData.siteMetrics.length === 0)) {
-        throw new Error('No consumption site data available for Form V-B');
+      if (isForm5B) {
+        console.log('Form V-B data structure:', {
+          hasSiteMetrics: !!processedData?.siteMetrics,
+          siteMetricsLength: processedData?.siteMetrics?.length,
+          processedDataKeys: processedData ? Object.keys(processedData) : 'No data'
+        });
+        
+        if (!processedData?.siteMetrics || processedData.siteMetrics.length === 0) {
+          console.warn('No consumption site data available for Form V-B');
+          throw new Error('No consumption site data available for Form V-B');
+        }
       }
 
       setReportData(processedData);
@@ -251,11 +332,19 @@ const AllocationReport = () => {
       }
     ]
   };
+  // Helper function to safely convert to number
+  const toNumber = (value, defaultValue = 0) => {
+    if (value === null || value === undefined || value === '') return defaultValue;
+    const num = parseFloat(value);
+    return isNaN(num) ? defaultValue : num;
+  };
+
   const prepareForm5BData = () => {
     if (!reportData?.siteMetrics?.length) {
       return {
         ...defaultFormVBData,
         rows: [],
+        totals: null,
         summary: {
           totalGeneration: 0,
           auxiliaryConsumption: 0,
@@ -268,13 +357,20 @@ const AllocationReport = () => {
       };
     }
 
-    const formatValue = (value, isPercent = false) => {
-      const num = Number(value || 0);
-      return isPercent ? `${num.toFixed(2)}%` : num.toFixed(2);
-    };
 
-    // Calculate total generation (production units + banking units)
-    const totalGeneration = Number(reportData.totalGeneratedUnits || 0) + Number(reportData.totalBankingUnits || 0);    const getSiteName = (site) => {
+    // Calculate totals
+    let totalEquityShares = 0;
+    let totalOwnership = 0;
+    let totalGeneration = 0;
+    let totalAuxiliary = 0;
+    let totalCriteria = 0;
+    let totalPermittedWithZero = 0;
+    let totalPermittedMinus10 = 0;
+    let totalPermittedPlus10 = 0;
+    let totalActual = 0;
+    let totalNormsMet = 0;
+
+    const getSiteName = (site) => {
       if (!site) return 'Unnamed Site';
 
       // First try to get the siteName directly from the site object or its nested properties
@@ -308,55 +404,99 @@ const AllocationReport = () => {
       }
       
       return 'Unnamed Site';
-    };const rows = reportData.siteMetrics.map((site, index) => {
-      const shares = {
-        certificates: site.equityShares || '0',
-        ownership: formatValue(site.allocationPercentage, true)
-      };      // Get the site name using our improved getSiteName function
+    };
+
+    const rows = reportData.siteMetrics.map((site, index) => {
+      // Convert all numeric values
+      const equityShares = toNumber(site.equityShares);
+      const ownership = toNumber(site.ownershipPercentage || site.allocationPercentage);
+      const generation = toNumber(site.annualGeneration);
+      const auxiliary = toNumber(site.auxiliaryConsumption);
+      const criteria = (generation - auxiliary) * 0.51;
+      const permittedWithZero = toNumber(site.permittedConsumption?.withZero || 0);
+      const permittedMinus10 = toNumber(site.permittedConsumption?.minus10 || 0);
+      const permittedPlus10 = toNumber(site.permittedConsumption?.plus10 || 0);
+      const actual = toNumber(site.actualConsumption);
+      const normsMet = site.consumptionNormsMet || site.normsCompliance ? 1 : 0;
+
+      // Add to totals
+      totalEquityShares += equityShares;
+      totalOwnership += ownership;
+      totalGeneration += generation;
+      totalAuxiliary += auxiliary;
+      totalCriteria += criteria;
+      totalPermittedWithZero += permittedWithZero;
+      totalPermittedMinus10 += permittedMinus10;
+      totalPermittedPlus10 += permittedPlus10;
+      totalActual += actual;
+      totalNormsMet += normsMet;
+
+      // Get the site name
       const siteNameFormatted = getSiteName(site);
 
-      const generation = formatValue(site.annualGeneration);
-      
-      // Calculate verification criteria for each row
-      const siteAuxiliary = Number(site.auxiliaryConsumption || 0);
-      const siteGeneration = Number(site.annualGeneration || 0);
-      const verificationCriteria = formatValue((siteGeneration - siteAuxiliary) * 0.51);      return {
+      return {
         slNo: index + 1,
-        name: siteNameFormatted,  // Use the formatted site name
-        shares,
-        proRata: 'Minimum 51%',
-        generation,
-        auxiliary: site.auxiliaryConsumption ? formatValue(site.auxiliaryConsumption) : '',
-        auxiliaryAlign: Math.floor(reportData.siteMetrics.length / 2) === index ? 'center' : 'left',
-        criteria: verificationCriteria,
-        criteriaAlign: Math.floor(reportData.siteMetrics.length / 2) === index ? 'center' : 'left',
-        permittedConsumption: {
-          withZero: formatValue(site.permittedConsumption?.withZero || 0),
-          minus10: formatValue(site.permittedConsumption?.minus10 || 0),
-          plus10: formatValue(site.permittedConsumption?.plus10 || 0)
+        name: siteNameFormatted,
+        shares: {
+          certificates: equityShares.toLocaleString('en-IN', { maximumFractionDigits: 0 }),
+          ownership: ownership.toFixed(0) + '%'
         },
-        permittedConsumptionAlign: Math.floor(reportData.siteMetrics.length / 2) === index ? 'center' : 'left',
-        actual: formatValue(site.actualConsumption),
-        norms: site.normsCompliance ? 'Yes' : 'No'
+        proRata: 'minimum 51%', // Fixed value for pro-rata column
+        generation: generation.toLocaleString('en-IN', { maximumFractionDigits: 0 }),
+        auxiliary: auxiliary.toLocaleString('en-IN', { maximumFractionDigits: 0 }),
+        criteria: criteria.toLocaleString('en-IN', { maximumFractionDigits: 0 }),
+        permittedConsumption: {
+          withZero: permittedWithZero.toLocaleString('en-IN', { maximumFractionDigits: 0 }),
+          minus10: permittedMinus10.toLocaleString('en-IN', { maximumFractionDigits: 0 }),
+          plus10: permittedPlus10.toLocaleString('en-IN', { maximumFractionDigits: 0 })
+        },
+        actual: actual.toLocaleString('en-IN', { maximumFractionDigits: 0 }),
+        norms: normsMet ? 'Yes' : 'No',
+        isTotal: false
       };
     });
 
-    // Calculate totals for summary
-    const summary = {
-      totalGeneration: formatValue(totalGeneration),
-      auxiliaryConsumption: Number(reportData.auxiliaryConsumption || 0).toFixed(2),
-      totalCriteria: Number(reportData.percentage51 || 0).toFixed(2),
-      totalPermitted: formatValue(totalGeneration),
-      totalPermittedMinus10: formatValue(totalGeneration * 0.9),
-      totalPermittedPlus10: formatValue(totalGeneration * 1.1),
-      totalConsumption: Number(reportData.totalAllocatedUnits || 0).toFixed(2)
+    // Calculate average ownership percentage
+    const avgOwnership = rows.length > 0 ? totalOwnership / rows.length : 0;
+    const allNormsMet = totalNormsMet === rows.length ? 'Yes' : 
+                       totalNormsMet === 0 ? 'No' : 'Partial';
+
+    // Create totals row
+    const totals = {
+      slNo: 'Total',
+      name: '',
+      shares: {
+        certificates: totalEquityShares.toLocaleString('en-IN', { maximumFractionDigits: 0 }),
+        ownership: avgOwnership.toFixed(0) + '%'
+      },
+      proRata: '', // Keep empty for total row
+      generation: totalGeneration.toLocaleString('en-IN', { maximumFractionDigits: 0 }),
+      auxiliary: totalAuxiliary.toLocaleString('en-IN', { maximumFractionDigits: 0 }),
+      criteria: Math.round(totalCriteria).toLocaleString('en-IN', { maximumFractionDigits: 0 }),
+      permittedConsumption: {
+        withZero: totalPermittedWithZero.toLocaleString('en-IN', { maximumFractionDigits: 0 }),
+        minus10: totalPermittedMinus10.toLocaleString('en-IN', { maximumFractionDigits: 0 }),
+        plus10: totalPermittedPlus10.toLocaleString('en-IN', { maximumFractionDigits: 0 })
+      },
+      actual: totalActual.toLocaleString('en-IN', { maximumFractionDigits: 0 }),
+      norms: allNormsMet,
+      isTotal: true
     };
 
     return {
       ...defaultFormVBData,
       financialYear: reportData.financialYear || '',
       rows,
-      summary
+      totals,
+      summary: {
+        totalGeneration: totalGeneration.toFixed(0),
+        auxiliaryConsumption: totalAuxiliary.toFixed(0),
+        totalCriteria: totalCriteria.toFixed(0),
+        totalPermitted: totalPermittedWithZero.toFixed(0),
+        totalPermittedMinus10: totalPermittedMinus10.toFixed(0),
+        totalPermittedPlus10: totalPermittedPlus10.toFixed(0),
+        totalConsumption: totalActual.toFixed(0)
+      }
     };
   };
 
@@ -560,94 +700,154 @@ const AllocationReport = () => {
           </Alert>
         )}
 
-        <TableContainer 
-          component={Paper}
-          sx={{
-            borderRadius: '12px',
-            boxShadow: '0 2px 12px rgba(0, 0, 0, 0.05)',
-            border: '1px solid rgba(230, 235, 240, 0.8)',
-            overflow: 'hidden',
-            '& .MuiTable-root': {
-              borderCollapse: 'separate',
-              borderSpacing: 0
-            }
-          }}
-        >
-          <Table 
-            size="small"
-            sx={{
-              '& .MuiTableCell-root': {
-                borderColor: 'rgba(230, 235, 240, 0.8)',
-                py: 2,
-                px: 2,
-                fontSize: '0.875rem',
-                '&.MuiTableCell-head': {
-                  fontWeight: 600,
-                  backgroundColor: '#f8fafc',
-                  borderBottom: '2px solid rgba(230, 235, 240, 0.8)'
-                }
-              },
-              '& .MuiTableRow-root': {
-                '&:hover': {
-                  backgroundColor: 'rgba(0, 0, 0, 0.01)'
-                }
-              }
-            }}
-          >
+        <StyledTableContainer>
+          <Table size="small">
             {isForm5B ? (
               <>
                 <TableHead>
                   <TableRow>
-                    <TableCell rowSpan={2}>Sl.No.</TableCell>
-                    <TableCell rowSpan={2}>Name of share holder</TableCell>
-                    <TableCell colSpan={2} align="center">No. of equity shares of value Rs. /-</TableCell>
-                    <TableCell rowSpan={2}>% to be consumed on pro rata basis by each captive user</TableCell>
-                    <TableCell rowSpan={2}>100% annual generation in MUs (x)</TableCell>
-                    <TableCell rowSpan={2}>Annual Auxiliary consumption in MUs (y)</TableCell>
-                    <TableCell rowSpan={2}>Generation considered to verify consumption criteria in MUs (x-y)*51%</TableCell>
-                    <TableCell colSpan={3} align="center">Permitted consumption as per norms in MUs</TableCell>
-                    <TableCell rowSpan={2}>Actual consumption in MUs</TableCell>
-                    <TableCell rowSpan={2}>Whether consumption norms met</TableCell>
+                    <TableCell rowSpan={2} align="center">Sl.No.</TableCell>
+                    <TableCell rowSpan={2} sx={{ minWidth: '200px' }}>Name of share holder</TableCell>
+                    <TableCell colSpan={2} align="center" sx={{ backgroundColor: '#f0f4f8' }}>
+                      No. of equity shares of value Rs. /-
+                    </TableCell>
+                    <TableCell rowSpan={2} align="center">% to be consumed on pro rata basis by each captive user</TableCell>
+                    <TableCell rowSpan={2} align="center">100% annual generation in MUs (x)</TableCell>
+                    <TableCell rowSpan={2} align="center">
+                      <Box>Annual Auxiliary</Box>
+                      <Box>consumption in MUs (y)</Box>
+                    </TableCell>
+                    <TableCell rowSpan={2} align="center">
+                      <Box>Generation considered to verify</Box>
+                      <Box>consumption criteria in MUs (x-y)*51%</Box>
+                    </TableCell>
+                    <TableCell colSpan={3} align="center" sx={{ backgroundColor: '#f0f4f8' }}>
+                      Permitted consumption as per norms in MUs
+                    </TableCell>
+                    <TableCell rowSpan={2} align="center">
+                      <Box>Actual</Box>
+                      <Box>consumption in MUs</Box>
+                    </TableCell>
+                    <TableCell rowSpan={2} align="center">
+                      <Box>Whether</Box>
+                      <Box>consumption</Box>
+                      <Box>norms met</Box>
+                    </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell>As per share certificates as on 31st March</TableCell>
-                    <TableCell>% of ownership through shares in Company/unit of CGP</TableCell>
-                    <TableCell>with 0% variation</TableCell>
-                    <TableCell>-10%</TableCell>
-                    <TableCell>+10%</TableCell>
+                    <TableCell className="header-cell" align="center">As per share certificates as on 31st March</TableCell>
+                    <TableCell className="header-cell" align="center">% of ownership through shares in Company/unit of CGP</TableCell>
+                    <TableCell className="header-cell" align="center">with 0% variation</TableCell>
+                    <TableCell className="header-cell" align="center">-10%</TableCell>
+                    <TableCell className="header-cell" align="center">+10%</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {prepareForm5BData()?.rows.map((row) => (
-                    <TableRow key={row.slNo}>
+                  {prepareForm5BData()?.rows.map((row, index) => (
+                    <TableRow 
+                      key={index}
+                      hover
+                      sx={{
+                        '&:hover': {
+                          backgroundColor: 'rgba(25, 118, 210, 0.04)'
+                        }
+                      }}
+                    >
                       <TableCell align="center">{row.slNo}</TableCell>
-                      <TableCell>{row.name}</TableCell>
-                      <TableCell>{row.shares.certificates}</TableCell>
-                      <TableCell align="center">{row.shares.ownership}</TableCell>
-                      <TableCell align="center">{row.proRata}</TableCell>
-                      <TableCell align="right">{row.generation}</TableCell>
-                      <TableCell align="right">{row.auxiliary}</TableCell>
-                      <TableCell align="right">{row.criteria}</TableCell>
-                      <TableCell align="right">{row.permittedConsumption.withZero}</TableCell>
-                      <TableCell align="right">{row.permittedConsumption.minus10}</TableCell>
-                      <TableCell align="right">{row.permittedConsumption.plus10}</TableCell>
-                      <TableCell align="right">{row.actual}</TableCell>
+                      <TableCell sx={{ fontWeight: 500 }}>{row.name}</TableCell>
+                      <TableCell align="right" sx={{ fontFamily: 'monospace' }}>{row.shares.certificates}</TableCell>
+                      <TableCell align="center" sx={{ fontFamily: 'monospace' }}>{row.shares.ownership}</TableCell>
+                      <TableCell align="center" sx={{ color: 'text.secondary' }}>{row.proRata}</TableCell>
+                      <TableCell align="right" sx={{ fontFamily: 'monospace' }}>{row.generation}</TableCell>
+                      {index === 0 ? (
+                        <TableCell 
+                          rowSpan={prepareForm5BData()?.rows.length + 1} 
+                          align="center" 
+                          sx={{ 
+                            fontFamily: 'monospace',
+                            fontWeight: 700,
+                            fontSize: '1.1em',
+                            backgroundColor: '#f8f9fa',
+                            border: '1px solid #dee2e6',
+                            verticalAlign: 'middle'
+                          }}
+                        >
+                          {prepareForm5BData()?.totals.auxiliary}
+                        </TableCell>
+                      ) : null}
+                      <TableCell align="right" sx={{ fontFamily: 'monospace' }}>{row.criteria}</TableCell>
+                      <TableCell align="right" sx={{ fontFamily: 'monospace' }}>{row.permittedConsumption.withZero}</TableCell>
+                      <TableCell align="right" sx={{ fontFamily: 'monospace' }}>{row.permittedConsumption.minus10}</TableCell>
+                      <TableCell align="right" sx={{ fontFamily: 'monospace' }}>{row.permittedConsumption.plus10}</TableCell>
+                      <TableCell align="right" sx={{ 
+                        fontFamily: 'monospace',
+                        fontWeight: 500,
+                        color: 'primary.main'
+                      }}>
+                        {row.actual}
+                      </TableCell>
                       <TableCell align="center">
-                        <Box sx={{ 
-                          display: 'flex', 
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: row.norms === 'Yes' ? 'success.main' : 'error.main'
-                        }}>
+                        <StatusBadge status={row.norms}>
                           {row.norms === 'Yes' ? 
-                            <CheckCircleIcon fontSize="small" /> : 
-                            <ErrorIcon fontSize="small" />
+                            <CheckCircleIcon fontSize="inherit" /> : 
+                            <ErrorIcon fontSize="inherit" />
                           }
-                          <Typography sx={{ ml: 0.5 }}>{row.norms}</Typography>
-                        </Box>
+                          {row.norms}
+                        </StatusBadge>
                       </TableCell>
                     </TableRow>
                   ))}
+                  
+                  {/* Totals Row */}
+                  {prepareForm5BData()?.totals && (
+                    <TableRow className="totals-row">
+                      <TableCell align="center" sx={{ fontWeight: 700 }}>Total</TableCell>
+                      <TableCell></TableCell>
+                      <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                        {prepareForm5BData().totals.shares.certificates}
+                      </TableCell>
+                      <TableCell align="center" sx={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                        {prepareForm5BData().totals.shares.ownership}
+                      </TableCell>
+                      <TableCell></TableCell>
+                      <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                        {prepareForm5BData().totals.generation}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                        {prepareForm5BData().totals.auxiliary}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                        {prepareForm5BData().totals.criteria}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                        {prepareForm5BData().totals.permittedConsumption.withZero}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                        {prepareForm5BData().totals.permittedConsumption.minus10}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                        {prepareForm5BData().totals.permittedConsumption.plus10}
+                      </TableCell>
+                      <TableCell align="right" sx={{ 
+                        fontFamily: 'monospace', 
+                        fontWeight: 700,
+                        color: 'primary.dark'
+                      }}>
+                        {prepareForm5BData().totals.actual}
+                      </TableCell>
+                      <TableCell align="center">
+                        <StatusBadge status={prepareForm5BData().totals.norms}>
+                          {prepareForm5BData().totals.norms === 'Yes' ? 
+                            <CheckCircleIcon fontSize="inherit" /> : 
+                            prepareForm5BData().totals.norms === 'No' ?
+                            <ErrorIcon fontSize="inherit" /> :
+                            <WarningIcon fontSize="inherit" />
+                          }
+                          {prepareForm5BData().totals.norms}
+                        </StatusBadge>
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </>
             ) : (
@@ -656,7 +856,7 @@ const AllocationReport = () => {
                   <TableRow>
                     <TableCell>Sl.No.</TableCell>
                     <TableCell>Particulars</TableCell>
-                    <TableCell align="right">Energy in Units</TableCell>
+                    <TableCell align="right">Value</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -671,7 +871,7 @@ const AllocationReport = () => {
               </>
             )}
           </Table>
-        </TableContainer>
+        </StyledTableContainer>
       </Paper>
 
       <Dialog

@@ -1,28 +1,8 @@
-const consumptionSiteDAL = require('./consumptionSiteDAL');
 const logger = require('../utils/logger');
-const { DynamoDB } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocument } = require('@aws-sdk/lib-dynamodb');
-const TableNames = require('../constants/tableNames');
+const consumptionSiteDAL = require('./consumptionSiteDAL');
+const { updateUserSiteAccess, removeSiteAccess } = require('../services/siteAccessService');
 
-const dynamoDB = DynamoDBDocument.from(new DynamoDB({
-    region: process.env.AWS_REGION || 'local',
-    endpoint: process.env.DYNAMODB_ENDPOINT || 'http://localhost:8000'
-}));
-
-const validateDecimal = (value, fieldName) => {
-    if (value === undefined || value === null) {
-        return { isValid: false, error: `${fieldName} is required` };
-    }
-
-    const number = parseFloat(value);
-    if (isNaN(number) || number < 0) {
-        return { isValid: false, error: `${fieldName} must be a valid positive number` };
-    }
-
-    return { isValid: true, value: number.toFixed(2) };
-};
-
-// Update validateRequiredFields to remove banking from required fields
+// Update validateRequiredFields to match production site validation
 const validateRequiredFields = (data) => {
     const requiredFields = [
         'companyId',
@@ -41,6 +21,82 @@ const validateRequiredFields = (data) => {
     }
 
     return { isValid: true };
+};
+
+// Validate decimal fields consistently
+const validateDecimal = (value, fieldName) => {
+    try {
+        if (value === undefined || value === null) {
+            return { isValid: true, value: 0 };
+        }
+        const numValue = Number(value);
+        if (isNaN(numValue)) {
+            return {
+                isValid: false,
+                error: `${fieldName} must be a number`,
+                code: 'INVALID_NUMBER'
+            };
+        }
+        if (numValue < 0) {
+            return {
+                isValid: false,
+                error: `${fieldName} cannot be negative`,
+                code: 'INVALID_NUMBER'
+            };
+        }
+        return { isValid: true, value: numValue };
+    } catch (error) {
+        return {
+            isValid: false,
+            error: `Invalid ${fieldName}`,
+            code: 'INVALID_NUMBER'
+        };
+    }
+};
+
+// Validate and parse annual consumption field
+const validateAnnualConsumption = (value) => {
+    try {
+        // If value is not provided, return 0 as default
+        if (value === undefined || value === null || value === '') {
+            return { isValid: true, value: 0 };
+        }
+        
+        // Convert to number and round to nearest integer
+        const numValue = Math.round(Number(value));
+        
+        // Check if conversion was successful
+        if (isNaN(numValue)) {
+            return {
+                isValid: false,
+                error: 'Annual consumption must be a valid number',
+                code: 'INVALID_ANNUAL_CONSUMPTION'
+            };
+        }
+        
+        // Ensure non-negative value
+        if (numValue < 0) {
+            return {
+                isValid: false,
+                error: 'Annual consumption cannot be negative',
+                code: 'NEGATIVE_ANNUAL_CONSUMPTION'
+            };
+        }
+        
+        return { 
+            isValid: true, 
+            value: numValue,
+            message: 'Annual consumption validated successfully'
+        };
+    } catch (error) {
+        logger.error('Error validating annual consumption:', { value, error });
+        return {
+            isValid: false,
+            error: 'Invalid annual consumption value',
+            code: 'VALIDATION_ERROR',
+            details: error.message
+        };
+    }
 };
 
 // CRUD Operations
@@ -97,8 +153,9 @@ const getConsumptionSite = async (req, res) => {
                 type: item.type.toLowerCase(),
                 status: item.status?.toLowerCase() || 'active',
                 version: Number(item.version || 1),
-                timetolive: Number(item.timetolive || 0),
-                annualConsumption: Number(item.annualConsumption || 0),
+                drawalVoltage_KV: Number(item.drawalVoltage_KV || 0),
+                contractDemand_KVA: Number(item.contractDemand_KVA || 0),
+                annualConsumption_L: Number(item.annualConsumption_L || 0),
                 createdat: item.createdat || new Date().toISOString(),
                 updatedat: item.updatedat || new Date().toISOString()
             }
@@ -115,16 +172,89 @@ const getConsumptionSite = async (req, res) => {
 
 const createConsumptionSite = async (req, res) => {
     try {
-        const newItem = await consumptionSiteDAL.createConsumptionSite(req.body);
+        // 1. Validate required fields
+        const validation = validateRequiredFields(req.body);
+        if (!validation.isValid) {
+            return res.status(400).json({
+                success: false,
+                message: validation.error,
+                code: validation.code || 'VALIDATION_ERROR'
+            });
+        }
+
+        // 2. Validate annual consumption
+        const consumptionValidation = validateAnnualConsumption(req.body.annualConsumption);
+        if (!consumptionValidation.isValid) {
+            return res.status(400).json({
+                success: false,
+                message: consumptionValidation.error,
+                code: consumptionValidation.code || 'INVALID_ANNUAL_CONSUMPTION'
+            });
+        }
+
+        // 3. Prepare site data with validated values
+        const siteData = {
+            ...req.body,
+            annualConsumption: consumptionValidation.value, // Use validated value
+            status: 'active',
+            companyId: req.body.companyId || '1' // Default company ID if not provided
+        };
+
+        // 4. Create the site in the database
+        const newSite = await consumptionSiteDAL.createConsumptionSite(siteData);
+        logger.info('Created new consumption site:', { siteId: newSite.consumptionSiteId });
+
+        // 5. Update user's accessible sites if user ID is provided
+        if (req.body.userId) {
+            try {
+                await updateUserSiteAccess({
+                    userId: req.body.userId,
+                    siteType: 'consumption',
+                    siteId: `${newSite.companyId}_${newSite.consumptionSiteId}`,
+                    siteName: newSite.name
+                });
+                logger.info('Updated user site access:', { userId: req.body.userId, siteId: newSite.consumptionSiteId });
+            } catch (accessError) {
+                // Log the error but don't fail the request
+                logger.error('Failed to update user site access:', accessError);
+            }
+        }
+
+        // 6. Return success response
         res.status(201).json({
             success: true,
-            data: newItem
+            data: newSite,
+            message: 'Consumption site created successfully',
+            code: 'SITE_CREATED'
         });
     } catch (error) {
         logger.error('[ConsumptionSiteController] Create Error:', error);
-        res.status(400).json({
+        
+        // Handle specific error cases
+        if (error.code === 'ConditionalCheckFailedException') {
+            return res.status(409).json({
+                success: false,
+                message: 'A site with this ID already exists',
+                code: 'SITE_ALREADY_EXISTS'
+            });
+        }
+        
+        // Handle validation errors
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({
+                success: false,
+                message: error.message,
+                code: error.code || 'VALIDATION_ERROR',
+                details: error.details
+            });
+        }
+        
+        // Handle other errors
+        res.status(error.statusCode || 500).json({
             success: false,
-            message: error.message
+            message: error.message || 'An unexpected error occurred while creating the consumption site',
+            code: error.code || 'INTERNAL_SERVER_ERROR',
+            ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
         });
     }
 };
@@ -132,22 +262,89 @@ const createConsumptionSite = async (req, res) => {
 const updateConsumptionSite = async (req, res) => {
     try {
         const { companyId, consumptionSiteId } = req.params;
-        const updatedItem = await consumptionSiteDAL.updateConsumptionSite(
+        const updates = req.body;
+
+        // 1. Validate update data
+        if (!updates || Object.keys(updates).length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No update data provided',
+                code: 'NO_UPDATE_DATA'
+            });
+        }
+
+        // 2. If annualConsumption is being updated, validate it
+        if (updates.annualConsumption !== undefined) {
+            const validation = validateAnnualConsumption(updates.annualConsumption);
+            if (!validation.isValid) {
+                return res.status(400).json({
+                    success: false,
+                    message: validation.error,
+                    code: validation.code || 'INVALID_ANNUAL_CONSUMPTION'
+                });
+            }
+            updates.annualConsumption = validation.value;
+        }
+
+        // 3. Log the update attempt
+        logger.info('Updating consumption site:', { 
+            companyId, 
+            consumptionSiteId, 
+            updates: Object.keys(updates) 
+        });
+
+        // 4. Perform the update
+        const updatedSite = await consumptionSiteDAL.updateConsumptionSite(
             companyId,
             consumptionSiteId,
-            req.body
+            updates
         );
-        
+
+        // 5. Return success response
         res.json({
             success: true,
-            data: updatedItem
+            data: updatedSite,
+            message: 'Consumption site updated successfully',
+            code: 'SITE_UPDATED'
         });
     } catch (error) {
         logger.error('[ConsumptionSiteController] Update Error:', error);
-        const statusCode = error.statusCode || 500;
-        res.status(statusCode).json({
+        
+        // 6. Handle specific error cases
+        if (error.statusCode === 404) {
+            return res.status(404).json({
+                success: false,
+                message: 'Consumption site not found',
+                code: 'SITE_NOT_FOUND',
+                details: `No site found with companyId: ${req.params.companyId}, siteId: ${req.params.consumptionSiteId}`
+            });
+        }
+        
+        if (error.statusCode === 409) {
+            return res.status(409).json({
+                success: false,
+                message: 'Version conflict. The site was modified by another user.',
+                code: 'VERSION_CONFLICT',
+                details: 'Please refresh and try again'
+            });
+        }
+        
+        // 7. Handle validation errors
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({
+                success: false,
+                message: error.message,
+                code: error.code || 'VALIDATION_ERROR',
+                details: error.details
+            });
+        }
+        
+        // 8. Handle other errors
+        res.status(error.statusCode || 500).json({
             success: false,
-            message: error.message
+            message: error.message || 'An unexpected error occurred while updating the consumption site',
+            code: error.code || 'INTERNAL_SERVER_ERROR',
+            ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
         });
     }
 };
@@ -183,8 +380,10 @@ const deleteConsumptionSite = async (req, res) => {
                 message: 'Company ID and Consumption Site ID are required',
                 code: 'INVALID_INPUT'
             });
-        }        // Check if user has permission to delete this site
-        if (!req.user.role?.toLowerCase() === 'admin' && req.user?.accessibleSites?.consumptionSites) {
+        }
+
+        // If user has restricted access, validate they can access this site
+        if (req.user?.accessibleSites?.consumptionSites) {
             const accessibleSiteIds = req.user.accessibleSites.consumptionSites.L.map(site => site.S);
             const siteId = `${companyId}_${consumptionSiteId}`;
             if (!accessibleSiteIds.includes(siteId)) {
@@ -195,7 +394,9 @@ const deleteConsumptionSite = async (req, res) => {
                     code: 'ACCESS_DENIED'
                 });
             }
-        }        // First check if the site exists
+        }
+
+        // Check if site exists
         const existingSite = await consumptionSiteDAL.getConsumptionSite(companyId, consumptionSiteId);
         if (!existingSite) {
             logger.warn(`[ConsumptionSiteController] Attempt to delete non-existent site: ${companyId}_${consumptionSiteId}`);
@@ -211,6 +412,15 @@ const deleteConsumptionSite = async (req, res) => {
         try {
             result = await consumptionSiteDAL.deleteConsumptionSite(companyId, consumptionSiteId);
             logger.info(`[ConsumptionSiteController] Successfully deleted site: ${companyId}_${consumptionSiteId}`);
+
+            // Remove site access for all users
+            try {
+                await removeSiteAccess(companyId, consumptionSiteId, 'consumption');
+                logger.info(`[ConsumptionSiteController] Removed site access for consumption site: ${companyId}_${consumptionSiteId}`);
+            } catch (accessError) {
+                logger.error('Error removing site access:', accessError);
+                // Continue with the response even if access removal fails
+            }
         } catch (error) {
             logger.error('[ConsumptionSiteController] Error during site deletion:', error);
             

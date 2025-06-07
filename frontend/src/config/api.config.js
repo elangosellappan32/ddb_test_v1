@@ -20,6 +20,11 @@ export const API_CONFIG = {
         CONSUMPTION_UNIT: 'ConsumptionUnitTable'
     },
     ENDPOINTS: {
+        SITE_ACCESS: {
+            BASE: '/site-access',
+            GET_AVAILABLE_SITES: (siteType) => `/site-access/available-sites/${siteType}`,
+            GRANT_ACCESS: '/site-access/grant-access'
+        },
         AUTH: {
             BASE: '/auth',
             LOGIN: '/auth/login',

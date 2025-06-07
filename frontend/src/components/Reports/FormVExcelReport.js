@@ -4,6 +4,30 @@ import { FileDownload as ExcelIcon } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import { fetchFormVAData, fetchFormVBData } from '../../services/reportService';
 
+// Format number with commas and optional decimal places
+const formatNumber = (value, decimals = 2) => {
+  if (value === null || value === undefined) return '0';
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  return num.toLocaleString('en-IN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: decimals
+  });
+};
+
+// Format number as percentage with 2 decimal places
+const formatPercentage = (value) => {
+  if (value === null || value === undefined) return '0.00%';
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  return (num * 100).toFixed(2) + '%';
+};
+
+// Helper function to safely convert to number with default
+const toNumber = (value, defaultValue = 0) => {
+  if (value === null || value === undefined || value === '') return defaultValue;
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  return isNaN(num) ? defaultValue : num;
+};
+
 const FormVExcelReport = ({ 
   downloading,
   setDownloading,
@@ -60,6 +84,9 @@ const FormVExcelReport = ({
     },
     numFmt: isHeader ? '@' : '0.00' // Text format for headers, number format for data
   });      const createFormVA = async (workbook, data) => {
+    console.log('=== Starting createFormVA ===');
+    console.log('Input data structure:', Object.keys(data));
+    
     try {
       console.log('Creating Form V-A worksheet with data:', data);
 
@@ -316,73 +343,13 @@ const FormVExcelReport = ({
   };
 
   const createFormVB = async (workbook, data) => {
-    if (!data?.siteMetrics?.length) {
-      console.error('No site metrics data available for Form V-B');
-      return false;
-    }
-
     try {
-      console.log('=== Starting Form V-B Report Generation ===');
-      console.log('Raw data received:', JSON.stringify(data, null, 2));
-      
-      // Define the site names in the correct order
-      const siteNames = [
-        'Polyspin Exports ltd',
-        'Pel Textiles'
-      ];
-      
-      // Process all site metrics with detailed logging
-      const processedMetrics = [];
-      
-      for (let i = 0; i < data.siteMetrics.length; i++) {
-        const site = data.siteMetrics[i];
-        console.log(`\n--- Processing Site ${i + 1} ---`);
-        console.log('Raw site object:', JSON.stringify(site, null, 2));
-        
-        // Get site name from our predefined list or fallback to site data
-        const siteName = siteNames[i] || site.siteName || `Site ${i + 1}`;
-        
-        // Process numeric values with proper validation and defaults
-        const actualConsumption = parseFloat(site.actualConsumption) || 0;
-        const basePermitted = typeof site.permittedConsumption === 'number' ? site.permittedConsumption : 0;
-        const minus10Percent = site.permittedMinus10 || Math.round(basePermitted * 0.9 * 100) / 100;
-        const plus10Percent = site.permittedPlus10 || Math.round(basePermitted * 1.1 * 100) / 100;
-        const consumptionNormsMet = site.consumptionNormsMet || 
-          (basePermitted > 0 && actualConsumption >= minus10Percent && actualConsumption <= plus10Percent);
-        
-        // Log the processed values for debugging
-        console.log(`Processed - Site: ${siteName}, ` +
-                   `Actual: ${actualConsumption}, ` +
-                   `Permitted: ${basePermitted}, ` +
-                   `Range: ${minus10Percent} - ${plus10Percent}, ` +
-                   `Norms Met: ${consumptionNormsMet ? 'Yes' : 'No'}`);
-
-        processedMetrics.push({
-          siteName,
-          actualConsumption,
-          basePermitted,
-          minus10Percent,
-          plus10Percent,
-          consumptionNormsMet,
-          equityShares: site.equityShares || 0,
-          ownershipPercentage: site.ownershipPercentage || 0,
-          allocationPercentage: site.allocationPercentage || 0,
-          unitsConsumed: site.unitsConsumed || 0,
-          annualGeneration: site.annualGeneration || 0,
-          auxiliaryConsumption: site.auxiliaryConsumption || 0,
-          generationForConsumption: site.generationForConsumption || 0
-        });
-      }
-      
-      console.log('\n=== Processed Metrics ===');
-      console.log(JSON.stringify(processedMetrics, null, 2));
-      
-      if (processedMetrics.length === 0) {
-        console.warn('No valid site metrics were processed');
+      if (!data?.siteMetrics?.length) {
+        console.error('No site metrics data available for Form V-B');
         return false;
       }
-      
-      // Define headers with proper structure matching UI exactly
+
+      // Create worksheet first before trying to access it
       const headers = [
         ['FORMAT V-B'],
         ['Statement showing compliance to the requirement of proportionality of consumption for Captive Status'],
@@ -390,7 +357,7 @@ const FormVExcelReport = ({
         [],
         [],
         [`Financial Year: ${financialYear}`],
-        [], // Empty row for spacing
+        [],
         [
           'Sl. No.',
           'Name of Share Holder',
@@ -399,7 +366,7 @@ const FormVExcelReport = ({
           '100% annual generation in MUs (x)',
           'Annual Auxiliary consumption in MUs (y)',
           'Generation considered to verify consumption criteria in MUs (x-y)*51%',
-          'Permitted Consumption (MUs)',
+          'Permitted consumption as per norms in MUs', // Modified header
           '',
           '',
           'Actual\nConsumption\n(MUs)',
@@ -413,153 +380,170 @@ const FormVExcelReport = ({
           '',
           '',
           '',
-          '0%',
-          '-10%',
-          '+10%',
+          '', // Empty cell as it's merged
+          '', // Empty cell as it's merged
+          '', // Empty cell as it's merged
           '',
           ''
         ]
       ];
 
-
-      // Helper function to safely convert to number with default
-      const toNumber = (value, defaultValue = 0) => {
-        const num = parseFloat(value);
-        return isNaN(num) ? defaultValue : num;
-      };
-
-      // Create data rows with proper number handling
-      const dataRows = processedMetrics.map((site, index) => {
-        // Ensure all numeric values are properly converted
-        const equityShares = toNumber(site.equityShares, 0);
-        const ownershipPercentage = toNumber(site.ownershipPercentage, 0);
-        const annualGeneration = toNumber(site.annualGeneration, 0);
-        const auxiliaryConsumption = toNumber(site.auxiliaryConsumption, 0);
-        const generationForConsumption = toNumber(site.generationForConsumption, 0);
-        const basePermitted = toNumber(site.basePermitted, 0);
-        const minus10Percent = toNumber(site.minus10Percent, 0);
-        const plus10Percent = toNumber(site.plus10Percent, 0);
-        const actualConsumption = toNumber(site.actualConsumption, 0);
-        
-        return [
-          index + 1, // Sl. No.
-          site.siteName || `Site ${index + 1}`, // Name of Share Holder
-          equityShares, // No. of equity shares
-          ownershipPercentage / 100, // % of ownership (as decimal)
-          annualGeneration, // 100% annual generation
-          auxiliaryConsumption, // Annual Auxiliary consumption
-          generationForConsumption, // Generation considered
-          basePermitted, // Permitted Consumption (0%)
-          minus10Percent, // Permitted Consumption (-10%)
-          plus10Percent, // Permitted Consumption (+10%)
-          actualConsumption, // Actual Consumption (MUs)
-          site.consumptionNormsMet ? 'Yes' : 'No' // Consumption Norms Met
-        ];
-      });
-
-      // Create worksheet
-      const ws = XLSX.utils.aoa_to_sheet([...headers, ...dataRows]);
-
-      // Set column widths to match UI with optimized widths for better display
-      ws['!cols'] = [
-        { wch: 8 },     // Sl. No.
-        { wch: 40 },    // Name of Share Holder
-        { wch: 20 },    // No. of equity shares
-        { wch: 25 },    // % of ownership
-        { wch: 25 },    // 100% annual generation
-        { wch: 25 },    // Annual Auxiliary consumption
-        { wch: 30 },    // Generation considered
-        { wch: 16 },    // Permitted Consumption (0%)
-        { wch: 10 },    // Permitted Consumption (-10%)
-        { wch: 10 },    // Permitted Consumption (+10%)
-        { wch: 16 },    // Actual Consumption (MUs)
-        { wch: 16 }     // Consumption Norms Met
-      ];
-
-      // Set row heights with better spacing
-      ws['!rows'] = [
-        { hpt: 24 },   // Title
-        { hpt: 24 },   // Subtitle
-        { hpt: 8 },    // Empty row
-        { hpt: 8 },    // Empty row
-        { hpt: 8 },    // Empty row
-        { hpt: 24 },   // Financial year
-        { hpt: 8 },    // Empty row
-        { hpt: 30 },   // Main header row
-        { hpt: 24 },   // Subheader row
-        ...Array(processedMetrics.length).fill({ hpt: 20 }) // Data rows
-      ];
-
-      // Set merged ranges
+      // Define merged ranges for auxiliary consumption column (modify in createFormVB function)
       ws['!merges'] = [
         { s: { r: 0, c: 0 }, e: { r: 0, c: 11 } },  // Title
         { s: { r: 1, c: 0 }, e: { r: 1, c: 11 } },  // Subtitle
         { s: { r: 5, c: 0 }, e: { r: 5, c: 11 } },  // Financial Year
-        { s: { r: 7, c: 2 }, e: { r: 7, c: 3 } },   // Merge No. of equity shares header
-        { s: { r: 7, c: 7 }, e: { r: 7, c: 9 } }    // Merge Permitted Consumption header
+        { s: { r: 7, c: 2 }, e: { r: 7, c: 3 } },   // No. of equity shares header
+        { s: { r: 7, c: 7 }, e: { r: 8, c: 9 } },   // Permitted consumption header
+        // Merge auxiliary consumption for site rows only (excluding total row)
+        { s: { r: 9, c: 5 }, e: { r: 9 + data.siteMetrics.length - 1, c: 5 } }
       ];
 
-      // Apply cell styles and formats
+      // Process data rows
+      const dataRows = data.siteMetrics.map((site, index) => [
+        index + 1,
+        site.siteName || `Site ${index + 1}`,
+        site.equityShares || 0,
+        (site.ownershipPercentage || 0) / 100,
+        site.annualGeneration || 0,
+        index === 0 ? site.auxiliaryConsumption || 0 : '', // Show auxiliary consumption only in first row
+        site.generationForConsumption || 0,
+        index === 0 ? (site.permittedConsumption || 0) : '',
+        index === 0 ? (site.permittedMinus10 || 0) : '',
+        index === 0 ? (site.permittedPlus10 || 0) : '',
+        site.actualConsumption || 0,
+        site.consumptionNormsMet ? 'Yes' : 'No'
+      ]);
+
+      // Calculate totals for the merged cells
+      const totals = data.siteMetrics.reduce((acc, site) => ({
+        equityShares: acc.equityShares + (site.equityShares || 0),
+        annualGeneration: acc.annualGeneration + (site.annualGeneration || 0),
+        auxiliaryConsumption: data.siteMetrics[0].auxiliaryConsumption || 0, // Use first row only
+        generationForConsumption: acc.generationForConsumption + (site.generationForConsumption || 0),
+        permittedConsumption: data.siteMetrics[0].permittedConsumption || 0, // Use first row only
+        permittedMinus10: data.siteMetrics[0].permittedMinus10 || 0, // Use first row only
+        permittedPlus10: data.siteMetrics[0].permittedPlus10 || 0, // Use first row only
+        actualConsumption: acc.actualConsumption + (site.actualConsumption || 0)
+      }), {
+        equityShares: 0,
+        annualGeneration: 0,
+        auxiliaryConsumption: 0,
+        generationForConsumption: 0,
+        permittedConsumption: 0,
+        permittedMinus10: 0,
+        permittedPlus10: 0,
+        actualConsumption: 0
+      });
+
+      // Add total row to dataRows
+      const totalRow = [
+        'Total',
+        '',
+        totals.equityShares,
+        '', // Leave ownership % empty
+        totals.annualGeneration,
+        totals.auxiliaryConsumption, // Show auxiliary consumption in total row
+        totals.generationForConsumption,
+        totals.permittedConsumption,
+        totals.permittedMinus10,
+        totals.permittedPlus10,
+        totals.actualConsumption,
+        '' // Leave norms met empty
+      ];
+      dataRows.push(totalRow);
+
+      // Create worksheet with headers and data
+      const ws = XLSX.utils.aoa_to_sheet([...headers, ...dataRows]);
+
+      // Add merge range for total row cells
+      const totalRowIndex = headers.length + dataRows.length - 1;
+      ws['!merges'].push(
+        // Merge "Total" across first two columns
+        { s: { r: totalRowIndex, c: 0 }, e: { r: totalRowIndex, c: 1 } },
+        // Merge permitted consumption columns in total row
+        { s: { r: totalRowIndex, c: 7 }, e: { r: totalRowIndex, c: 9 } }
+      );
+
+      // Apply total row styling
+      const totalRowStyle = {
+        font: { bold: true },
+        fill: { fgColor: { rgb: 'F2F2F2' }, patternType: 'solid' },
+        border: {
+          top: { style: 'medium', color: { rgb: '000000' } },
+          bottom: { style: 'medium', color: { rgb: '000000' } }
+        },
+        alignment: { horizontal: 'center', vertical: 'center' }
+      };
+
+      // Apply total row formatting
+      for (let C = 0; C <= 11; C++) {
+        const cellRef = XLSX.utils.encode_cell({ r: totalRowIndex, c: C });
+        if (!ws[cellRef]) ws[cellRef] = { v: '', t: 's' };
+        ws[cellRef].s = totalRowStyle;
+        
+        // Apply number format for numeric cells
+        if ([2, 4, 5, 6, 7, 8, 9, 10].includes(C)) {
+          ws[cellRef].z = '#,##0.00';
+        }
+      }
+
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 8 },     // Sl. No.
+        { wch: 40 },    // Name
+        { wch: 20 },    // Equity shares
+        { wch: 25 },    // Ownership %
+        { wch: 25 },    // Annual generation
+        { wch: 25 },    // Auxiliary consumption
+        { wch: 30 },    // Generation considered
+        { wch: 20 },    // Permitted consumption
+        { wch: 15 },    // -10%
+        { wch: 15 },    // +10%
+        { wch: 20 },    // Actual consumption
+        { wch: 15 }     // Norms met
+      ];
+
+      // Define merged ranges
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 11 } },  // Title
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 11 } },  // Subtitle
+        { s: { r: 5, c: 0 }, e: { r: 5, c: 11 } },  // Financial Year
+        { s: { r: 7, c: 2 }, e: { r: 7, c: 3 } },   // No. of equity shares header
+        { s: { r: 7, c: 7 }, e: { r: 8, c: 9 } },   // Permitted consumption header
+        // Merge auxiliary consumption for site rows only (excluding total row)
+        { s: { r: 9, c: 5 }, e: { r: 9 + dataRows.length - 1, c: 5 } }
+      ];
+
+      // Apply styles and number formats
       const range = XLSX.utils.decode_range(ws['!ref']);
       for (let R = range.s.r; R <= range.e.r; R++) {
         for (let C = range.s.c; C <= range.e.c; C++) {
           const cellRef = XLSX.utils.encode_cell({ r: R, c: C });
-          if (!ws[cellRef]) ws[cellRef] = { v: '', t: 's' };
+          if (!ws[cellRef]) continue;
 
-          const isTitle = R === 0;
-          const isSubtitle = R === 1;
-          const isFinancialYear = R === 5;
-          const isHeader = R === 7;
-          const isSubheader = R === 8;
-          const isDataRow = R >= 9;
+          const isHeader = R <= 8;
+          const isData = R > 8;
+          
+          ws[cellRef].s = getCellStyle(
+            isHeader,
+            false,
+            R === 0 || R === 1,
+            C === 1 ? 'left' : 'center'
+          );
 
-          // Apply cell style with proper borders
-          ws[cellRef].s = {
-            font: {
-              name: 'Arial',
-              sz: isTitle ? 14 : (isHeader ? 12 : 11),
-              bold: isTitle || isHeader || isSubheader,
-              color: { rgb: '000000' }
-            },
-            fill: {
-              fgColor: { rgb: isHeader || isSubheader ? 'F2F2F2' : 'FFFFFF' },
-              patternType: 'solid'
-            },
-            alignment: {
-              vertical: 'center',
-              horizontal: 'center',
-              wrapText: true,
-              shrinkToFit: true
-            },
-            border: {
-              top: { style: isTitle || isHeader ? 'medium' : 'thin', color: { rgb: '000000' } },
-              bottom: { style: isTitle || R === range.e.r ? 'medium' : 'thin', color: { rgb: '000000' } },
-              left: { style: C === 0 ? 'medium' : 'thin', color: { rgb: '000000' } },
-              right: { style: C === range.e.c ? 'medium' : 'thin', color: { rgb: '000000' } }
-            }
-          };
-
-          // Apply number formats
-          if (isDataRow) {
-            if (C === 3) {  // Percentage column
+          // Apply number formats for data rows
+          if (isData) {
+            if (C === 3) { // Ownership percentage
               ws[cellRef].z = '0.00%';
-              if (ws[cellRef].v !== undefined && ws[cellRef].v !== null) {
-                ws[cellRef].v = toNumber(ws[cellRef].v, 0);
-              }
-            } else if (C >= 4 && C <= 10) {  // Numeric columns
-              ws[cellRef].z = '0.00';
-              if (ws[cellRef].v !== undefined && ws[cellRef].v !== null) {
-                ws[cellRef].v = toNumber(ws[cellRef].v, 0);
-              }
-            } else if ([2, 5, 6, 7, 8, 9, 10, 11, 12].includes(C)) {  // Number columns
-              // For the auxiliary consumption column (7), use 2 decimal places
-              ws[cellRef].z = C === 7 ? '0.00' : '#,##0.00';
+            } else if ([4, 5, 6, 7, 8, 9, 10].includes(C)) { // Numeric columns
+              ws[cellRef].z = '#,##0.00';
             }
           }
         }
       }
 
-      // Add the worksheet to workbook
+      // Add worksheet to workbook
       XLSX.utils.book_append_sheet(workbook, ws, 'Form V-B');
       return true;
 
@@ -643,7 +627,10 @@ const FormVExcelReport = ({
       }
 
       // Validate and normalize Form V-B data
+      console.log('Raw Form V-B response:', formVBResponse);
+      
       if (!formVBResponse.success || !formVBResponse.data) {
+        console.error('Invalid Form V-B response format - missing success or data');
         throw new Error('Invalid Form V-B response format');
       }
 
@@ -651,8 +638,14 @@ const FormVExcelReport = ({
 
       // Ensure site metrics is an array
       if (!Array.isArray(formVBResponse.data.siteMetrics)) {
-        console.error('Site metrics is not an array:', formVBResponse.data.siteMetrics);
+        console.error('Site metrics is not an array. Type:', typeof formVBResponse.data.siteMetrics);
+        console.error('Available keys in data:', Object.keys(formVBResponse.data));
         throw new Error('Invalid site metrics data structure');
+      }
+      
+      console.log(`Found ${formVBResponse.data.siteMetrics.length} site metrics`);
+      if (formVBResponse.data.siteMetrics.length > 0) {
+        console.log('First site metric:', formVBResponse.data.siteMetrics[0]);
       }
 
       // Map Form V-B data properly

@@ -3,6 +3,7 @@ const logger = require('../utils/logger');
 const { DynamoDB } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocument } = require('@aws-sdk/lib-dynamodb');
 const TableNames = require('../constants/tableNames');
+const { updateUserSiteAccess, removeSiteAccess } = require('../services/siteAccessService');
 
 const dynamoDB = DynamoDBDocument.from(new DynamoDB({
     region: process.env.AWS_REGION || 'local',
@@ -10,52 +11,12 @@ const dynamoDB = DynamoDBDocument.from(new DynamoDB({
 }));
 
 // Validation functions
-const validateBanking = (value) => {
-    try {
-        // Convert undefined/null to 0
-        if (value === undefined || value === null) {
-            return { isValid: true, value: 0 }; // Default to 0 instead of error
-        }
-
-        // Convert to number
-        const banking = Number(value);
-
-        // Check if it's a valid number
-        if (isNaN(banking)) {
-            logger.error('Invalid banking value:', value);
-            return { isValid: false, error: 'Banking must be a number' };
-        }
-
-        return { isValid: true, value: banking };
-    } catch (error) {
-        logger.error('Banking validation error:', error);
-        return { isValid: false, error: 'Banking validation failed' };
-    }
-};
-
-const validateDecimal = (value, fieldName) => {
-    if (value === undefined || value === null) {
-        return { isValid: false, error: `${fieldName} is required` };
-    }
-
-    const number = parseFloat(value);
-    if (isNaN(number) || number < 0) {
-        return { isValid: false, error: `${fieldName} must be a valid positive number` };
-    }
-
-    return { isValid: true, value: number.toFixed(2) };
-};
-
-// Update validateRequiredFields to remove banking from required fields
 const validateRequiredFields = (data) => {
     const requiredFields = [
         'companyId',
         'name',
         'location',
-        'type',
-        'capacity_MW',
-        'injectionVoltage_KV'
-        // Remove banking from required fields
+        'type'
     ];
 
     const missingFields = requiredFields.filter(field => !data[field]);
@@ -70,11 +31,41 @@ const validateRequiredFields = (data) => {
     return { isValid: true };
 };
 
+const validateDecimal = (value, fieldName) => {
+    try {
+        if (value === undefined || value === null) {
+            return { isValid: true, value: 0 };
+        }
+        const numValue = Number(value);
+        if (isNaN(numValue)) {
+            return {
+                isValid: false,
+                error: `${fieldName} must be a number`,
+                code: 'INVALID_NUMBER'
+            };
+        }
+        if (numValue < 0) {
+            return {
+                isValid: false,
+                error: `${fieldName} cannot be negative`,
+                code: 'INVALID_NUMBER'
+            };
+        }
+        return { isValid: true, value: numValue };
+    } catch (error) {
+        return {
+            isValid: false,
+            error: `Invalid ${fieldName}`,
+            code: 'INVALID_NUMBER'
+        };
+    }
+};
+
 // CRUD Operations
 const createProductionSite = async (req, res) => {
     try {
         logger.info('[REQUEST] Create Production Site');
-        logger.info('[REQUEST BODY]', req.body);
+        logger.debug('[REQUEST BODY]', req.body);
 
         // Validate required fields
         const fieldsValidation = validateRequiredFields(req.body);
@@ -86,42 +77,50 @@ const createProductionSite = async (req, res) => {
             });
         }
 
-        // Validate banking
-        const bankingValidation = validateBanking(req.body.banking);
-        if (!bankingValidation.isValid) {
-            return res.status(400).json({
-                success: false,
-                message: bankingValidation.error,
-                code: 'INVALID_BANKING'
-            });
-        }
-
         // Validate decimal fields
         const decimalFields = {
             capacity_MW: 'Capacity (MW)',
             annualProduction_L: 'Annual Production (L)',
-            htscNo: 'HTSC Number',
             injectionVoltage_KV: 'Injection Voltage (KV)'
         };
 
         for (const [field, label] of Object.entries(decimalFields)) {
-            const validation = validateDecimal(req.body[field], label);
-            if (!validation.isValid) {
-                return res.status(400).json({
-                    success: false,
-                    message: validation.error,
-                    code: `INVALID_${field.toUpperCase()}`
-                });
+            if (req.body[field] !== undefined) {
+                const validation = validateDecimal(req.body[field], label);
+                if (!validation.isValid) {
+                    return res.status(400).json({
+                        success: false,
+                        message: validation.error,
+                        code: validation.code
+                    });
+                }
+                req.body[field] = validation.value.toString();
             }
-            req.body[field] = validation.value;
         }
 
-        // Update validated values
-        req.body.banking = bankingValidation.value.toString();
-
+        // Create site
         const result = await productionSiteDAL.create(req.body);
         logger.info('[RESPONSE] Production Site Created:', result);
-        
+
+        // Add site access for the creating user
+        if (req.user && req.user.userId) {
+            try {
+                await updateUserSiteAccess(
+                    req.user.userId,
+                    result.companyId,
+                    result.productionSiteId,
+                    'production'
+                );
+                logger.info(`Added site access for user ${req.user.userId} to site ${result.productionSiteId}`);
+            } catch (accessError) {
+                logger.error('Error updating user site access:', accessError);
+                // Don't fail the request if access update fails
+                logger.warn('Site was created but user access update failed:', accessError.message);
+            }
+        } else {
+            logger.warn('No user context found while creating production site');
+        }
+
         res.status(201).json({
             success: true,
             message: 'Production site created successfully',
@@ -145,13 +144,13 @@ const updateProductionSite = async (req, res) => {
         // Normalize the request body
         const updates = { ...req.body };
 
-        // Handle both annualProduction and annualProduction_L
+        // Handle Annual Production field variations
         if (updates.annualProduction && !updates.annualProduction_L) {
             updates.annualProduction_L = updates.annualProduction;
             delete updates.annualProduction;
         }
 
-        // Validate banking when status is changing
+        // Validate banking based on status
         if (updates.status === 'Inactive' || updates.status === 'Maintenance') {
             updates.banking = 0;
         }
@@ -160,7 +159,6 @@ const updateProductionSite = async (req, res) => {
         const decimalFields = {
             capacity_MW: 'Capacity (MW)',
             annualProduction_L: 'Annual Production (L)',
-            htscNo: 'HTSC Number',
             injectionVoltage_KV: 'Injection Voltage (KV)'
         };
 
@@ -170,10 +168,11 @@ const updateProductionSite = async (req, res) => {
                 if (!validation.isValid) {
                     return res.status(400).json({
                         success: false,
-                        message: validation.error
+                        message: validation.error,
+                        code: validation.code
                     });
                 }
-                updates[field] = validation.value;
+                updates[field] = validation.value.toString();
             }
         }
 
@@ -192,12 +191,12 @@ const updateProductionSite = async (req, res) => {
         const statusCode = error.message.includes('Version mismatch') ? 409 : 500;
         res.status(statusCode).json({
             success: false,
-            message: error.message
+            message: error.message,
+            code: 'UPDATE_ERROR'
         });
     }
 };
 
-// GET, DELETE, and GET ALL operations
 const getProductionSite = async (req, res) => {
     try {
         const { companyId, productionSiteId } = req.params;
@@ -233,7 +232,7 @@ const deleteProductionSite = async (req, res) => {
         const { companyId, productionSiteId } = req.params;
         logger.info(`[REQUEST] Delete Production Site ${productionSiteId}`);
 
-        // Check for authenticated user
+        // Authentication check
         if (!req.user) {
             logger.error('[ProductionSiteController] No authenticated user');
             return res.status(401).json({
@@ -241,18 +240,10 @@ const deleteProductionSite = async (req, res) => {
                 message: 'Authentication required',
                 code: 'UNAUTHORIZED'
             });
-        }        // Check if user has DELETE permission for production
-        if (!req.user.permissions) {
-            logger.error('[ProductionSiteController] User permissions not configured');
-            return res.status(403).json({
-                success: false,
-                message: 'User permissions not properly configured',
-                code: 'INVALID_PERMISSIONS'
-            });
         }
 
-        const canDelete = req.user.permissions.production?.includes('DELETE');
-        if (!canDelete) {
+        // Permission check
+        if (!req.user.permissions?.production?.includes('DELETE')) {
             logger.error('[ProductionSiteController] User lacks DELETE permission:', req.user.permissions);
             return res.status(403).json({
                 success: false,
@@ -291,7 +282,7 @@ const deleteProductionSite = async (req, res) => {
             });
         }
 
-        // If user has restricted site access, validate they can access this site
+        // If user has restricted access, validate they can access this site
         if (req.user?.accessibleSites?.productionSites) {
             const accessibleSiteIds = req.user.accessibleSites.productionSites.L.map(site => site.S);
             const siteId = `${companyId}_${productionSiteId}`;
@@ -304,7 +295,7 @@ const deleteProductionSite = async (req, res) => {
             }
         }
 
-        // Proceed with deletion and cleanup
+        // Delete site and handle cleanup
         let result;
         try {
             result = await productionSiteDAL.deleteItem(companyId, productionSiteId);
@@ -328,7 +319,6 @@ const deleteProductionSite = async (req, res) => {
         }
 
         if (!result) {
-            logger.error('[ProductionSiteController] Deletion returned no result');
             return res.status(500).json({
                 success: false,
                 message: 'Deletion failed - no result returned',
@@ -336,10 +326,19 @@ const deleteProductionSite = async (req, res) => {
             });
         }
 
-        // Log the successful deletion with cleanup details
+        // Remove site access for all users
+        try {
+            await removeSiteAccess(companyId, productionSiteId, 'production');
+            logger.info(`[SUCCESS] Site access removed for production site: ${companyId}_${productionSiteId}`);
+        } catch (accessError) {
+            logger.error('Error removing site access:', accessError);
+            // Continue with the response even if access removal fails
+        }
+
+        // Log the successful deletion
         logger.info('[SUCCESS] Site deletion completed:', {
             siteId: productionSiteId,
-            cleanupStats: result.relatedDataCleanup
+            cleanupStats: result.relatedDataCleanup || {}
         });
 
         return res.json({
@@ -349,7 +348,6 @@ const deleteProductionSite = async (req, res) => {
         });
     } catch (error) {
         logger.error('[ProductionSiteController] Unexpected error during deletion:', error);
-        
         return res.status(500).json({
             success: false,
             message: 'An unexpected error occurred while deleting the production site',
@@ -373,7 +371,6 @@ const getAllProductionSites = async (req, res) => {
             });
         }
 
-        // Return filtered results
         res.json({
             success: true,
             data: items
@@ -388,7 +385,6 @@ const getAllProductionSites = async (req, res) => {
     }
 };
 
-// Export all functions together
 module.exports = {
     createProductionSite,
     getProductionSite,

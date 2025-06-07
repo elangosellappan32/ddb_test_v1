@@ -92,61 +92,19 @@ const ConsumptionSiteDataForm = ({
 
   const [errors, setErrors] = useState({});
 
-  // Update handleDateChange with additional validation
   const handleDateChange = (newDate) => {
-    if (!newDate || isNaN(newDate.getTime())) {
-      setErrors(prev => ({ ...prev, date: 'Please select a valid date' }));
-      return;
-    }
-  
-    try {
-      // Normalize to first day of month
-      const normalizedDate = new Date(newDate.getFullYear(), newDate.getMonth(), 1);
-      setFormData(prev => ({
-        ...prev,
-        date: normalizedDate
-      }));
-      setErrors(prev => ({ ...prev, date: undefined }));
-    } catch (error) {
-      console.error('Error handling date change:', error);
-      setErrors(prev => ({ ...prev, date: 'Invalid date format' }));
-    }
+    setFormData(prev => ({
+      ...prev,
+      date: newDate || new Date()
+    }));
   };
 
-  // Update handleSubmit to properly handle data updates
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    // Validate all fields before submission
-    const newErrors = {};
-    
-    if (!formData.date || isNaN(formData.date.getTime())) {
-      newErrors.date = 'Valid date is required';
-    }
-
-    // Validate numeric fields
-    getFields().forEach(field => {
-      const value = parseFloat(formData[field.id]);
-      if (isNaN(value)) {
-        newErrors[field.id] = 'Must be a valid number';
-      }
-      if (value < 0) {
-        newErrors[field.id] = 'Must be non-negative';
-      }
-    });
-
-    setErrors(newErrors);
-    if (Object.keys(newErrors).length > 0) {
-      enqueueSnackbar('Please correct the errors before submitting', { 
-        variant: 'error' 
-      });
-      return;
-    }
 
     try {
       const sk = generateSK(formData.date);
       
-      // Create submit data with all period values
       const submitData = {
         sk,
         pk: `${companyId}_${consumptionSiteId}`,
@@ -154,13 +112,14 @@ const ConsumptionSiteDataForm = ({
         consumptionSiteId,
         date: format(formData.date, 'yyyy-MM-dd'),
         type: type.toUpperCase(),
-        version: initialData ? (initialData.version || 0) + 1 : 1,
-        c1: parseFloat(formData.c1) || 0,
-        c2: parseFloat(formData.c2) || 0,
-        c3: parseFloat(formData.c3) || 0,
-        c4: parseFloat(formData.c4) || 0,
-        c5: parseFloat(formData.c5) || 0
+        version: initialData ? (initialData.version || 0) + 1 : 1
       };
+
+      // Add all c1-c5 fields
+      for (let i = 1; i <= 5; i++) {
+        const key = `c${i}`;
+        submitData[key] = formData[key] ? Number(formData[key]) : 0;
+      }
 
       await onSubmit(submitData);
       enqueueSnackbar('Data saved successfully', { variant: 'success' });
@@ -190,20 +149,10 @@ const ConsumptionSiteDataForm = ({
 
   const handleChange = (field, value) => {
     const inputValue = value?.target?.value ?? value;
-    
-    if (inputValue === '' || /^-?\d*\.?\d*$/.test(inputValue)) {
-      setFormData(prev => ({
-        ...prev,
-        [field]: inputValue === '' ? '0' : inputValue
-      }));
-      
-      if (errors[field]) {
-        setErrors(prev => ({
-          ...prev,
-          [field]: undefined
-        }));
-      }
-    }
+    setFormData(prev => ({
+      ...prev,
+      [field]: inputValue
+    }));
   };
 
   const renderField = (field) => (
@@ -212,21 +161,13 @@ const ConsumptionSiteDataForm = ({
         fullWidth
         label={field.label}
         name={field.id}
-        value={formData[field.id]}
+        value={formData[field.id] || ''}
         onChange={(e) => handleChange(field.id, e.target.value)}
-        onBlur={() => {
-          const value = formData[field.id];
-          if (value === '' || isNaN(parseFloat(value))) {
-            handleChange(field.id, '0');
-          }
-        }}
-        type="text"
-        required
+        type="number"
         inputProps={{ 
-          pattern: "^-?\\d*\\.?\\d*$"
+          step: "0.01",
+          min: "0"
         }}
-        error={!!errors[field.id]}
-        helperText={errors[field.id]}
         disabled={!canEdit}
       />
     </Grid>
@@ -322,8 +263,7 @@ const ConsumptionSiteDataForm = ({
                 {...params}
                 fullWidth
                 required
-                error={!!errors.date}
-                helperText={errors.date || formatDateForDisplay(formData.date)}
+                helperText={formatDateForDisplay(formData.date)}
                 disabled={!canEdit}
               />
             )}

@@ -20,6 +20,7 @@ const roleRoutes = require('./routes/roleRoutes');
 const bankingRoutes = require('./banking/bankingRoutes');
 const lapseRoutes = require('./lapse/lapseRoutes');
 const captiveRoutes = require('./captive/captiveRoutes');
+const siteAccessRoutes = require('./routes/siteAccessRoutes');
 
 const app = express();
 
@@ -98,18 +99,17 @@ app.use('/api/health', healthRoutes);
 app.use('/api/roles', authenticateToken, roleRoutes);
 
 // Protected routes with resource-specific permissions, but details pages are public
+app.use('/api/site-access', authenticateToken, siteAccessRoutes);
 app.use('/api/production-site', authenticateToken, checkPermission('production', 'READ'), removeAuthForDetail(productionSiteRoutes));
-    app.use('/api/production-unit', authenticateToken,
+app.use('/api/consumption-site', authenticateToken, checkPermission('consumption', 'READ'), removeAuthForDetail(consumptionSiteRoutes));
+app.use('/api/site-access', authenticateToken, siteAccessRoutes);
+app.use('/api/production-unit', authenticateToken,
     checkPermission('production-units', 'READ'),
     removeAuthForDetail(productionUnitRoutes));
     
 app.use('/api/production-charge', authenticateToken,
     checkPermission('production-charges', 'READ'),
     removeAuthForDetail(productionChargeRoutes));
-    
-app.use('/api/consumption-site', authenticateToken,
-    checkPermission('consumption', 'READ'),
-    removeAuthForDetail(consumptionSiteRoutes));
     
 app.use('/api/consumption-unit', authenticateToken,
     checkPermission('consumption-units', 'READ'),

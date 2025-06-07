@@ -6,13 +6,6 @@ const handleApiError = (error) => {
   throw new Error(error.response?.data?.message || error.message || 'An error occurred');
 };
 
-const generatePK = (companyId, productionSiteId) => `${companyId}_${productionSiteId}`;
-
-const formatDateToMMYYYY = (date) => {
-  const d = new Date(date);
-  return `${String(d.getMonth() + 1).padStart(2, '0')}${d.getFullYear()}`;
-};
-
 const formatSiteData = (data) => {
   try {
     // Ensure we have the required fields
@@ -55,27 +48,6 @@ const formatSiteData = (data) => {
   }
 };
 
-const validateResponse = (response) => {
-  if (!response || typeof response !== 'object') {
-    console.warn('[ProductionSiteAPI] Invalid response:', response);
-    return [];
-  }
-
-  // Extract data array from response
-  const data = response.success && Array.isArray(response.data) 
-    ? response.data 
-    : Array.isArray(response) ? response : [];
-
-  console.log('[ProductionSiteAPI] Processing data array:', data);
-
-  const validSites = data
-    .map(site => formatSiteData(site))
-    .filter(site => site !== null);
-
-  console.log('[ProductionSiteAPI] Validated sites:', validSites);
-  return validSites;
-};
-
 // Cache for storing production sites data
 let productionSitesCache = {
   data: [],
@@ -86,8 +58,17 @@ let productionSitesCache = {
 // Cache TTL in milliseconds (5 minutes)
 const CACHE_TTL = 5 * 60 * 1000;
 
-const productionSiteApi = {
-  fetchAll: async (forceRefresh = false, retries = 3, delay = 1000) => {
+class ProductionSiteApi {
+  constructor() {
+    // Bind all methods to preserve 'this' context
+    this.fetchAll = this.fetchAll.bind(this);
+    this.fetchOne = this.fetchOne.bind(this);
+    this.create = this.create.bind(this);
+    this.update = this.update.bind(this);
+    this.delete = this.delete.bind(this);
+  }
+
+  async fetchAll(forceRefresh = false, retries = 3, delay = 1000) {
     const now = Date.now();
     
     // Return cached data if it's still fresh and not forcing refresh
@@ -96,93 +77,134 @@ const productionSiteApi = {
         (now - productionSitesCache.lastUpdated) < CACHE_TTL) {
       console.log('[ProductionSiteAPI] Returning cached data');
       return {
+        success: true,
         data: [...productionSitesCache.data],
         total: productionSitesCache.data.length,
-        fromCache: true,
-        lastUpdated: productionSitesCache.lastUpdated
+        fromCache: true
       };
     }
 
-    // Prevent multiple simultaneous updates
+    // If another request is in progress, wait for it
     if (productionSitesCache.isUpdating) {
-      console.log('[ProductionSiteAPI] Update in progress, returning current cache');
-      return {
-        data: [...productionSitesCache.data],
-        total: productionSitesCache.data.length,
-        fromCache: true,
-        updating: true
-      };
+      console.log('[ProductionSiteAPI] Update in progress, waiting...');
+      await new Promise(resolve => setTimeout(resolve, 500));
+      return this.fetchAll(forceRefresh, retries, delay);
     }
 
-    // Set updating flag
     productionSitesCache.isUpdating = true;
-    let lastError;
-    
-    for (let attempt = 1; attempt <= retries; attempt++) {
+
+    const attempt = async (attemptsLeft) => {
       try {
-        console.log(`[ProductionSiteAPI] Fetching all sites (attempt ${attempt}/${retries})`);
+        console.log(`[ProductionSiteAPI] Fetching all sites, attempt ${retries - attemptsLeft + 1}/${retries}`);
         const response = await api.get(API_CONFIG.ENDPOINTS.PRODUCTION.SITE.GET_ALL);
-
-        if (!response?.data) {
-          throw new Error('Empty response received from server');
-        }
-
-        const validatedData = validateResponse(response.data);
         
-        if (validatedData.length > 0) {
-          console.log('[ProductionSiteAPI] Successfully retrieved sites:', validatedData);
-          
-          // Update cache
-          productionSitesCache = {
-            data: validatedData,
-            lastUpdated: now,
-            isUpdating: false
-          };
-          
-          return {
-            data: validatedData,
-            total: validatedData.length,
-            fromCache: false,
-            lastUpdated: now
-          };
+        // Extract and validate the data
+        let sites = [];
+        if (Array.isArray(response?.data?.data)) {
+          sites = response.data.data;
+        } else if (Array.isArray(response?.data)) {
+          sites = response.data;
+        } else if (response?.data) {
+          sites = [response.data];
+        } else {
+          console.warn('[ProductionSiteAPI] Unexpected response format:', response);
+          throw new Error('Invalid response format from server');
+        }
+        
+        // Format and validate each site
+        const formattedSites = sites
+          .map(site => {
+            try {
+              return formatSiteData(site);
+            } catch (error) {
+              console.warn('[ProductionSiteAPI] Error formatting site data:', error, site);
+              return null;
+            }
+          })
+          .filter(site => {
+            const isValid = site !== null && 
+                         site.companyId !== undefined && 
+                         site.productionSiteId !== undefined;
+            if (!isValid) {
+              console.warn('[ProductionSiteAPI] Invalid site data, skipping:', site);
+            }
+            return isValid;
+          });
+
+        // Log summary of formatted data
+        console.log(`[ProductionSiteAPI] Successfully formatted ${formattedSites.length} of ${sites.length} sites`);
+        
+        if (formattedSites.length === 0 && sites.length > 0) {
+          console.warn('[ProductionSiteAPI] No valid sites found in the response');
+          throw new Error('No valid production sites found in the response');
         }
 
-        if (attempt < retries) {
-          console.log('[ProductionSiteAPI] No valid data found, retrying...');
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
-        }
+        // Update cache
+        productionSitesCache = {
+          data: formattedSites,
+          lastUpdated: Date.now(),
+          isUpdating: false
+        };
 
-        // If we've exhausted all retries, return empty array instead of throwing
         return {
-          data: [],
-          total: 0
+          success: true,
+          data: [...formattedSites],
+          total: formattedSites.length,
+          fromCache: false
         };
       } catch (error) {
-        lastError = error;
-        console.error(`[ProductionSiteAPI] Fetch error (attempt ${attempt}/${retries}):`, error);
+        console.error(`[ProductionSiteAPI] Fetch error (${attemptsLeft} attempts left):`, error);
         
-        if (attempt < retries) {
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
-        }
-      } finally {
-        // Reset updating flag when done
-        if (attempt === retries) {
+        if (attemptsLeft <= 1) {
           productionSitesCache.isUpdating = false;
+          
+          // If we have cached data, return it with an error flag
+          if (productionSitesCache.data.length > 0) {
+            console.warn('[ProductionSiteAPI] Using cached data due to fetch error');
+            return {
+              success: false,
+              data: [...productionSitesCache.data],
+              total: productionSitesCache.data.length,
+              fromCache: true,
+              error: error.message || 'Failed to fetch fresh data',
+              originalError: error
+            };
+          }
+          
+          throw error;
         }
+        
+        // Wait before retrying with exponential backoff
+        const backoffDelay = delay * (retries - attemptsLeft + 1);
+        console.log(`[ProductionSiteAPI] Retrying in ${backoffDelay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, backoffDelay));
+        return attempt(attemptsLeft - 1);
       }
-    }
-    
-    console.error('[ProductionSiteAPI] All fetch attempts failed:', lastError);
-    return {
-      data: [],
-      total: 0,
-      error: lastError?.message || 'Failed to fetch production sites'
     };
-  },
 
-  fetchOne: async (companyId, productionSiteId) => {
+    try {
+      return await attempt(retries);
+    } catch (error) {
+      productionSitesCache.isUpdating = false;
+      
+      // If we have cached data, return it with an error flag
+      if (productionSitesCache.data.length > 0) {
+        console.warn('[ProductionSiteAPI] Using cached data after all retries failed');
+        return {
+          success: false,
+          data: [...productionSitesCache.data],
+          total: productionSitesCache.data.length,
+          fromCache: true,
+          error: error.message || 'Failed to fetch production sites',
+          originalError: error
+        };
+      }
+      
+      throw new Error(error.message || 'Failed to fetch production sites');
+    }
+  }
+
+  async fetchOne(companyId, productionSiteId) {
     try {
       console.log('[ProductionSiteAPI] Fetching site:', { companyId, productionSiteId });
       const response = await api.get(
@@ -192,113 +214,196 @@ const productionSiteApi = {
     } catch (error) {
       return handleApiError(error);
     }
-  },
+  }
 
-  create: async (data) => {
+  async create(data, authContext) {
     try {
-      const response = await api.get(API_CONFIG.ENDPOINTS.PRODUCTION.SITE.GET_ALL);
-      const existingSites = response.data || [];
-      const nextSiteId = existingSites.length + 1;
+      console.log('[ProductionSiteAPI] Received create request with data:', data);
+      
+      // Set environment
+      const isDevelopment = process.env.NODE_ENV === 'development' || window.location.hostname === 'localhost';
+      
+      // Get company ID from multiple sources in order of precedence
+      let companyId = data.companyId;
+      
+      if (!companyId && authContext?.user) {
+        // Try to get companyId from different possible locations in auth context
+        const sources = [
+          { value: authContext.user.companyId, source: 'user.companyId' },
+          { value: authContext.user.metadata?.companyId, source: 'user.metadata.companyId' }
+        ];
 
-      // Transform the data before sending to API
+        if (authContext.user.accessibleSites?.productionSites?.L?.length > 0) {
+          const firstSiteId = authContext.user.accessibleSites.productionSites.L[0].S;
+          const siteCompanyId = parseInt(firstSiteId.split('_')[0], 10);
+          if (!isNaN(siteCompanyId)) {
+            sources.push({ value: siteCompanyId, source: 'user.accessibleSites[0]' });
+          }
+        }
+
+        console.log('[ProductionSiteAPI] Auth context:', {
+          user: authContext.user,
+          metadata: authContext.user.metadata,
+          isDevelopment
+        });
+
+        for (const source of sources) {
+          if (source.value) {
+            companyId = source.value;
+            console.log(`[ProductionSiteAPI] Using companyId from ${source.source}:`, companyId);
+            break;
+          }
+        }
+      }
+
+      // If no company ID found and we're in development, use default
+      if (!companyId && isDevelopment) {
+        companyId = 1;
+        console.log('[ProductionSiteAPI] Using default development companyId:', companyId);
+      }
+
+      // Validate company ID
+      if (companyId) {
+        companyId = Number(companyId);
+        if (isNaN(companyId) || companyId <= 0) {
+          if (isDevelopment) {
+            companyId = 1;
+            console.log('[ProductionSiteAPI] Invalid company ID, using default in development:', companyId);
+          } else {
+            throw new Error('Invalid company ID format');
+          }
+        }
+      } else {
+        const error = new Error('No company association found. Please contact your administrator to set up your company association.');
+        error.code = 'NO_COMPANY_ASSOCIATION';
+        error.details = {
+          environment: process.env.NODE_ENV,
+          user: authContext?.user?.username,
+          metadata: authContext?.user?.metadata
+        };
+        throw error;
+      }
+
+      // Prepare the site data with proper formatting
       const siteData = {
-        ...formatSiteData(data),
-        companyId: 1,
-        productionSiteId: nextSiteId,
-        pk: generatePK(1, nextSiteId),
-        sk: formatDateToMMYYYY(new Date()),
-        type: 'SITE',
+        ...data,
+        companyId,
+        name: String(data.name || '').trim(),
+        type: String(data.type || 'Solar').trim(),
+        location: String(data.location || '').trim(),
+        status: String(data.status || 'Active').trim(),
+        capacity_MW: parseFloat(data.capacity_MW) || 0,
+        injectionVoltage_KV: parseFloat(data.injectionVoltage_KV) || 0,
+        annualProduction_L: parseFloat(data.annualProduction_L) || 0,
+        htscNo: data.htscNo ? String(data.htscNo).trim() : '',
+        injectionSubstation: data.injectionSubstation ? String(data.injectionSubstation).trim() : '',
+        feederName: data.feederName ? String(data.feederName).trim() : '',
+        description: data.description ? String(data.description).trim() : '',
         createdat: new Date().toISOString(),
         updatedat: new Date().toISOString(),
         version: 1
       };
 
-      console.log('[ProductionSiteAPI] Creating site:', siteData);
-      const createResponse = await api.post(API_CONFIG.ENDPOINTS.PRODUCTION.SITE.CREATE, siteData);
-      return createResponse.data;
-    } catch (error) {
-      if (error.response?.status === 400) {
-        // Add specific error handling for validation errors
-        const errorMessage = error.response.data?.message || 'Validation failed';
-        throw new Error(errorMessage);
-      }
-      return handleApiError(error);
-    }
-  },
+      console.log('[ProductionSiteAPI] Creating production site with:', siteData);
 
-  update: async (companyId, productionSiteId, data) => {
+      const response = await api.post(
+        API_CONFIG.ENDPOINTS.PRODUCTION.SITE.CREATE,
+        siteData
+      );
+
+      console.log('[ProductionSiteAPI] Production site created:', response.data);
+      
+      // Schedule a refresh of all sites data after 3 seconds
+      setTimeout(() => {
+        console.log('[ProductionSiteAPI] Refreshing sites data after creation...');
+        this.fetchAll(true).catch(err => {
+          console.error('[ProductionSiteAPI] Error refreshing sites:', err);
+        });
+      }, 3000);
+
+      return response.data;
+
+    } catch (error) {
+      const isDevelopment = process.env.NODE_ENV === 'development' || window.location.hostname === 'localhost';
+      // If it's a company association error in development, retry with default company
+      if (error.code === 'NO_COMPANY_ASSOCIATION' && isDevelopment) {
+        console.warn('[ProductionSiteAPI] No company association found, retrying with default company in development');
+        return this.create({ ...data, companyId: 1 }, authContext);
+      }
+      
+      // For other errors, format them properly
+      const errorMessage = error.response?.data?.message || 
+                         error.response?.data?.error || 
+                         error.message ||
+                         'Failed to create production site';
+      const serverError = new Error(errorMessage);
+      serverError.status = error.response?.status;
+      serverError.details = {
+        ...error.response?.data,
+        originalError: error.message,
+        environment: process.env.NODE_ENV
+      };
+      serverError.code = error.code || error.response?.data?.code;
+      throw serverError;
+    }
+  }
+
+  async update(companyId, productionSiteId, data) {
     try {
+      if (!companyId) {
+        throw new Error('Company ID is required to update a production site');
+      }
+
       const siteData = {
         ...data,
-        companyId: 1,
+        companyId: companyId,
         productionSiteId,
-        pk: generatePK(1, productionSiteId),
-        sk: formatDateToMMYYYY(new Date()),
         updatedat: new Date().toISOString()
       };
 
       const response = await api.put(
-        API_CONFIG.ENDPOINTS.PRODUCTION.SITE.UPDATE(1, productionSiteId),
+        API_CONFIG.ENDPOINTS.PRODUCTION.SITE.UPDATE(companyId, productionSiteId),
         siteData
       );
+
+      // Schedule a refresh of all sites data after 3 seconds
+      setTimeout(() => {
+        console.log('[ProductionSiteAPI] Refreshing sites data after update...');
+        this.fetchAll(true).catch(err => {
+          console.error('[ProductionSiteAPI] Error refreshing sites:', err);
+        });
+      }, 3000);
+
       return response.data;
     } catch (error) {
       return handleApiError(error);
     }
-  },
-  delete: async (companyId, productionSiteId, retries = 3) => {
-    let lastError;
-    
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        // Validate inputs
-        if (!companyId || !productionSiteId) {
-          throw new Error('Company ID and Production Site ID are required');
-        }
-
-        // For first attempt only, validate site exists
-        if (attempt === 1) {
-          const site = await productionSiteApi.fetchOne(companyId, productionSiteId);
-          if (!site || !site.data) {
-            throw new Error('Site not found');
-          }
-        }
-
-        const response = await api.delete(
-          API_CONFIG.ENDPOINTS.PRODUCTION.SITE.DELETE(companyId, productionSiteId)
-        );
-
-        if (!response.data || !response.data.success) {
-          throw new Error(response.data?.message || 'Failed to delete site');
-        }
-
-        // Successful deletion
-        console.log(`[ProductionSiteAPI] Site deleted successfully (attempt ${attempt})`);
-        return response.data;
-        
-      } catch (error) {
-        lastError = error;
-        console.error(`[ProductionSiteAPI] Delete Error (attempt ${attempt}/${retries}):`, error);
-
-        // Don't retry on these errors
-        if (error.message?.includes('not found') || 
-            error.message?.includes('permission') ||
-            error.response?.status === 404 ||
-            error.response?.status === 403) {
-          break;
-        }
-
-        // Wait before retrying (exponential backoff)
-        if (attempt < retries) {
-          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
-    }
-
-    // If all retries failed, throw the last error
-    throw handleApiError(lastError);
   }
-};
 
+  async delete(companyId, productionSiteId) {
+    try {
+      if (!companyId || !productionSiteId) {
+        throw new Error('Company ID and Production Site ID are required');
+      }
+
+      const response = await api.delete(
+        API_CONFIG.ENDPOINTS.PRODUCTION.SITE.DELETE(companyId, productionSiteId)
+      );
+
+      // Schedule a refresh of all sites data after 3 seconds
+      setTimeout(() => {
+        console.log('[ProductionSiteAPI] Refreshing sites data after deletion...');
+        this.fetchAll(true).catch(err => {
+          console.error('[ProductionSiteAPI] Error refreshing sites:', err);
+        });
+      }, 3000);
+
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  }
+}
+
+const productionSiteApi = new ProductionSiteApi();
 export default productionSiteApi;

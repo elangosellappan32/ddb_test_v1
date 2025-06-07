@@ -62,6 +62,21 @@ const authService = {    login: async (username, password) => {
                     throw new Error('Invalid consumption site access data format');
                 }
 
+                // Ensure companyId is included in user data
+                if (!user.companyId) {
+                    console.warn('No companyId found in user data. This may affect some features.');
+                }
+
+                // Extract company ID from department or metadata if available
+                let userCompanyId = user.companyId;
+                if (!userCompanyId && user.metadata?.department) {
+                    if (user.metadata.department.toLowerCase().includes('smr')) {
+                        userCompanyId = '5'; // SMR Energy's company ID
+                    } else if (user.metadata.department.toLowerCase().includes('strio')) {
+                        userCompanyId = '1'; // STRIO's company ID
+                    }
+                }
+
                 const userData = {
                     username: user.username,
                     email: user.email,
@@ -70,8 +85,13 @@ const authService = {    login: async (username, password) => {
                     role: user.roleName?.toLowerCase(),
                     permissions: user.permissions || {},
                     metadata: user.metadata,
-                    accessibleSites: accessibleSites
+                    accessibleSites: accessibleSites,
+                    companyId: userCompanyId
                 };
+
+                if (!userData.companyId) {
+                    console.warn('No companyId found for user. This user may not be able to perform company-specific operations.');
+                }
 
                 localStorage.setItem(TOKEN_KEY, token);
                 localStorage.setItem(USER_KEY, JSON.stringify(userData));

@@ -251,7 +251,12 @@ const ConsumptionSiteDetails = () => {
         <IconButton onClick={() => navigate('/consumption')} sx={{ mr: 2 }}>
           <ArrowBackIcon />
         </IconButton>
-        <Typography variant="h5">Consumption Site Details</Typography>
+        <Typography variant="h5" component="div" sx={{ 
+          fontWeight: 'bold',
+          color: '#1976d2'
+        }}>
+          Consumption Site Details
+        </Typography>
       </Box>
 
       {error && (
@@ -269,7 +274,7 @@ const ConsumptionSiteDetails = () => {
           <SiteInfoCard site={siteData.site} />
           <Paper sx={{ p: 3, mb: 3 }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-              <Typography variant="h6">Consumption Units</Typography>
+              <Typography variant="h6" component="div">Consumption Units</Typography>
               {permissions.create && (
                 <Button
                   variant="contained"

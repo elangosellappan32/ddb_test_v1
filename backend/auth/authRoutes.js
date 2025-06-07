@@ -47,7 +47,24 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // Create JWT token with role permissions and accessible sites
+        // Determine company ID from metadata
+        let companyId = user.metadata?.companyId;
+        if (!companyId && user.metadata?.accessibleSites?.productionSites?.L?.length > 0) {
+            // Extract company ID from the first production site ID (format: companyId_siteId)
+            const firstSiteId = user.metadata.accessibleSites.productionSites.L[0].S;
+            companyId = parseInt(firstSiteId.split('_')[0], 10);
+        }
+
+        if (!companyId && user.metadata?.department) {
+            // Fallback: Extract from department if possible
+            if (user.metadata.department.toLowerCase().includes('smr')) {
+                companyId = 5; // SMR Energy's company ID
+            } else if (user.metadata.department.toLowerCase().includes('strio')) {
+                companyId = 1; // STRIO's company ID
+            }
+        }
+
+        // Create JWT token with role permissions, accessible sites, and company ID
         const token = jwt.sign(
             {
                 username,
@@ -57,7 +74,8 @@ router.post('/login', async (req, res) => {
                 accessibleSites: user.metadata?.accessibleSites || {
                     productionSites: { L: [] },
                     consumptionSites: { L: [] }
-                }
+                },
+                companyId: companyId || null
             },
             process.env.JWT_SECRET || 'your-secret-key',
             { expiresIn: '24h' }
@@ -75,9 +93,11 @@ router.post('/login', async (req, res) => {
                 roleId: role.roleId,
                 roleName: role.roleName,
                 permissions: role.permissions,
+                companyId,
                 metadata: {
                     department: user.metadata?.department || 'General',
                     accessLevel: role.metadata?.accessLevel || 'Basic',
+                    companyId,
                     accessibleSites: user.metadata?.accessibleSites || {
                         productionSites: { L: [] },
                         consumptionSites: { L: [] }

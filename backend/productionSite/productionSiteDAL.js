@@ -55,7 +55,7 @@ const create = async (item) => {
             banking: new Decimal(item.banking || 0).toString(),
             capacity_MW: new Decimal(item.capacity_MW || 0).toString(),
             annualProduction_L: new Decimal(annualProduction).toString(), // Store as annualProduction_L
-            htscNo: new Decimal(item.htscNo || 0).toString(),
+            htscNo: item.htscNo ? String(item.htscNo).trim() : '', // Keep as string
             injectionVoltage_KV: new Decimal(item.injectionVoltage_KV || 0).toString(),
             status: item.status,
             version: 1,
