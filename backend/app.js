@@ -102,7 +102,6 @@ app.use('/api/roles', authenticateToken, roleRoutes);
 app.use('/api/site-access', authenticateToken, siteAccessRoutes);
 app.use('/api/production-site', authenticateToken, checkPermission('production', 'READ'), removeAuthForDetail(productionSiteRoutes));
 app.use('/api/consumption-site', authenticateToken, checkPermission('consumption', 'READ'), removeAuthForDetail(consumptionSiteRoutes));
-app.use('/api/site-access', authenticateToken, siteAccessRoutes);
 app.use('/api/production-unit', authenticateToken,
     checkPermission('production-units', 'READ'),
     removeAuthForDetail(productionUnitRoutes));

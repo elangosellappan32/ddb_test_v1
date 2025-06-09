@@ -495,7 +495,7 @@ const ProductionSiteForm = ({ initialData, onSubmit, onCancel, loading, site }) 
               startIcon={loading ? <CircularProgress size={20} /> : null}
               sx={{ minWidth: 120, ml: 2 }}
             >
-              {loading ? 'Saving...' : site ? 'Update' : 'Create'}
+              {loading ? 'Saving...' : (initialData?.productionSiteId ? 'Update' : 'Create')}
             </Button>
           </CardActions>
         </Card>

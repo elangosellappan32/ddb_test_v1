@@ -192,32 +192,63 @@ const createConsumptionSite = async (req, res) => {
             });
         }
 
-        // 3. Prepare site data with validated values
+        // 3. Ensure we have the company ID
+        const companyId = req.body.companyId || (req.user && req.user.companyId);
+        if (!companyId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Company ID is required',
+                code: 'MISSING_COMPANY_ID'
+            });
+        }
+
+        // 4. Prepare site data with validated values
         const siteData = {
             ...req.body,
             annualConsumption: consumptionValidation.value, // Use validated value
             status: 'active',
-            companyId: req.body.companyId || '1' // Default company ID if not provided
+            companyId // Ensure companyId is set
         };
 
-        // 4. Create the site in the database
+        // 5. Create the site in the database
         const newSite = await consumptionSiteDAL.createConsumptionSite(siteData);
-        logger.info('Created new consumption site:', { siteId: newSite.consumptionSiteId });
+        logger.info('Created new consumption site:', { 
+            siteId: newSite.consumptionSiteId,
+            companyId: newSite.companyId
+        });
 
-        // 5. Update user's accessible sites if user ID is provided
-        if (req.body.userId) {
+        // 6. Update user's accessible sites if user ID is provided
+        const userId = req.body.userId || (req.user && (req.user.id || req.user.userId));
+        if (userId) {
             try {
-                await updateUserSiteAccess({
-                    userId: req.body.userId,
-                    siteType: 'consumption',
-                    siteId: `${newSite.companyId}_${newSite.consumptionSiteId}`,
-                    siteName: newSite.name
-                });
-                logger.info('Updated user site access:', { userId: req.body.userId, siteId: newSite.consumptionSiteId });
+                const siteKey = `${newSite.companyId}_${newSite.consumptionSiteId}`;
+                logger.info(`Adding site access for user ${userId} to site ${siteKey}`);
+                
+                // Update user's site access with proper types
+                await updateUserSiteAccess(
+                    userId,
+                    newSite.companyId.toString(),
+                    newSite.consumptionSiteId.toString(),
+                    'consumption'
+                );
+                
+                logger.info(`Successfully added site access for user ${userId} to site ${siteKey}`);
+                
+                // Add the siteKey to the response for the frontend
+                newSite.siteKey = siteKey;
             } catch (accessError) {
-                // Log the error but don't fail the request
-                logger.error('Failed to update user site access:', accessError);
+                // Log detailed error but don't fail the request
+                logger.error('Failed to update user site access:', {
+                    error: accessError.message,
+                    stack: accessError.stack,
+                    userId,
+                    companyId: newSite.companyId,
+                    siteId: newSite.consumptionSiteId
+                });
+                logger.warn('Site was created but user access update failed');
             }
+        } else {
+            logger.warn('No user ID found in request or session while creating consumption site');
         }
 
         // 6. Return success response

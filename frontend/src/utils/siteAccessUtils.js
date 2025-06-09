@@ -1,3 +1,5 @@
+import api from '../services/api';
+
 /**
  * Utility functions for site access management
  */
@@ -126,30 +128,167 @@ export const addSiteToUserAccess = (user, siteId, siteType) => {
  * @returns {Promise<Object>} Updated user object from the backend
  * @throws {Error} If the update fails
  */
-export const updateUserSiteAccess = async (user, siteId, siteType) => {
-    try {
-        const updatedUser = addSiteToUserAccess(user, siteId, siteType);
-        
-        // Make API call to update user's accessible sites
-        const response = await fetch('/api/users/access', {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                userId: user.id,
-                accessibleSites: updatedUser.accessibleSites
-            })
-        });
+/**
+ * Updates user's site access in the backend
+ * @param {Object} user - The user object
+ * @param {Object|string} siteData - The site data object or site ID string
+ * @param {string} siteType - The type of site ('production' or 'consumption')
+ * @returns {Promise<Object>} Response from the server
+ * @throws {Error} If the update fails
+ */
+export const updateUserSiteAccess = async (user, siteData, siteType) => {
+    console.log('[SiteAccess] Starting site access update:', { user, siteData, siteType });
+    
+    // Input validation - check for user ID in multiple possible fields
+    const userId = user?.id || user?.userId || user?.username || user?.email;
+    if (!userId) {
+        const error = new Error('User ID is required');
+        console.error('[SiteAccess] Validation error:', error, { user });
+        throw error;
+    }
 
-        if (!response.ok) {
-            throw new Error(`Failed to update user site access: ${response.statusText}`);
+    if (!siteData) {
+        const error = new Error('Site data is required');
+        console.error('[SiteAccess] Validation error:', error);
+        throw error;
+    }
+
+    if (!['production', 'consumption'].includes(siteType)) {
+        const error = new Error('Invalid site type. Must be "production" or "consumption"');
+        console.error('[SiteAccess] Validation error:', error);
+        throw error;
+    }
+
+    // Extract company ID from user object at the function level
+    const companyId = user.companyId || user.company?.id || (user.metadata && user.metadata.companyId);
+    
+    if (!companyId) {
+        const error = new Error('Company ID is required in user object');
+        console.error('[SiteAccess] Validation error:', error, { user });
+        throw error;
+    }
+    
+    console.log(`[SiteAccess] Updating ${siteType} site access for user ${userId} in company ${companyId}`);
+    
+    const requestData = {
+        userId,
+        companyId,
+        siteType
+    };
+
+    try {
+
+        // Extract site ID and format it correctly
+        let siteId;
+        let siteDataObj = {};
+        
+        // Handle different siteData formats
+        if (typeof siteData === 'object' && siteData !== null) {
+            // Handle site data object
+            siteId = siteData.id || siteData.siteId || siteData[`${siteType}SiteId`];
+            
+            if (!siteId) {
+                const error = new Error('Site ID not found in site data');
+                console.error('[SiteAccess] Validation error:', error, { siteData });
+                throw error;
+            }
+
+            // Store additional site data
+            siteDataObj = {
+                name: siteData.name || `${siteType} Site`,
+                type: siteData.type || siteType,
+                location: siteData.location || '',
+                capacity: siteData.capacity_MW || siteData.capacity || 0,
+                status: siteData.status || 'active'
+            };
+        } else if (typeof siteData === 'string' || typeof siteData === 'number') {
+            // Handle string or number site ID (format: companyId_siteId or just siteId)
+            siteId = String(siteData);
+            siteDataObj = {
+                name: `${siteType} Site ${siteId}`,
+                type: siteType,
+                status: 'active'
+            };
+        } else {
+            const error = new Error(`Invalid siteData format. Expected object or string, got ${typeof siteData}`);
+            console.error('[SiteAccess] Validation error:', error, { siteData });
+            throw error;
         }
 
-        const result = await response.json();
-        return result.user;
+        // Ensure siteId is a string
+        const siteIdStr = String(siteId);
+        
+        // Format the site ID if needed (ensure it's in companyId_siteId format)
+        const formattedSiteId = siteIdStr.includes('_') ? siteIdStr : `${companyId}_${siteIdStr}`;
+        
+        // Add site data to request
+        requestData.siteData = siteDataObj;
+        requestData.siteId = formattedSiteId;
+
+        console.log(`[SiteAccess] Sending update request for ${siteType} site access`, {
+            userId,
+            companyId,
+            siteType,
+            originalSiteId: siteId,
+            formattedSiteId,
+            siteData: requestData.siteData
+        });
+
+        // Make the API call
+        const response = await api.post('/site-access/update-site-access', requestData);
+
+        if (!response.data) {
+            const error = new Error('Invalid response from server');
+            console.error('[SiteAccess] API error:', error);
+            throw error;
+        }
+
+        console.log(`[SiteAccess] Successfully updated ${siteType} site access for user ${userId}`, {
+            response: response.data
+        });
+        
+        return response.data;
+
     } catch (error) {
-        console.error('Error updating user site access:', error);
-        throw error;
+        // Log detailed error information
+        const errorInfo = {
+            message: error.message,
+            stack: error.stack,
+            siteType,
+            siteData: safeStringify(siteData),
+            userId: userId || 'unknown',
+            companyId: companyId || 'unknown',
+            response: error.response?.data
+        };
+        
+        console.error('[SiteAccess] Error updating site access:', errorInfo);
+        
+        // Extract a more helpful error message
+        let errorMessage = 'Failed to update site access';
+        
+        if (error.message.includes('includes is not a function')) {
+            errorMessage = 'Invalid site data format. Please contact support if the issue persists.';
+        } else if (error.response?.data?.message) {
+            errorMessage = error.response.data.message;
+        } else if (error.message) {
+            errorMessage = error.message;
+        }
+        
+        // Create a new error to preserve the stack trace
+        const enhancedError = new Error(errorMessage);
+        enhancedError.originalError = error;
+        enhancedError.isHandled = true;
+        
+        // Helper function to safely stringify objects with circular references
+        function safeStringify(obj) {
+            try {
+                return JSON.stringify(obj, (key, value) => 
+                    typeof value === 'bigint' ? value.toString() : value
+                );
+            } catch (e) {
+                return `[Object could not be stringified: ${e.message}]`;
+            }
+        }
+        throw enhancedError;
     }
 };

@@ -220,6 +220,16 @@ class ProductionSiteApi {
     try {
       console.log('[ProductionSiteAPI] Received create request with data:', data);
       
+      // Validate user context
+      if (!authContext?.user) {
+        throw new Error('User context is required to create a site');
+      }
+      
+      const userId = authContext.user.username || authContext.user.email;
+      if (!userId) {
+        throw new Error('User ID not found in auth context');
+      }
+      
       // Set environment
       const isDevelopment = process.env.NODE_ENV === 'development' || window.location.hostname === 'localhost';
       
@@ -288,6 +298,7 @@ class ProductionSiteApi {
       const siteData = {
         ...data,
         companyId,
+        createdBy: userId,  // Track which user created this site
         name: String(data.name || '').trim(),
         type: String(data.type || 'Solar').trim(),
         location: String(data.location || '').trim(),

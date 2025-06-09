@@ -68,7 +68,11 @@ const createConsumptionSite = async (item) => {
             ConditionExpression: 'attribute_not_exists(companyId) AND attribute_not_exists(consumptionSiteId)'
         }));
 
-        return newItem;
+        // Add the siteKey to the response
+        return {
+            ...newItem,
+            siteKey: `${newItem.companyId}_${newItem.consumptionSiteId}`
+        };
     } catch (error) {
         logger.error('[ConsumptionSiteDAL] Create Error:', error);
         throw error;

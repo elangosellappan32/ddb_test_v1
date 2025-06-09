@@ -70,7 +70,11 @@ const create = async (item) => {
             ConditionExpression: 'attribute_not_exists(companyId) AND attribute_not_exists(productionSiteId)'
         }));
 
-        return newItem;
+        // Add the siteKey to the response
+        return {
+            ...newItem,
+            siteKey: `${newItem.companyId}_${newItem.productionSiteId}`
+        };
     } catch (error) {
         logger.error('[ProductionSiteDAL] Create Error:', error);
         throw error;

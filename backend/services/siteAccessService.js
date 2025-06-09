@@ -101,19 +101,18 @@ const addExistingSiteAccess = async (userId, siteIds, siteType) => {
             const updateParams = {
                 TableName: TableNames.USER_METADATA,
                 Key: { userId },
-                UpdateExpression: 'SET accessibleSites = :sites, updatedat = :updatedat',
+                UpdateExpression: 'SET accessibleSites = :sites, #version = :newVersion',
+                ConditionExpression: '#version = :version',
+                ExpressionAttributeNames: {
+                    '#version': 'version'
+                },
                 ExpressionAttributeValues: {
                     ':sites': updatedUserData.accessibleSites,
-                    ':updatedat': new Date().toISOString()
-                }
+                    ':version': userData.version,
+                    ':newVersion': userData.version + 1
+                },
+                ReturnValues: 'ALL_NEW'
             };
-
-            if (userData?.version) {
-                updateParams.ConditionExpression = 'version = :version';
-                updateParams.ExpressionAttributeValues[':version'] = userData.version;
-                updateParams.UpdateExpression += ', version = :newVersion';
-                updateParams.ExpressionAttributeValues[':newVersion'] = userData.version + 1;
-            }
 
             await dynamoDB.update(updateParams);
             logger.info(`Added ${siteType} site access for user ${userId} to sites:`, siteIds);
@@ -194,93 +193,130 @@ const initializeAccessibleSites = (userData = {}) => {
  * Updates user's site access list when a new site is created/updated
  * Uses optimistic locking to prevent conflicts
  * @param {string} userId - The user ID to update
- * @param {string|number} companyId - The company ID
- * @param {string|number} siteId - The site ID
+ * @param {string} companyId - The company ID
+ * @param {string} siteId - The site ID
  * @param {string} siteType - The type of site ('production' or 'consumption')
- * @returns {Promise<boolean>} True if successful
+ * @returns {Promise<Object>} Updated user object
  * @throws {Error} If operation fails
  */
 const updateUserSiteAccess = async (userId, companyId, siteId, siteType) => {
+    // Log the incoming parameters for debugging
+    logger.info(`[SiteAccess] Updating ${siteType} site access for user ${userId}`, {
+        companyId,
+        siteId,
+        siteType
+    });
+
+    // Ensure siteId is a string and format the PK if needed
+    const siteIdStr = String(siteId);
+    const sitePk = siteIdStr.includes('_') ? siteIdStr : `${companyId}_${siteIdStr}`;
+    
+    logger.debug(`[SiteAccess] Using site PK: ${sitePk}`);
     if (!userId) throw new Error('userId is required');
     if (!companyId) throw new Error('companyId is required');
     if (!siteId) throw new Error('siteId is required');
     validateSiteType(siteType);
 
-    try {
-        const siteKey = `${companyId}_${siteId}`;
-        
-        // Get current user metadata
-        const { Item: userData } = await dynamoDB.get({
-            TableName: TableNames.USER_METADATA,
-            Key: { userId }
-        });
+    let retryCount = 0;
+    const maxRetries = 3;
 
-        // If user metadata doesn't exist, try to get user from UserTable
-        if (!userData) {
-            const { Item: userTableData } = await dynamoDB.get({
-                TableName: 'UserTable',
-                Key: { username: userId }
+    while (retryCount < maxRetries) {
+        try {
+            // Get current user metadata
+            const { Item: userData } = await dynamoDB.get({
+                TableName: TableNames.USER_METADATA,
+                Key: { userId }
             });
 
-            if (userTableData) {
-                // Create new metadata entry for the user
-                userData = {
-                    userId,
-                    accessibleSites: {
+            // Initialize user data if it doesn't exist
+            let userMetadata = userData || {
+                userId,
+                accessibleSites: {
+                    M: {
                         productionSites: { L: [] },
                         consumptionSites: { L: [] }
-                    },
-                    version: 1,
-                    createdat: new Date().toISOString()
-                };
-            } else {
-                throw new Error('User not found');
-            }
-        }
-
-        // Initialize or get existing user data
-        const updatedUserData = initializeAccessibleSites(userData || { userId });
-
-        const listKey = `${siteType}Sites`;
-        const siteList = updatedUserData.accessibleSites[listKey].L;
-
-        // Check if site already exists in list
-        if (!siteList.some(site => site.S === siteKey)) {
-            siteList.push({ S: siteKey });
-
-            // Update user metadata with optimistic locking
-            const updateParams = {
-                TableName: TableNames.USER_METADATA,
-                Key: { userId },
-                UpdateExpression: 'SET accessibleSites = :sites, updatedat = :updatedat',
-                ExpressionAttributeValues: {
-                    ':sites': updatedUserData.accessibleSites,
-                    ':updatedat': new Date().toISOString()
+                    }
                 },
-                ReturnValues: 'ALL_NEW'
+                version: 0,
+                createdat: new Date().toISOString(),
+                updatedat: new Date().toISOString()
             };
 
-            // Add optimistic locking if version exists
-            if (userData?.version) {
-                updateParams.ConditionExpression = 'version = :version';
-                updateParams.ExpressionAttributeValues[':version'] = userData.version;
-                updateParams.UpdateExpression += ', version = :newVersion';
-                updateParams.ExpressionAttributeValues[':newVersion'] = userData.version + 1;
+            // Ensure accessibleSites and its properties exist with proper DynamoDB format
+            if (!userMetadata.accessibleSites || !userMetadata.accessibleSites.M) {
+                userMetadata.accessibleSites = {
+                    M: {
+                        productionSites: { L: [] },
+                        consumptionSites: { L: [] }
+                    }
+                };
+            }
+            
+            const listKey = `${siteType}Sites`;
+            
+            // Ensure the site list exists and is in the correct format
+            if (!userMetadata.accessibleSites.M[listKey] || !userMetadata.accessibleSites.M[listKey].L) {
+                userMetadata.accessibleSites.M[listKey] = { L: [] };
             }
 
-            await dynamoDB.update(updateParams);
-        }
+            const siteList = userMetadata.accessibleSites.M[listKey].L;
 
-        logger.info(`Updated ${siteType} site access for user ${userId}:`, siteKey);
-        return true;
-    } catch (error) {
-        if (error.name === 'ConditionalCheckFailedException') {
-            logger.warn(`Optimistic lock failed for user ${userId}, retrying...`);
-            return updateUserSiteAccess(userId, companyId, siteId, siteType);
+            // Check if site already exists in list
+            const siteExists = siteList.some(site => 
+                site && site.M && site.M.S && site.M.S.S === siteKey
+            );
+
+            if (!siteExists) {
+                // Add the new site with the correct DynamoDB format
+                siteList.push({
+                    M: {
+                        S: { S: siteKey }
+                    }
+                });
+
+                // Prepare update parameters
+                const updateParams = {
+                    TableName: TableNames.USER_METADATA,
+                    Key: { userId },
+                    UpdateExpression: 'SET accessibleSites = :sites, updatedat = :updatedat',
+                    ExpressionAttributeValues: {
+                        ':sites': userMetadata.accessibleSites,
+                        ':updatedat': new Date().toISOString()
+                    },
+                    ReturnValues: 'ALL_NEW'
+                };
+
+                // Add version check for optimistic concurrency control
+                if (userMetadata.version !== undefined) {
+                    updateParams.ConditionExpression = 'version = :version';
+                    updateParams.ExpressionAttributeValues[':version'] = userMetadata.version;
+                    updateParams.UpdateExpression += ', version = :newVersion';
+                    updateParams.ExpressionAttributeValues[':newVersion'] = (userMetadata.version || 0) + 1;
+                }
+
+
+                // Update the user metadata
+                const { Attributes: updatedUser } = await dynamoDB.update(updateParams);
+                logger.info(`Updated ${siteType} site access for user ${userId}:`, siteKey);
+                return updatedUser;
+            }
+
+            // If site already exists, return current user data
+            return userMetadata;
+
+        } catch (error) {
+            if (error.name === 'ConditionalCheckFailedException' && retryCount < maxRetries - 1) {
+                // Exponential backoff
+                await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 100));
+                retryCount++;
+                continue;
+            }
+            logger.error(`Error updating ${siteType} site access for user ${userId}:`, error);
+            throw error;
         }
-        logger.error(`Error updating ${siteType} site access for user ${userId}:`, error);
-        throw error;
     }
+    
+    throw new Error(`Failed to update site access after ${maxRetries} attempts`);
 };
 
 /**

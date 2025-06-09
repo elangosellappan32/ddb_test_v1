@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSnackbar } from 'notistack';
 import {
@@ -16,17 +16,19 @@ import ConsumptionSiteCard from './ConsumptionSiteCard';
 import ConsumptionSiteDialog from './ConsumptionSiteDialog';
 import { useAuth } from '../../context/AuthContext';
 import { hasPermission, isAdmin } from '../../utils/permissions';
+import useSiteAccess from '../../hooks/useSiteAccess';
 
 const Consumption = () => {
   const navigate = useNavigate();
   const { enqueueSnackbar } = useSnackbar();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth() || {};
   
   const [sites, setSites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSite, setSelectedSite] = useState(null);
+  const { updateSiteAccess } = useSiteAccess();
 
   const permissions = useMemo(() => ({
     create: hasPermission(user, 'consumption', 'CREATE'),
@@ -223,37 +225,204 @@ const Consumption = () => {
   const handleSubmit = async (formData) => {
     try {
       setLoading(true);
-      if (selectedSite) {
+      setError(null);
+      console.log('[Consumption] Starting form submission with data:', formData);
+      
+      // Check if we have a valid user
+      const currentUser = user;
+      if (!currentUser) {
+        const errorMsg = 'Please log in to create or edit consumption sites.';
+        console.error('[Consumption] No user found in context');
+        throw new Error(errorMsg);
+      }
+
+      // Get company ID - prefer from selected site, then from user context
+      const companyId = selectedSite?.companyId || 
+                       (currentUser?.companyId ? String(currentUser.companyId) : null);
+      
+      if (!companyId) {
+        const errorMsg = 'Company ID is required to manage consumption sites. Please ensure your account is properly associated with a company.';
+        console.error('[Consumption] No company ID found in user context');
+        throw new Error(errorMsg);
+      }
+
+      // Transform form data as needed
+      const submitData = {
+        ...formData,
+        annualConsumption: formData.annualConsumption ? Number(formData.annualConsumption) : 0,
+        timetolive: formData.timetolive ? Number(formData.timetolive) : 0,
+        status: formData.status || 'active',
+        version: selectedSite ? (selectedSite.version || 1) : 1,
+      };
+      
+      console.log('Submitting consumption site with company ID:', companyId, 'data:', submitData);
+      
+      let result;
+      let isNewSite = false;
+      
+      if (selectedSite?.consumptionSiteId) {
         // Update existing site
-        await consumptionSiteApi.update(
-          selectedSite.companyId || '1',
+        console.log('Updating existing site with ID:', selectedSite.consumptionSiteId);
+        
+        result = await consumptionSiteApi.update(
+          companyId,
           selectedSite.consumptionSiteId,
-          {
-            ...formData,
-            version: selectedSite.version || 1
-          }
+          submitData
         );
-        enqueueSnackbar('Site updated successfully', { variant: 'success' });
-      } else {
-        // Create new site - pass auth context to get company ID
-        await consumptionSiteApi.create(formData, {
-          user: {
-            ...user,
-            companyId: user?.companyId,
-            metadata: user?.metadata,
-            accessibleSites: user?.accessibleSites
-          }
+        
+        enqueueSnackbar('Consumption site updated successfully', { 
+          variant: 'success',
+          autoHideDuration: 3000
         });
-        enqueueSnackbar('Site created successfully', { variant: 'success' });
+      } else {
+        // Create new site
+        isNewSite = true;
+        console.log('Creating new site for company:', companyId);
+        
+        // Add companyId to the site data
+        const siteData = { ...submitData, companyId };
+        
+        console.log('[Consumption] Creating consumption site with data:', siteData);
+        
+        try {
+          // Create the site
+          const response = await consumptionSiteApi.create(siteData, { user: currentUser });
+          
+          // The API returns { success, data, message, code }
+          if (!response || !response.success || !response.data) {
+            console.error('[Consumption] Invalid response from API:', response);
+            throw new Error(response?.message || 'Failed to create site: Invalid response from server');
+          }
+          
+          result = response.data;
+          
+          if (!result.consumptionSiteId) {
+            console.error('[Consumption] Missing consumptionSiteId in response:', response);
+            throw new Error('Failed to create site: Missing site ID in response');
+          }
+          
+          console.log('[Consumption] Site created successfully:', {
+            companyId: result.companyId,
+            consumptionSiteId: result.consumptionSiteId,
+            response: response
+          });
+          
+          enqueueSnackbar('Consumption site created successfully', { 
+            variant: 'success',
+            autoHideDuration: 3000
+          });
+          
+        } catch (error) {
+          console.error('[Consumption] Error creating site:', error);
+          throw new Error(`Failed to create site: ${error.message || 'Unknown error'}`);
+        }
       }
       
+      // For new sites, update user's accessible sites
+      if (isNewSite && result?.companyId && result?.consumptionSiteId) {
+        try {
+          console.log('[Consumption] Updating user site access for new site:', {
+            companyId: result.companyId,
+            consumptionSiteId: result.consumptionSiteId,
+            currentUser: {
+              id: currentUser.id || currentUser.userId,
+              email: currentUser.email,
+              username: currentUser.username
+            }
+          });
+          
+          // Prepare site data for access update
+          const siteData = {
+            companyId: result.companyId,
+            consumptionSiteId: result.consumptionSiteId,
+            name: result.name || formData.name || 'New Consumption Site',
+            type: 'consumption',
+            status: result.status || formData.status || 'active',
+            annualConsumption: result.annualConsumption,
+            location: result.location || formData.location,
+            ...result
+          };
+          
+          console.log('[Consumption] Calling updateSiteAccess with:', {
+            user: { id: currentUser.id, email: currentUser.email },
+            siteData: { ...siteData, consumptionSiteId: siteData.consumptionSiteId },
+            siteType: 'consumption'
+          });
+          
+          // Update site access
+          const accessUpdated = await updateSiteAccess(currentUser, siteData, 'consumption');
+          
+          if (accessUpdated) {
+            console.log('[Consumption] Successfully updated user site access');
+            
+            // Refresh user data and site list
+            if (refreshUser) {
+              try {
+                // Refresh user data to get updated accessible sites
+                await refreshUser();
+                // Also refresh the site list
+                await fetchSites();
+                console.log('[Consumption] Successfully refreshed user data');
+              } catch (refreshError) {
+                console.warn('[Consumption] Warning: Could not refresh user data:', refreshError);
+                // Non-critical error, continue
+              }
+            }
+            
+            enqueueSnackbar('Site access updated successfully', {
+              variant: 'success',
+              autoHideDuration: 3000
+            });
+          }
+        } catch (accessError) {
+          console.error('[Consumption] Error updating user site access:', accessError);
+          // Don't fail the whole operation if access update fails
+          enqueueSnackbar(
+            'Site created, but there was an issue updating your access. Please refresh the page to see the new site.',
+            { 
+              variant: 'warning', 
+              autoHideDuration: 6000,
+              persist: true
+            }
+          );
+        }
+      }
+      
+      // Common cleanup for both create and update
       setDialogOpen(false);
       setSelectedSite(null);
-      fetchSites();
+      
+      // Refresh the sites list to show the updated data
+      await fetchSites();
+      
+      return result;
     } catch (error) {
       console.error('[Consumption] Submit error:', error);
       const errorMessage = error.response?.data?.message || error.message || 'Failed to save site';
-      enqueueSnackbar(errorMessage, { variant: 'error' });
+      
+      // Handle specific error cases
+      if (error.code === 'NO_COMPANY_ASSOCIATION') {
+        enqueueSnackbar(error.message, {
+          variant: 'warning',
+          autoHideDuration: 8000,
+          action: (key) => (
+            <Button
+              color="inherit"
+              size="small"
+              onClick={() => {
+                enqueueSnackbar.close(key);
+              }}
+            >
+              Contact Admin
+            </Button>
+          )
+        });
+      } else {
+        enqueueSnackbar(errorMessage, { 
+          variant: 'error',
+          autoHideDuration: 5000
+        });
+      }
     } finally {
       setLoading(false);
     }

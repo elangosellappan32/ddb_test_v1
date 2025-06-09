@@ -119,7 +119,7 @@ const AllocationReport = () => {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState({ excel: false, csv: false });
-  const [openDialog, setOpenDialog] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogConfig, setDialogConfig] = useState({
     title: '',
     content: '',
@@ -216,11 +216,11 @@ const AllocationReport = () => {
 
   const handleOpenDialog = (config) => {
     setDialogConfig(config);
-    setOpenDialog(true);
+    setDialogOpen(true);
   };
 
   const handleCloseDialog = () => {
-    setOpenDialog(false);
+    setDialogOpen(false);
   };
 
   const showSnackbar = (message, severity = 'success') => {
@@ -875,7 +875,7 @@ const AllocationReport = () => {
       </Paper>
 
       <Dialog
-        open={openDialog}
+        open={dialogOpen}
         TransitionComponent={Transition}
         keepMounted
         onClose={handleCloseDialog}

@@ -2,28 +2,28 @@ import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import {
   Dialog,
-  DialogContent,
   DialogTitle,
-  IconButton,
+  DialogContent,
   Box,
-  Typography,
   CircularProgress,
+  LinearProgress,
+  IconButton,
+  Typography,
 } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
 import ProductionSiteForm from './ProductionSiteForm';
 import { useSnackbar } from 'notistack';
-import { updateUserSiteAccess } from '../../utils/siteAccessUtils';
 
-const ProductionSiteDialog = ({ 
-  open, 
-  onClose, 
-  onSubmit, 
-  initialData, 
+const ProductionSiteDialog = ({
+  open,
+  onClose,
+  onSubmit,
+  initialData,
   loading: externalLoading,
   permissions,
   existingSites = [],
   user,
-  isEditing = false
+  isEditing = false,
 }) => {
   const [formData, setFormData] = useState({
     name: '',
@@ -34,10 +34,10 @@ const ProductionSiteDialog = ({
     htscNo: '',
     status: 'Active',
     banking: 0,
-    annualProduction_L: ''
+    annualProduction_L: '',
   });
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [updatingAccess, setUpdatingAccess] = useState(false);
   const { enqueueSnackbar } = useSnackbar();
 
   useEffect(() => {
@@ -68,7 +68,7 @@ const ProductionSiteDialog = ({
           htscNo: '',
           status: 'Active',
           banking: 0,
-          annualProduction_L: ''
+          annualProduction_L: '',
         };
         console.log('Setting default form data:', defaultData);
         setFormData(defaultData);
@@ -77,7 +77,7 @@ const ProductionSiteDialog = ({
   }, [open, initialData, isEditing]);
 
   const handleClose = (event, reason) => {
-    if (loading || externalLoading) return;
+    if (loading || externalLoading || updatingAccess) return;
     if (reason !== 'backdropClick') {
       onClose();
     }
@@ -86,26 +86,38 @@ const ProductionSiteDialog = ({
   const handleSubmit = async (values) => {
     try {
       setLoading(true);
-      const response = await onSubmit(values);
       
-      // Update user's accessible sites
-      await updateUserSiteAccess(user, response.id, 'production');
+      // Call the parent's onSubmit which handles the actual API call
+      await onSubmit(values);
       
-      setLoading(false);
+      // No need to update site access here as it's handled in the parent component
+      // Close the dialog after successful submission
       onClose();
     } catch (error) {
-      setLoading(false);
+      console.error('Error in ProductionSiteDialog handleSubmit:', error);
+      
+      // Handle specific error cases
       if (error.message.includes('Version conflict')) {
-        enqueueSnackbar('Site data was updated elsewhere. Please try again.', {
-          variant: 'warning'
+        enqueueSnackbar('This site was modified by someone else. Please refresh and try again.', {
+          variant: 'warning',
+          autoHideDuration: 8000
         });
-        enqueueSnackbar('Please try your changes again.', {
-          variant: 'info'
+      } else if (error.message.includes('Company ID is required')) {
+        enqueueSnackbar('Company information is missing. Please log out and log back in.', {
+          variant: 'error',
+          autoHideDuration: 10000
         });
       } else {
-        setError('Error: ' + error.message);
-        console.error('Error:', error);
+        // Generic error handling
+        const errorMessage = error.response?.data?.message || error.message || 'Failed to save production site';
+        enqueueSnackbar(errorMessage, {
+          variant: 'error',
+          autoHideDuration: 8000
+        });
       }
+    } finally {
+      setLoading(false);
+      setUpdatingAccess(false);
     }
   };
 
@@ -119,7 +131,7 @@ const ProductionSiteDialog = ({
       onClose={handleClose}
       maxWidth="md"
       fullWidth
-      disableEscapeKeyDown={loading || externalLoading}
+      disableEscapeKeyDown={loading || externalLoading || updatingAccess}
     >
       <DialogTitle
         component="div"
@@ -129,14 +141,14 @@ const ProductionSiteDialog = ({
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          p: 2
+          p: 2,
         }}
       >
         <Typography variant="h6" component="span">
-          {isEditing ? 'Edit Production Site' : 'Add Production Site'}
+          {isEditing ? 'Edit Production Site' : 'Add New Production Site'}
         </Typography>
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-          {!(loading || externalLoading) && (
+          {!(loading || externalLoading || updatingAccess) && (
             <IconButton
               onClick={handleClose}
               size="small"
@@ -148,6 +160,8 @@ const ProductionSiteDialog = ({
         </Box>
       </DialogTitle>
 
+      {(loading || updatingAccess) && <LinearProgress />}
+
       <DialogContent>
         <Box sx={{ p: 2 }}>
           {loading || externalLoading ? (
@@ -156,12 +170,11 @@ const ProductionSiteDialog = ({
             </Box>
           ) : (
             <ProductionSiteForm
-              key={formData.name || 'new'} // Force re-render when formData changes
-              site={formData}
               initialData={formData}
               onSubmit={handleSubmit}
-              onCancel={handleCancel}
-              loading={loading || externalLoading}
+              onCancel={handleClose}
+              loading={loading || externalLoading || updatingAccess}
+              site={initialData?.productionSiteId ? initialData : null}
               readOnly={!permissions?.update && !permissions?.create}
             />
           )}

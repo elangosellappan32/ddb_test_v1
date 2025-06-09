@@ -98,27 +98,56 @@ const createProductionSite = async (req, res) => {
             }
         }
 
+                // Ensure we have the company ID
+        const companyId = req.body.companyId || (req.user && req.user.companyId);
+        if (!companyId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Company ID is required',
+                code: 'MISSING_COMPANY_ID'
+            });
+        }
+
         // Create site
-        const result = await productionSiteDAL.create(req.body);
+        const result = await productionSiteDAL.create({
+            ...req.body,
+            companyId // Ensure companyId is set
+        });
+        
         logger.info('[RESPONSE] Production Site Created:', result);
 
         // Add site access for the creating user
-        if (req.user && req.user.userId) {
+        const userId = req.body.userId || (req.user && (req.user.id || req.user.userId));
+        if (userId) {
             try {
+                const siteKey = `${result.companyId}_${result.productionSiteId}`;
+                logger.info(`Adding site access for user ${userId} to site ${siteKey}`);
+                
+                // Update user's site access
                 await updateUserSiteAccess(
-                    req.user.userId,
+                    userId,
                     result.companyId,
-                    result.productionSiteId,
+                    result.productionSiteId.toString(), // Ensure it's a string
                     'production'
                 );
-                logger.info(`Added site access for user ${req.user.userId} to site ${result.productionSiteId}`);
+                
+                logger.info(`Successfully added site access for user ${userId} to site ${siteKey}`);
+                
+                // Add the siteKey to the response for the frontend
+                result.siteKey = siteKey;
             } catch (accessError) {
-                logger.error('Error updating user site access:', accessError);
+                logger.error('Error updating user site access:', {
+                    error: accessError.message,
+                    stack: accessError.stack,
+                    userId,
+                    companyId: result.companyId,
+                    siteId: result.productionSiteId
+                });
                 // Don't fail the request if access update fails
                 logger.warn('Site was created but user access update failed:', accessError.message);
             }
         } else {
-            logger.warn('No user context found while creating production site');
+            logger.warn('No user ID found in request or session while creating production site');
         }
 
         res.status(201).json({

@@ -8,7 +8,6 @@ const handleApiError = (error) => {
 
 const formatSiteData = (data) => {
   try {
-    // Ensure we have the required fields
     if (!data || typeof data !== 'object') {
       console.warn('[ConsumptionSiteAPI] Invalid data object:', data);
       return null;
@@ -44,8 +43,13 @@ const formatSiteData = (data) => {
       status: ['Active', 'Inactive', 'Maintenance'].includes(data.status) ? data.status : 'Active',
       version: Number(data.version || 1),
       createdat: data.createdat || new Date().toISOString(),
-      updatedat: data.updatedat || new Date().toISOString()
-    };    // Validate required fields after formatting
+      updatedat: data.updatedat || new Date().toISOString(),
+      drawalVoltage_KV: Number(data.drawalVoltage_KV || 0),
+      contractDemand_KVA: Number(data.contractDemand_KVA || 0),
+      description: data.description ? String(data.description).trim() : ''
+    };    
+    
+    // Validate required fields after formatting
     if (!formatted.companyId || !formatted.consumptionSiteId) {
       console.warn('[ConsumptionSiteAPI] Missing required IDs:', {
         companyId: data.companyId,
@@ -79,6 +83,7 @@ class ConsumptionSiteApi {
     this.create = this.create.bind(this);
     this.update = this.update.bind(this);
     this.delete = this.delete.bind(this);
+    this.invalidateCache = this.invalidateCache.bind(this);
   }
 
   async fetchAll(forceRefresh = false, retries = 3, delay = 1000) {
@@ -99,137 +104,145 @@ class ConsumptionSiteApi {
       // If a refresh is already in progress, wait for it
       if (siteCache.isUpdating) {
         await new Promise(resolve => setTimeout(resolve, delay));
-        return this.fetchAll(forceRefresh, retries - 1);
+        return this.fetchAll(forceRefresh, retries, delay);
       }
 
+      // Set the updating flag
       siteCache.isUpdating = true;
+
+      // Fetch fresh data from the API
       const response = await api.get(API_CONFIG.ENDPOINTS.CONSUMPTION.SITE.GET_ALL);
       
-      let sites = [];
-      if (Array.isArray(response?.data?.data)) {
-        sites = response.data.data;
-      } else if (Array.isArray(response?.data)) {
-        sites = response.data;
-      } else if (response?.data) {
-        sites = [response.data];
+      // Format and validate the response data
+      const formattedData = [];
+      for (const item of response.data.data || []) {
+        const formatted = formatSiteData(item);
+        if (formatted) {
+          formattedData.push(formatted);
+        }
       }
 
-      // Format and validate sites
-      const formattedSites = sites
-        .map(site => formatSiteData(site))
-        .filter(site => site !== null);
-
-      // Update cache
-      siteCache.data = formattedSites;
+      // Update the cache
+      siteCache.data = formattedData;
       siteCache.lastUpdated = Date.now();
       siteCache.isUpdating = false;
 
       return {
         success: true,
-        data: [...formattedSites],
-        total: formattedSites.length,
+        data: [...formattedData],
+        total: formattedData.length,
         fromCache: false
       };
-
     } catch (error) {
+      console.error('[ConsumptionSiteAPI] Error fetching sites:', error);
+      
+      // Retry on failure
+      if (retries > 0) {
+        console.log(`[ConsumptionSiteAPI] Retrying... (${retries} attempts left)`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.fetchAll(forceRefresh, retries - 1, delay * 1.5);
+      }
+      
+      // If we're out of retries, throw the error
+      throw handleApiError(error);
+    } finally {
+      // Ensure we always clear the updating flag
       siteCache.isUpdating = false;
-      return handleApiError(error);
     }
   }
 
   async fetchOne(companyId, consumptionSiteId) {
     try {
-      console.log('[ConsumptionSiteAPI] Fetching site:', { companyId, consumptionSiteId });
+      if (!companyId || !consumptionSiteId) {
+        throw new Error('Company ID and Site ID are required');
+      }
+
+      // Try to get from cache first
+      const cachedData = siteCache.data.find(
+        site => site.companyId === String(companyId) && 
+               site.consumptionSiteId === String(consumptionSiteId)
+      );
+      
+      if (cachedData) {
+        return {
+          success: true,
+          data: { ...cachedData },
+          fromCache: true
+        };
+      }
+
+      // Not in cache, fetch from API
       const response = await api.get(
         API_CONFIG.ENDPOINTS.CONSUMPTION.SITE.GET_ONE(companyId, consumptionSiteId)
       );
-      return response.data;
+
+      const formatted = formatSiteData(response.data.data);
+      if (!formatted) {
+        throw new Error('Invalid site data received from server');
+      }
+
+      // Update cache
+      const existingIndex = siteCache.data.findIndex(
+        site => site.companyId === formatted.companyId && 
+               site.consumptionSiteId === formatted.consumptionSiteId
+      );
+      
+      if (existingIndex >= 0) {
+        siteCache.data[existingIndex] = formatted;
+      } else {
+        siteCache.data.push(formatted);
+      }
+      
+      siteCache.lastUpdated = Date.now();
+
+      return {
+        success: true,
+        data: { ...formatted },
+        fromCache: false
+      };
     } catch (error) {
-      return handleApiError(error);
+      console.error(`[ConsumptionSiteAPI] Error fetching site ${companyId}/${consumptionSiteId}:`, error);
+      throw handleApiError(error);
     }
   }
 
   async create(data, authContext) {
     try {
-      console.log('[ConsumptionSiteAPI] Received create request with data:', data);
-      
-      // Set environment
+      // Handle company ID from auth context if not provided in data
+      let companyId = data.companyId;
       const isDevelopment = process.env.NODE_ENV === 'development' || window.location.hostname === 'localhost';
       
-      // Get company ID from multiple sources in order of precedence
-      let companyId = data.companyId;
-      
-      if (!companyId && authContext?.user) {
-        // Try to get companyId from different possible locations in auth context
-        const sources = [
-          { value: authContext.user.companyId, source: 'user.companyId' },
-          { value: authContext.user.metadata?.companyId, source: 'user.metadata.companyId' }
-        ];
-
-        if (authContext.user.accessibleSites?.consumptionSites?.L?.length > 0) {
-          const firstSiteId = authContext.user.accessibleSites.consumptionSites.L[0].S;
-          const siteCompanyId = parseInt(firstSiteId.split('_')[0], 10);
-          if (!isNaN(siteCompanyId)) {
-            sources.push({ value: siteCompanyId, source: 'user.accessibleSites[0]' });
-          }
-        }
-
-        console.log('[ConsumptionSiteAPI] Auth context:', {
-          user: authContext.user,
-          metadata: authContext.user.metadata,
-          isDevelopment
-        });
-
-        for (const source of sources) {
-          if (source.value) {
-            companyId = source.value;
-            console.log(`[ConsumptionSiteAPI] Using companyId from ${source.source}:`, companyId);
-            break;
-          }
-        }
-      }
-
-      // If no company ID found and we're in development, use default
-      if (!companyId && isDevelopment) {
-        companyId = 1;
-        console.log('[ConsumptionSiteAPI] Using default development companyId:', companyId);
-      }
-
-      // Validate company ID
-      if (companyId) {
-        companyId = String(companyId);
-        if (!companyId) {
-          if (isDevelopment) {
-            companyId = '1';
-            console.log('[ConsumptionSiteAPI] Invalid company ID, using default in development:', companyId);
-          } else {
-            throw new Error('Invalid company ID format');
-          }
+      if (!companyId) {
+        if (authContext?.user?.companyId) {
+          companyId = authContext.user.companyId;
+        } else if (isDevelopment) {
+          companyId = '1';
+          console.log('[ConsumptionSiteAPI] No company ID provided, using default in development:', companyId);
+        } else {
+          throw new Error('Company ID is required to create a consumption site');
         }
       } else {
-        const error = new Error('No company association found. Please contact your administrator to set up your company association.');
-        error.code = 'NO_COMPANY_ASSOCIATION';
-        error.details = {
-          environment: process.env.NODE_ENV,
-          user: authContext?.user?.username,
-          metadata: authContext?.user?.metadata
-        };
-        throw error;
+        companyId = String(companyId);
+        
+        if (!isDevelopment && authContext?.user?.companyId && authContext.user.companyId !== companyId) {
+          console.warn('[ConsumptionSiteAPI] User company ID does not match provided company ID:', {
+            userCompanyId: authContext.user.companyId,
+            providedCompanyId: companyId,
+            user: authContext.user
+          });
+          
+          if (!isDevelopment) {
+            throw new Error('You do not have permission to create sites for this company');
+          }
+          
+          console.warn('[ConsumptionSiteAPI] Allowing company ID mismatch in development mode');
+        }
       }
-
-      // Get next available consumptionSiteId
-      const currentSites = await this.fetchAll(true);
-      const existingSiteIds = currentSites.data
-        .filter(site => site.companyId === companyId)
-        .map(site => Number(site.consumptionSiteId) || 0);
-
-      const nextSiteId = existingSiteIds.length > 0 ? Math.max(...existingSiteIds) + 1 : 1;
 
       // Prepare the site data with proper formatting
       const siteData = {
         ...data,
         companyId: String(companyId),
-        consumptionSiteId: String(nextSiteId),
         name: String(data.name || '').trim(),
         type: String(data.type || 'Industry').trim(),
         location: String(data.location || '').trim(),
@@ -238,10 +251,7 @@ class ConsumptionSiteApi {
         annualConsumption_L: Number(data.annualConsumption_L || 0),
         htscNo: data.htscNo ? String(data.htscNo).trim() : '',
         status: String(data.status || 'Active').trim(),
-        description: data.description ? String(data.description).trim() : '',
-        createdat: new Date().toISOString(),
-        updatedat: new Date().toISOString(),
-        version: 1
+        description: data.description ? String(data.description).trim() : ''
       };
 
       console.log('[ConsumptionSiteAPI] Creating consumption site with:', siteData);
@@ -253,47 +263,25 @@ class ConsumptionSiteApi {
 
       console.log('[ConsumptionSiteAPI] Consumption site created:', response.data);
       
-      // Schedule a refresh of all sites data after 3 seconds
-      setTimeout(() => {
-        console.log('[ConsumptionSiteAPI] Refreshing sites data after creation...');
-        this.fetchAll(true).catch(err => {
-          console.error('[ConsumptionSiteAPI] Error refreshing sites:', err);
-        });
-      }, 3000);
-
-      return response.data;
-
-    } catch (error) {
-      // Handle development mode retry
-      const isDevelopment = process.env.NODE_ENV === 'development' || window.location.hostname === 'localhost';
-      // If it's a company association error in development, retry with default company
-      if (error.code === 'NO_COMPANY_ASSOCIATION' && isDevelopment) {
-        console.warn('[ConsumptionSiteAPI] No company association found, retrying with default company in development');
-        return this.create({ ...data, companyId: '1' }, authContext);
-      }
+      // Invalidate the cache
+      this.invalidateCache();
       
-      // For other errors, format them properly
-      const errorMessage = error.response?.data?.message || 
-                         error.response?.data?.error || 
-                         error.message ||
-                         'Failed to create consumption site';
-      const serverError = new Error(errorMessage);
-      serverError.status = error.response?.status;
-      serverError.details = {
-        ...error.response?.data,
-        originalError: error.message,
-        environment: process.env.NODE_ENV
-      };
-      serverError.code = error.code || error.response?.data?.code;
-      throw serverError;
+      return response.data;
+    } catch (error) {
+      console.error('[ConsumptionSiteAPI] Error creating site:', error);
+      throw handleApiError(error);
     }
   }
 
   async update(companyId, consumptionSiteId, data) {
     try {
-      if (!companyId) {
-        throw new Error('Company ID is required to update a consumption site');
+      if (!companyId || !consumptionSiteId) {
+        throw new Error('Company ID and Site ID are required');
       }
+
+      // Get current data to preserve any fields not being updated
+      const current = await this.fetchOne(companyId, consumptionSiteId);
+      const currentData = current.data;
 
       // Handle annual consumption from different possible field names
       let annualConsumption = 0;
@@ -312,31 +300,42 @@ class ConsumptionSiteApi {
         }
       }
 
+      // Prepare the site data with proper formatting
       const siteData = {
+        ...currentData,
         ...data,
         companyId: String(companyId),
         consumptionSiteId: String(consumptionSiteId),
+        name: String(data.name || currentData.name || '').trim(),
+        type: String(data.type || currentData.type || 'Industry').trim(),
+        location: String(data.location || currentData.location || '').trim(),
+        drawalVoltage_KV: Number(data.drawalVoltage_KV || currentData.drawalVoltage_KV || 0),
+        contractDemand_KVA: Number(data.contractDemand_KVA || currentData.contractDemand_KVA || 0),
         annualConsumption: annualConsumption,
         annualConsumption_L: annualConsumption, // Keep both for backward compatibility
+        htscNo: data.htscNo ? String(data.htscNo).trim() : (currentData.htscNo || ''),
+        status: String(data.status || currentData.status || 'Active').trim(),
+        description: data.description ? String(data.description).trim() : (currentData.description || ''),
+        version: (currentData.version || 0) + 1,
         updatedat: new Date().toISOString()
       };
+
+      console.log('[ConsumptionSiteAPI] Updating site with:', siteData);
 
       const response = await api.put(
         API_CONFIG.ENDPOINTS.CONSUMPTION.SITE.UPDATE(companyId, consumptionSiteId),
         siteData
       );
 
-      // Schedule a refresh of all sites data after 3 seconds
-      setTimeout(() => {
-        console.log('[ConsumptionSiteAPI] Refreshing sites data after update...');
-        this.fetchAll(true).catch(err => {
-          console.error('[ConsumptionSiteAPI] Error refreshing sites:', err);
-        });
-      }, 3000);
-
+      console.log('[ConsumptionSiteAPI] Site updated:', response.data);
+      
+      // Invalidate the cache
+      this.invalidateCache();
+      
       return response.data;
     } catch (error) {
-      return handleApiError(error);
+      console.error(`[ConsumptionSiteAPI] Error updating site ${companyId}/${consumptionSiteId}:`, error);
+      throw handleApiError(error);
     }
   }
 
@@ -346,22 +345,29 @@ class ConsumptionSiteApi {
         throw new Error('Company ID and Consumption Site ID are required');
       }
 
+      console.log(`[ConsumptionSiteAPI] Deleting site ${companyId}/${consumptionSiteId}`);
+
       const response = await api.delete(
         API_CONFIG.ENDPOINTS.CONSUMPTION.SITE.DELETE(companyId, consumptionSiteId)
       );
 
-      // Schedule a refresh of all sites data after 3 seconds
-      setTimeout(() => {
-        console.log('[ConsumptionSiteAPI] Refreshing sites data after deletion...');
-        this.fetchAll(true).catch(err => {
-          console.error('[ConsumptionSiteAPI] Error refreshing sites:', err);
-        });
-      }, 3000);
-
+      console.log('[ConsumptionSiteAPI] Site deleted:', response.data);
+      
+      // Invalidate the cache
+      this.invalidateCache();
+      
       return response.data;
     } catch (error) {
-      return handleApiError(error);
+      console.error(`[ConsumptionSiteAPI] Error deleting site ${companyId}/${consumptionSiteId}:`, error);
+      throw handleApiError(error);
     }
+  }
+
+  // Invalidate the cache
+  invalidateCache() {
+    siteCache.data = [];
+    siteCache.lastUpdated = null;
+    console.log('[ConsumptionSiteAPI] Cache invalidated');
   }
 }
 

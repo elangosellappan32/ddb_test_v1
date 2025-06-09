@@ -12,6 +12,7 @@ import ProductionSiteCard from './ProductionSiteCard';
 import ProductionSiteDialog from './ProductionSiteDialog';
 import { useAuth } from '../../context/AuthContext';
 import { hasPermission } from '../../utils/permissions';
+import useSiteAccess from '../../hooks/useSiteAccess';
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
@@ -24,12 +25,15 @@ const Production = () => {
   
   const [sites, setSites] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [updatingAccess, setUpdatingAccess] = useState(false);
   const [error, setError] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSite, setSelectedSite] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [viewMode, setViewMode] = useState('card'); // 'card' or 'table'
   const [retryCount, setRetryCount] = useState(0);
+
+  const { updateSiteAccess, updatingAccess: accessUpdating } = useSiteAccess();
 
   // Check permissions
   const permissions = useMemo(() => ({
@@ -181,10 +185,26 @@ const Production = () => {
       });
       return;
     }
-    setSelectedSite(site);
+    
+    // Ensure we have all required fields including companyId
+    const siteWithRequiredFields = {
+      ...site,
+      companyId: site.companyId || (authContext.user?.companyId ? String(authContext.user.companyId) : null)
+    };
+    
+    if (!siteWithRequiredFields.companyId) {
+      enqueueSnackbar('Cannot determine company information. Please log out and log back in.', {
+        variant: 'error',
+        autoHideDuration: 10000
+      });
+      return;
+    }
+    
+    console.log('Setting selected site for edit:', siteWithRequiredFields);
+    setSelectedSite(siteWithRequiredFields);
     setIsEditing(true);
     setDialogOpen(true);
-  }, [permissions.update, enqueueSnackbar]);
+  }, [permissions.update, enqueueSnackbar, authContext.user]);
 
   const handleDeleteClick = useCallback(async (site) => {
     if (!permissions.delete) {
@@ -230,6 +250,7 @@ const Production = () => {
     } catch (error) {
       console.error('[Production] Delete error:', error);
       setError('Failed to delete site. Please try again.');
+      setLoading(false);
       enqueueSnackbar(error.message || 'Failed to delete site', { 
         variant: 'error',
         autoHideDuration: 5000,
@@ -246,13 +267,34 @@ const Production = () => {
     }
   }, [permissions.delete, enqueueSnackbar, fetchSites]);
 
+  const handleOpenDialog = (site = null) => {
+    setSelectedSite(site);
+    // Make sure to pass null for new sites to ensure proper button text
+    setDialogOpen(true);
+  };
+
   const handleSubmit = async (formData) => {
     try {
       setLoading(true);
+      setError(null);
+      console.log('[Production] Starting form submission with data:', formData);
       
       // Check if we have a valid user
-      if (!authContext?.user) {
-        throw new Error('Please log in to create or edit production sites.');
+      const currentUser = authContext?.user;
+      if (!currentUser) {
+        const errorMsg = 'Please log in to create or edit production sites.';
+        console.error('[Production] No user found in auth context');
+        throw new Error(errorMsg);
+      }
+
+      // Get company ID - prefer from selected site, then from user context
+      const companyId = selectedSite?.companyId || 
+                       (currentUser.companyId ? String(currentUser.companyId) : null);
+      
+      if (!companyId) {
+        const errorMsg = 'Company ID is required to manage production sites. Please ensure your account is properly associated with a company.';
+        console.error('[Production] No company ID found in user context');
+        throw new Error(errorMsg);
       }
 
       // Transform form data as needed
@@ -266,54 +308,157 @@ const Production = () => {
         version: selectedSite ? (selectedSite.version || 1) : 1,
       };
       
-      console.log('Submitting production site data:', submitData);
+      console.log('Submitting production site with company ID:', companyId, 'data:', submitData);
       
-      try {
-        if (selectedSite) {
-          // Update existing site
-          await productionSiteApi.update(
-            selectedSite.companyId, 
-            selectedSite.productionSiteId, 
-            submitData
-          );
-          enqueueSnackbar('Production site updated successfully', { 
-            variant: 'success' 
-          });
-        } else {
-          // Create new site - pass auth context to get company ID
-          await productionSiteApi.create(submitData, authContext);
-          enqueueSnackbar('Production site created successfully', { 
-            variant: 'success'
-          });
+      let result;
+      let isNewSite = false;
+      
+      if (selectedSite?.productionSiteId) {
+        // Update existing site
+        console.log('Updating existing site with ID:', selectedSite.productionSiteId);
+        
+        result = await productionSiteApi.update(
+          companyId, 
+          selectedSite.productionSiteId, 
+          submitData
+        );
+        
+        enqueueSnackbar('Production site updated successfully', { 
+          variant: 'success',
+          autoHideDuration: 3000
+        });
+      } else {
+        // Create new site
+        isNewSite = true;
+        console.log('Creating new site for company:', companyId);
+        
+        // Add companyId to the site data
+        const siteData = { ...submitData, companyId };
+        
+        // Create the site
+        result = await productionSiteApi.create(siteData, { user: currentUser });
+        
+        // Handle both response formats: direct data or response.data
+        const responseData = result.data || result;
+        
+        if (!responseData || (!responseData.productionSiteId && !responseData.data?.productionSiteId)) {
+          console.error('Invalid response format from server:', result);
+          throw new Error('Failed to create site: Invalid response format from server');
         }
-
-        // Refresh the sites list and close the dialog
+        
+        // Extract the created site data
+        const createdSite = responseData.data || responseData;
+        
+        console.log('[Production] Site created successfully:', {
+          companyId: createdSite.companyId,
+          productionSiteId: createdSite.productionSiteId,
+          response: responseData
+        });
+        
+        // Update user's site access
+        if (currentUser) {
+          try {
+            console.log('[Production] Updating user site access for new site:', {
+              companyId: createdSite.companyId,
+              productionSiteId: createdSite.productionSiteId,
+              currentUser
+            });
+            
+            await updateSiteAccess(currentUser, createdSite, 'production');
+            console.log('[Production] Successfully updated user site access');
+          } catch (accessError) {
+            console.error('[Production] Error updating user site access:', accessError);
+            // Don't fail the request if access update fails
+          }
+        }
+        
+        enqueueSnackbar('Production site created successfully', { 
+          variant: 'success',
+          autoHideDuration: 3000
+        });
+        
+        // Refresh the site list
         await fetchSites();
-        setDialogOpen(false);
-        setSelectedSite(null);
-
-      } catch (error) {
-        // Handle specific error cases
-        if (error.code === 'NO_COMPANY_ASSOCIATION') {
-          enqueueSnackbar(error.message, {
-            variant: 'warning',
-            autoHideDuration: 8000,
-            action: (key) => (
-              <Button
-                color="inherit"
-                size="small"
-                onClick={() => {
-                  enqueueSnackbar.close(key);
-                }}
-              >
-                Contact Admin
-              </Button>
-            )
+        
+        // Return the created site data
+        return createdSite;
+      }
+      
+      // For new sites, update user's accessible sites
+      if (isNewSite && result?.companyId && result?.productionSiteId) {
+        try {
+          console.log('[Production] Updating user site access for new site:', {
+            companyId: result.companyId,
+            productionSiteId: result.productionSiteId,
+            currentUser: {
+              id: currentUser.id || currentUser.userId,
+              email: currentUser.email,
+              username: currentUser.username
+            }
           });
-        } else {
-          throw error; // Re-throw other errors to be handled by outer catch
+          
+          // Prepare site data for access update
+          const siteData = {
+            companyId: result.companyId,
+            productionSiteId: result.productionSiteId,
+            name: result.name || formData.name || 'New Production Site',
+            type: 'production',
+            status: result.status || formData.status || 'Active',
+            capacity_MW: result.capacity_MW,
+            location: result.location || formData.location,
+            ...result
+          };
+          
+          console.log('[Production] Calling updateSiteAccess with:', {
+            user: { id: currentUser.id, email: currentUser.email },
+            siteData: { ...siteData, productionSiteId: siteData.productionSiteId },
+            siteType: 'production'
+          });
+          
+          // Update site access
+          const accessUpdated = await updateSiteAccess(currentUser, siteData, 'production');
+          
+          if (accessUpdated) {
+            console.log('[Production] Successfully updated user site access');
+            
+            // Refresh user data to get updated accessible sites
+            if (authContext.refreshUser) {
+              try {
+                await authContext.refreshUser();
+                console.log('[Production] Successfully refreshed user data');
+              } catch (refreshError) {
+                console.warn('[Production] Warning: Could not refresh user data:', refreshError);
+                // Non-critical error, continue
+              }
+            }
+            
+            enqueueSnackbar('Site access updated successfully', {
+              variant: 'success',
+              autoHideDuration: 3000
+            });
+          }
+        } catch (accessError) {
+          console.error('[Production] Error updating user site access:', accessError);
+          // Don't fail the whole operation if access update fails
+          enqueueSnackbar(
+            'Site created, but there was an issue updating your access. Please refresh the page to see the new site.',
+            { 
+              variant: 'warning', 
+              autoHideDuration: 6000,
+              persist: true
+            }
+          );
         }
       }
+      
+      // Common cleanup for both create and update
+      setDialogOpen(false);
+      setSelectedSite(null);
+      
+      // Refresh the sites list to show the updated data
+      await fetchSites();
+      
+      return result;
     } catch (error) {
       console.error('Error saving production site:', error);
       
