@@ -8,32 +8,28 @@ class IdGenerator {
    * @param {string} siteType - Either 'production' or 'consumption'
    * @returns {Promise<number>} The next available ID
    */
-  static async getNextSiteId(companyId, siteType) {
+  static async getNextSiteId(siteType) {
     const tableName = process.env.SITES_TABLE;
     const idField = siteType === 'production' ? 'productionSiteId' : 'consumptionSiteId';
     
     try {
-      // Query to get the highest current ID for this company and site type
+      // Scan to get all site IDs across all companies
       const params = {
         TableName: tableName,
-        IndexName: 'CompanyIdIndex',
-        KeyConditionExpression: 'companyId = :companyId',
-        ExpressionAttributeValues: {
-          ':companyId': companyId,
-        },
         ProjectionExpression: idField,
-        ScanIndexForward: false, // Get items in descending order
-        Limit: 1 // Only need the highest ID
+        Select: 'SPECIFIC_ATTRIBUTES'
       };
 
-      const result = await dynamodb.query(params).promise();
+      const result = await dynamodb.scan(params).promise();
       
       if (result.Items && result.Items.length > 0) {
-        // Return the highest ID + 1
-        return (parseInt(result.Items[0][idField]) || 0) + 1;
+        // Find highest ID across all sites and add 1
+        const maxId = Math.max(...result.Items
+          .map(item => parseInt(item[idField]) || 0));
+        return maxId + 1;
       }
       
-      // No sites found for this company, start with 1
+      // No sites found at all, start with 1
       return 1;
     } catch (error) {
       console.error(`Error getting next ${siteType} site ID for company ${companyId}:`, error);

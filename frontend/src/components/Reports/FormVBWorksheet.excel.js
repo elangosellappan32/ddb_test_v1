@@ -109,7 +109,7 @@ export const createFormVBWorksheet = (workbook, data, financialYear) => {
       { s: { r: 5, c: 1 }, e: { r: 6, c: 1 } },   // Name of the Consumption Site
       { s: { r: 5, c: 2 }, e: { r: 5, c: 3 } },   // Equity Pattern
       { s: { r: 5, c: 4 }, e: { r: 6, c: 4 } },   // % of annual generation
-      { s: { r: 5, c: 5 }, e: { r: 6, c: 5 } },   // 100% annual generation
+      { s: { r: 5, c: 5 }, e: { r: 6, c: 5 } },   // 100% annual generation (x)
       { s: { r: 5, c: 6 }, e: { r: 6, c: 6 } },   // Annual Auxiliary
       { s: { r: 5, c: 7 }, e: { r: 6, c: 7 } },   // Generation considered
       { s: { r: 5, c: 8 }, e: { r: 5, c: 10 } },  // Permitted consumption

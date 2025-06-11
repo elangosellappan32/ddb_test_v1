@@ -13,14 +13,12 @@ const TableNames = require('../constants/tableNames');
 
 const TableName = TableNames.CONSUMPTION_SITES;
 
-const getLastConsumptionSiteId = async (companyId) => {
+const getLastConsumptionSiteId = async () => {
     try {
-        const { Items } = await docClient.send(new QueryCommand({
+        // Use scan instead of query to get all sites across companies
+        const { Items } = await docClient.send(new ScanCommand({
             TableName,
-            KeyConditionExpression: 'companyId = :companyId',
-            ExpressionAttributeValues: {
-                ':companyId': companyId.toString()
-            }
+            ProjectionExpression: 'consumptionSiteId'
         }));
 
         if (!Items || Items.length === 0) return 0;
@@ -35,7 +33,7 @@ const getLastConsumptionSiteId = async (companyId) => {
 const createConsumptionSite = async (item) => {
     try {
         const now = new Date().toISOString();
-        const lastId = await getLastConsumptionSiteId(item.companyId || '1');
+        const lastId = await getLastConsumptionSiteId();
         const newId = lastId + 1;
 
         // Ensure annualConsumption is properly formatted as a number

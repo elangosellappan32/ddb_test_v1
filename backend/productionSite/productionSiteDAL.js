@@ -15,14 +15,12 @@ const TableNames = require('../constants/tableNames');
 const docClient = require('../utils/db');
 const TableName = TableNames.PRODUCTION_SITES;
 
-const getLastProductionSiteId = async (companyId) => {
+const getLastProductionSiteId = async () => {
     try {
-        const { Items } = await docClient.send(new QueryCommand({
+        // Use scan instead of query to get all sites across companies
+        const { Items } = await docClient.send(new ScanCommand({
             TableName,
-            KeyConditionExpression: 'companyId = :companyId',
-            ExpressionAttributeValues: {
-                ':companyId': companyId
-            }
+            ProjectionExpression: 'productionSiteId'
         }));
 
         if (!Items || Items.length === 0) {
@@ -38,9 +36,8 @@ const getLastProductionSiteId = async (companyId) => {
 };
 
 const create = async (item) => {
-    try {
-        const now = new Date().toISOString();
-        const lastId = await getLastProductionSiteId(item.companyId);
+    try {        const now = new Date().toISOString();
+        const lastId = await getLastProductionSiteId();
         const newId = lastId + 1;
 
         // Normalize the annualProduction field

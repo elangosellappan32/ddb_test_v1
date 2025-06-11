@@ -1,4 +1,4 @@
-export const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3333';
+export const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3333/api';
 
 export const API_CONFIG = {
     BASE_URL: API_BASE_URL,
@@ -18,12 +18,11 @@ export const API_CONFIG = {
         LAPSE: 'LapseTable',
         CONSUMPTION_SITE: 'ConsumptionSiteTable',
         CONSUMPTION_UNIT: 'ConsumptionUnitTable'
-    },
-    ENDPOINTS: {
-        SITE_ACCESS: {
+    },    ENDPOINTS: {        SITE_ACCESS: {
             BASE: '/site-access',
             GET_AVAILABLE_SITES: (siteType) => `/site-access/available-sites/${siteType}`,
-            GRANT_ACCESS: '/site-access/grant-access'
+            GRANT_ACCESS: '/site-access/grant-access',
+            UPDATE_SITE_ACCESS: '/site-access/update-site-access'
         },
         AUTH: {
             BASE: '/auth',

@@ -21,8 +21,8 @@ class SiteService {
         throw new Error('Company ID is required');
       }
 
-      // Generate the next available site ID
-      const nextId = await IdGenerator.getNextSiteId(companyId, siteType);
+      // Generate the next available site ID globally
+      const nextId = await IdGenerator.getNextSiteId(siteType);
       const idField = siteType === 'production' ? 'productionSiteId' : 'consumptionSiteId';
       
       // Create the site with the generated ID

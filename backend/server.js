@@ -21,6 +21,7 @@ const bankingRoutes = require('./banking/bankingRoutes');
 const lapseRoutes = require('./lapse/lapseRoutes');
 const captiveRoutes = require('./captive/captiveRoutes');
 const companyRoutes = require('./company/companyRoutes');
+const siteAccessRoutes = require('./siteAccess/siteAccessRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3333;
@@ -29,19 +30,22 @@ const PORT = process.env.PORT || 3333;
 app.use(helmet());
 
 // CORS configuration
-app.use(cors({
+const corsOptions = {
     origin: process.env.FRONTEND_URL || 'http://localhost:3000',
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control']
+};
+
+app.use(cors(corsOptions));
 
 // Body parsing middleware
 app.use(bodyParser.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(requestLogger);
 
-// API Routes
+// API Routes with clear naming
+app.use('/api/site-access', siteAccessRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/production-site', productionSiteRoutes);
 app.use('/api/production-unit', productionUnitRoutes);
@@ -55,6 +59,24 @@ app.use('/api/banking', bankingRoutes);
 app.use('/api/lapse', lapseRoutes);
 app.use('/api/captive', captiveRoutes);
 app.use('/api/company', companyRoutes);
+
+// Add route logging before error handling
+app.use((req, res, next) => {
+    const routes = [];
+    app._router.stack.forEach(middleware => {
+        if (middleware.route) {
+            routes.push(`${Object.keys(middleware.route.methods)[0].toUpperCase()} ${middleware.route.path}`);
+        } else if (middleware.name === 'router') {
+            middleware.handle.stack.forEach(handler => {
+                if (handler.route) {
+                    routes.push(`${Object.keys(handler.route.methods)[0].toUpperCase()} ${handler.route.path}`);
+                }
+            });
+        }
+    });
+    logger.info('Registered Routes:', routes);
+    next();
+});
 
 // Error handling
 app.use(errorHandler);
